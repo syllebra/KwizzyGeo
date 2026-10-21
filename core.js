@@ -363,6 +363,49 @@ function rotRoll(lon0, lat0, s, m) {
   return m;
 }
 
+/* ---------- ROLL: how far the picture is turned, and how to turn it back ----------
+   The frame of a cone projection (persp, ortho) carries a ROLL on top of its
+   centre: a drag that goes diagonally, or crosses a pole, leaves the frame turned
+   about the view axis, so north is no longer up. The centre is row 0 and a roll
+   never touches it; the roll lives entirely in rows 1 and 2, so it is measured and
+   applied there.
+
+   frameRoll(m) returns the roll in RADIANS, signed, 0 when north is up: compare
+   the up row of m with the up row of the CANONICAL frame of the same centre. Both
+   lie in the plane perpendicular to row 0, so the angle between them - with the
+   frame's own row 2 giving the sign - is the roll by definition, not by an
+   approximation. */
+function frameRoll(m) {
+  var c = FCENB;
+  frameCentre(m, c);
+  var lon = c[0] * DEG, lat = c[1] * DEG;
+  var ca = Math.cos(lon), sa = Math.sin(lon), cb = Math.cos(lat), sb = Math.sin(lat);
+  /* row 1 of rotMat(lon, lat): the centre's north, i.e. "up" */
+  var c1x = -sb * ca, c1y = cb, c1z = sb * sa;
+  /* row 2 of the canonical frame: the centre's east */
+  var c2x = sa, c2y = 0, c2z = ca;
+  var ux = m[3], uy = m[4], uz = m[5];
+  var cosA = ux * c1x + uy * c1y + uz * c1z;
+  var sinA = ux * c2x + uy * c2y + uz * c2z;
+  return Math.atan2(sinA, cosA);
+}
+var FCENB = [0, 0];
+
+/* Turn the frame by `d` radians about the VIEW axis: row 0 (the centre) is kept
+   exactly, rows 1 and 2 are mixed. The picture spins, the centre and the zoom do
+   not move, so this is the only rotation that "tilts north up" without moving the
+   place you are looking at. Verified by frameRoll(rollFrame(m, d)) = frameRoll(m)
+   + d. */
+function rollFrame(m, d, out) {
+  var c = Math.cos(d), s = Math.sin(d);
+  out[0] = m[0]; out[1] = m[1]; out[2] = m[2];
+  var a0 = m[3], a1 = m[4], a2 = m[5];
+  var b0 = m[6], b1 = m[7], b2 = m[8];
+  out[3] = c * a0 + s * b0; out[4] = c * a1 + s * b1; out[5] = c * a2 + s * b2;
+  out[6] = -s * a0 + c * b0; out[7] = -s * a1 + c * b1; out[8] = -s * a2 + c * b2;
+  return out;
+}
+
 /* THE MOVE OF THE CENTRE. m = the frame in play, (lon0,lat0) the new centre
    (any longitude is fine, the trig is periodic). Let v = m x be the NEW centre
    in the OLD frame's coordinates. The new frame must map x to e0 = (1,0,0), so
@@ -2362,6 +2405,7 @@ var CORE = {
   clipLonF: clipLonF, CLIPB: CLIPB, CLIPA: CLIPA,
   pieceLevelIndex: pieceLevelIndex, hitTestPieces: hitTestPieces,
   projectRotLL: projectRotLL, projectRotLLVis: projectRotLLVis,
+  frameRoll: frameRoll, rollFrame: rollFrame,
   frameFor: frameFor, graticuleRot: graticuleRot,
   buildFeatures: buildFeatures, hitTest: hitTest,
   buildFeaturesLOD: buildFeaturesLOD, hitTestLOD: hitTestLOD,

@@ -261,11 +261,57 @@ changes. The layer is 2D only: the 3D globe draws no markers.
     unzip ne_10m_populated_places.zip && python3 tools/shp2geojson_places.py \
         ne_10m_populated_places.shp data/places.json
 
+## Two idle animations
+
+### North up
+
+A cone projection's frame is a **rotation matrix**, and a drag that is not a pure
+great-circle move leaves it rolled about the view axis — the picture is TURNED, so
+north is no longer up and the map reads as tilted. That roll is measurable exactly
+(`core.frameRoll`: the angle between the frame's up row and the up row of the
+canonical frame of the same centre, signed by the frame's own east row) and
+removable exactly (`core.rollFrame`: mix rows 1 and 2, leave row 0 — the centre —
+untouched). So the app tilts the picture back, and the centre and the zoom never
+move.
+
+It is deliberately timid: it waits **0.14 s of stillness** (it must not fight the
+gesture that made the roll — a map that untwists under your finger feels like it is
+slipping away), it is an **exponential settle** (τ = 0.35 s) with a **rate cap of
+0.8 rad/s ≈ 46°/s** so a 120° roll takes ~3 s and a 5° one under a second. Measured
+rolls: a diagonal drag leaves 1–10°, a straight drag across a pole **154°**. It is
+off at |lat| > 89.4° (at the pole "up" has no direction and the canonical frame is an
+arbitrary choice of longitude, so aligning would spin the map — the very bug the
+matrix-carrying frame was introduced to fix), and off in 3D and for the
+pseudocylindrical projections (there the frame's axes ARE the map's up and right, so
+a roll is not cosmetic). `?north=0`, or the burger's **Overlay → North up** row
+turns it off.
+
+### Fly-to on double click
+
+A double click used to jump: centre there, `zoomBy(2)`, done — which loses the
+reader's sense of where they went. It is now one 950 ms timeline with three
+**overlapping** phases (a strict sequence reads as three separate jerks):
+
+```
+0.00–0.34   k falls to 45 % of the closer of the two zooms   (dezoom)
+0.16–0.86   the centre travels the great circle to the click  (translate)
+0.62–1.00   k rises to the destination zoom                  (zoom)
+```
+
+The centre path is a **slerp of the two unit vectors**, not an interpolation of
+lon/lat: a linear interpolation near a pole looks like the world skidding sideways,
+and it would not follow the shortest route. The zoom is the *sum* of two smoothstep
+ramps, so k is continuous at every phase boundary. Any new gesture — mousedown,
+wheel, a second double click — cancels the flight: an animation that keeps running
+under the user's finger is a bug, not a feature. `window.ViewState` exposes
+`rollDeg()`, `centre()`, `k()`, `flying()` so the tests can assert on the animations
+rather than on pixels.
+
 ## Interaction
 
 * **mouse** — wheel = zoom, drag = move the centre of projection (the world turns
   under the pointer, both axes), shift+wheel / horizontal trackpad = move the
-  centre, double-click = go there + zoom, move = hover, click = pick
+  centre, double-click = fly there + zoom (see below), move = hover, click = pick
 * **keyboard** — arrows = move the centre, `a`/`d` = zoom, `t` = switch layer,
   `c` = cities on/off, `Enter` = pick the hovered city or country, `Esc` = clear,
   `r` = reset to whole world
@@ -284,7 +330,7 @@ directory does not matter). All ten exit 0: the eight asserting ones end in
 | script | what it checks |
 |---|---|
 | `test_core.js` | 46 unit checks on `core.js`: projection maths, inverse round trip, equal-area, picking, LOD, orthographic back-face audit |
-| `gesture_test.js` | 20 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim |
+| `gesture_test.js` | 42 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim, the **north-up tilt** (a diagonal drag rolls the frame, the tilt waits for the gesture to end, settles to 0, does not move the centre, obeys its toggle) and the **fly-to** (pulls back before it comes in, lands the clicked point at the screen centre, is cancelled by a press) |
 | `pole_test.js` | the centre of projection turns the frame by exactly the angle travelled, and the frame never drifts across a pole |
 | `pole_sim.js` | the same on the app's own chain (pan → `geoAt` → `moveCentre` → reproject), per re-centring projection |
 | `artifact_test.js` | no stray geometry after a wheel zoom between two reprojections, a drag and a layer switch |

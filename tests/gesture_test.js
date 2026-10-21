@@ -230,6 +230,78 @@ setTimeout(function () {
   L['menu:click']({ target: layerRow, clientX: 10, clientY: 90 });
   check('a scrolled press does not activate a row', menu.classList.contains('open'));
 
+  /* ---------- 7. the north-up tilt ----------
+     A straight drag in SCREEN space is not a great circle, so parallel transport
+     leaves the frame turned about the view axis: that is the "tilted" picture this
+     animation corrects. */
+  const VS = global.window.ViewState;
+  check('the app exposes its view state', !!VS && typeof VS.rollDeg === 'function');
+  const tilt = { k0: VS.k() };
+  fire('mousedown', ev(300, 300));
+  let dxs = 300, dys = 300;
+  for (let i = 0; i < 10; i++) { fakeNow += 16; dxs += 16; dys += 24; fire('mousemove', ev(dxs, dys)); frame(fakeNow); }
+  const rolled = VS.rollDeg();
+  check('a diagonal drag tilts the picture', Math.abs(rolled) > 0.5, rolled.toFixed(3) + ' deg');
+  /* the tilt must NOT run under the finger: a map that untwists while you drag
+     feels like it is slipping out of your hand */
+  for (let i = 0; i < 30; i++) { fakeNow += 16; frame(fakeNow); }
+  check('the tilt does not fight a held drag', Math.abs(VS.rollDeg() - rolled) < 1e-9,
+        rolled.toFixed(3) + ' -> ' + VS.rollDeg().toFixed(3) + ' deg');
+  fire('mouseup', ev(dxs, dys));
+  /* the glide must finish first (it keeps panning), then the tilt settles */
+  for (let i = 0; i < 260; i++) { fakeNow += 16; frame(fakeNow); }
+  const settledRoll = VS.rollDeg(), settledCentre = VS.centre();
+  for (let i = 0; i < 260; i++) { fakeNow += 16; frame(fakeNow); }
+  check('the view tilts back to north-up', Math.abs(VS.rollDeg()) < 0.2,
+        settledRoll.toFixed(3) + ' -> ' + VS.rollDeg().toFixed(3) + ' deg');
+  check('the centre does not drift while tilting',
+        Math.abs(VS.centre()[0] - settledCentre[0]) < 1e-6 && Math.abs(VS.centre()[1] - settledCentre[1]) < 1e-6,
+        settledCentre.join(',') + ' -> ' + VS.centre().join(','));
+
+  /* the Overlay row turns it off, and then the roll is left alone */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'north'), clientX: 10, clientY: 10 });
+  check('the North up row is in the sheet', !VS.northUp());
+  fire('mousedown', ev(400, 400));
+  dxs = 400; dys = 400;
+  for (let i = 0; i < 10; i++) { fakeNow += 16; dxs += 14; dys += 22; fire('mousemove', ev(dxs, dys)); frame(fakeNow); }
+  fire('mouseup', ev(dxs, dys));
+  for (let i = 0; i < 400; i++) { fakeNow += 16; frame(fakeNow); }
+  check('with North up off the roll is kept', Math.abs(VS.rollDeg()) > 0.5, VS.rollDeg().toFixed(3) + ' deg');
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'north'), clientX: 10, clientY: 10 });
+  check('and it can be turned back on', VS.northUp());
+  const rollBeforeTilt = VS.rollDeg();
+  for (let i = 0; i < 400; i++) { fakeNow += 16; frame(fakeNow); }
+  check('and then the tilt runs again', Math.abs(VS.rollDeg()) < 0.2,
+        rollBeforeTilt.toFixed(1) + ' -> ' + VS.rollDeg().toFixed(3) + ' deg');
+
+  /* ---------- 8. double click = dezoom, translate, zoom ---------- */
+  const kBefore = VS.k();
+  const target = VS.geoAt(500, 300);
+  fire('dblclick', ev(500, 300));
+  check('a double click starts a flight', VS.flying());
+  let kMinSeen = Infinity, steps = 0;
+  for (let i = 0; i < 200 && VS.flying(); i++) { fakeNow += 16; frame(fakeNow); steps++; kMinSeen = Math.min(kMinSeen, VS.k()); }
+  const kAfter = VS.k();
+  check('the flight ends on its own', !VS.flying(), steps + ' frames');
+  check('it pulls BACK first (dezoom)', kMinSeen < Math.min(kBefore, kAfter) * 0.75,
+        'min ' + kMinSeen.toFixed(0) + ' vs ' + kBefore.toFixed(0) + ' -> ' + kAfter.toFixed(0));
+  check('it comes in to twice the zoom', Math.abs(kAfter / kBefore - 2) < 0.05,
+        (kAfter / kBefore).toFixed(3) + 'x');
+  const arrived = VS.geoAt(640, 400);
+  const dLon = Math.abs(((arrived[0] - target[0] + 540) % 360) - 180);
+  check('the clicked point ends at the centre of the screen',
+        dLon < 0.05 && Math.abs(arrived[1] - target[1]) < 0.05,
+        'wanted ' + target.map(v => v.toFixed(3)).join(',') + ' got ' + arrived.map(v => v.toFixed(3)).join(','));
+  /* the gesture must win over the animation */
+  fire('dblclick', ev(480, 320));
+  check('a second double click re-aims the flight', VS.flying());
+  fire('mousedown', ev(480, 320));
+  check('a press cancels the flight', !VS.flying());
+  fire('mouseup', ev(480, 320));
+  for (let i = 0; i < 60; i++) { fakeNow += 16; frame(fakeNow); }
+
   console.log(fails === 0 ? '\nALL PASS' : '\n' + fails + ' FAILURE(S)');
   process.exit(fails ? 1 : 0);
 }, 900);

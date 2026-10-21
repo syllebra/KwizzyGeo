@@ -33,6 +33,41 @@ var view = { cx: 0, cy: 0, k: 100, lon: 0, lat: 0 }, fitK = 100;
    with `c` or ?cities=0|1. */
 var places = [], citiesOn = true, placeSeen = 0;
 var hoverPlace = -1, pickedPlace = -1;
+
+/* ---------- NORTH-UP TILT ----------
+   A cone projection's frame carries a ROLL on top of its centre: a diagonal drag,
+   or a drag that crosses a pole, leaves the picture turned about the view axis, so
+   north is no longer up and the map reads as "tilted". The frame is a rotation
+   matrix, so this is fixable exactly (core.frameRoll / core.rollFrame): measure the
+   roll against the canonical frame of the same centre and turn the frame back by
+   it, leaving the centre and the zoom untouched.
+   It runs only when the view is IDLE - a second after the last drag, wheel, key or
+   fly - because fighting the gesture that created the roll would feel like the map
+   is slipping away under the finger. Rate-limited as well as time-constant, so a
+   154 deg roll (measured after walking over a pole diagonally) cannot whip round
+   in one frame. `?north=0` or the burger's Overlay row turns it off. */
+var northUp = true;
+var ALIGN_TAU = 0.35;            /* s: exponential settle */
+var ALIGN_MAX_RATE = 0.80;       /* rad/s (~46 deg/s): always gentle, still finite -
+                                    a 120 deg roll (easy to build with a long diagonal
+                                    drag) settles in ~3 s, a 154 deg one after a pole
+                                    crossing in ~3.5 s, and a 5 deg one in under a
+                                    second, because the exponential does the shape and
+                                    the cap only stops it from whipping */
+var ALIGN_EPS = 0.0025;          /* rad (~0.14 deg): done */
+var ALIGN_DELAY = 0.14;          /* s of stillness before it starts */
+var ALIGN_POLE = 89.4;           /* deg: at the pole "up" is undefined (see the FRAME comment) */
+var lastMoveT = 0, alignPrev = 0;
+
+/* ---------- FLY-TO (double click) ----------
+   "Dezoom, translate, zoom": one 950 ms timeline with three overlapping phases, so
+   the target country stays in view while the world turns under it:
+     0.00-0.34  k falls to kMin (45 % of the closer of the two zooms)
+     0.16-0.86  the centre travels along the great circle to the clicked point
+     0.62-1.00  k rises to the destination
+   The phases overlap on purpose: a strict sequence reads as three separate jerks. */
+var fly = null;
+var FLY_DUR = 950;
 /* THE FRAME IN PLAY: a rotation matrix, not just the centre's lon/lat.
    WHY (measured, viewer/poletest2.js): rebuilding the CANONICAL frame
    rotMat(lon,lat) at every centre move pins the in-plane roll to the EQUATOR, so
@@ -94,7 +129,8 @@ function menuGroups() {
     /* an overlay, not a view: the row says whether it is on, and clicking it
        toggles - a chip that is a pick (like the projection rows) would need a
        second row for "off" */
-    { title: 'Overlay', items: [{ id: 'cities', label: 'Cities', ico: '\u25c9' }], needs2d: true }
+    { title: 'Overlay', items: [{ id: 'cities', label: 'Cities', ico: '\u25c9' },
+                                { id: 'north', label: 'North up', ico: '\u2191' }], needs2d: true }
   ];
 }
 var scrimEl = document.getElementById('scrim');
@@ -119,6 +155,7 @@ function menuLabel(m) {
   }
   if (m.indexOf('layer:') === 0) return layerLabel(m.slice(6));
   if (m === 'cities') return 'Cities';
+  if (m === 'north') return 'North up';
   return m;
 }
 /* what the closed burger says: the projection in 2D (more informative than
@@ -137,6 +174,7 @@ function itemLabel(it, el) {
   }
   if (it.id.indexOf('layer:') === 0) return layerLabel(it.id.slice(6));
   if (it.id === 'cities') return 'Cities';
+  if (it.id === 'north') return 'North up';
   return it.label;
 }
 function buildMenu() {
@@ -189,6 +227,7 @@ function menuClick(el) {
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
+  if (id === 'north') { toggleNorth(); refreshMenu(); return; }
   setMode(id);
 }
 /* pick a layer by id (menu row, ?layer=, or the t key) */
@@ -468,6 +507,11 @@ function loadAll() {
 function loadPlaces() {
   var v = /[?&]cities=(0|1)/.exec(urlSearch());
   if (v) citiesOn = (v[1] === '1');
+  var n = /[?&]north=(0|1)/.exec(urlSearch());
+  if (n) northUp = (n[1] === '1');
+  /* ?lon/&lat/&z move the centre WITHOUT a drag, so the tilt must not sit waiting
+     for a gesture that will never come */
+  lastMoveT = loopNow;
   fetch(DATA_DIR + 'places.json').then(function (r) {
     if (!r.ok) throw new Error('places.json ' + r.status);
     return r.json();
@@ -482,6 +526,12 @@ function loadPlaces() {
 function toggleCities() {
   citiesOn = !citiesOn;
   if (!citiesOn) { hoverPlace = -1; pickedPlace = -1; }
+  refreshUI();
+}
+/* the tilt is a preference, not a gesture: it survives a layer or projection
+   change, and it is reachable from the burger as well as from ?north= */
+function toggleNorth() {
+  northUp = !northUp;
   refreshUI();
 }
 
@@ -1582,7 +1632,8 @@ function refreshMenu() {
              (id === '3d' && mode === '3d') ||
              (mode === '2d' && id === 'proj:' + projID) ||
              (id === 'layer:' + layerName) ||
-             (id === 'cities' && citiesOn);
+             (id === 'cities' && citiesOn) ||
+             (id === 'north' && northUp);
     if (on) el.classList.add('on'); else el.classList.remove('on');
   }
   /* the projection rows cannot apply in 3D: dim that section instead of hiding
@@ -1719,9 +1770,9 @@ function helpText() {
   /* two lengths: the full hint needs room the narrow layouts do not have, and it
      is the HUD (left) that must stay readable */
   if (W < 1150) {
-    return '\u2630 view \u00b7 wheel = zoom \u00b7 drag = move the centre \u00b7 dbl-click = go + zoom \u00b7 c cities';
+    return '\u2630 view \u00b7 wheel = zoom \u00b7 drag = move the centre \u00b7 dbl-click = fly there \u00b7 c cities';
   }
-  return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre of projection \u00b7 dbl-click = go + zoom \u00b7 r reset \u00b7 c cities';
+  return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre \u00b7 dbl-click = fly there \u00b7 r reset \u00b7 c cities';
 }
 function fmtKm2(v) {
   if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + ' million km²';
@@ -1750,6 +1801,8 @@ var touch = null;
    2D canvas and the WebGL canvas underneath the label overlay. */
 function bindPointer(el) {
   el.addEventListener('mousedown', function (e) {
+    fly = null;                    /* the finger takes over from any flight */
+    lastMoveT = loopNow;
     drag = { x: e.offsetX, y: e.offsetY };
     startMotion(e.offsetX, e.offsetY);
   });
@@ -1774,16 +1827,19 @@ function bindPointer(el) {
   el.addEventListener('dblclick', function (e) {
     doPick(e.offsetX, e.offsetY);
     if (mode === '3d') { zoomGlobe(1.6); refreshUI(); return; }
-    /* one gesture for "take me there": the clicked point becomes the centre of
-       projection AND the view zooms in */
+    /* one gesture for "take me there", ANIMATED: the clicked point becomes the
+       centre of projection and the view zooms in, but along a flight path that
+       first pulls back (so the target and its surroundings stay in view while the
+       world turns), travels the great circle, then comes in. Jumping straight
+       there lost the reader's sense of where they went. */
     var g = geoAt(e.offsetX, e.offsetY);
-    if (g) setCenter(g[0], g[1]);
-    zoomBy(2);
+    if (g) flyTo(g[0], g[1], view.k * 2);
     refreshUI();
   });
   el.addEventListener('wheel', function (e) {
     e.preventDefault();
     stopInertia();               /* a wheel step takes over from any glide */
+    fly = null;                  /* ...and from any flight */
     var f = zoomFactor(e.deltaY);
     if (mode === '3d') { zoomGlobe(f); return; }
     /* WHEEL = ZOOM, as it always was. A previous version made the plain wheel move
@@ -1810,6 +1866,7 @@ function bindPointer(el) {
    too - otherwise a deep zoom would keep drawing the coarse level (and, before
    the builtT guard in core.js, would read levels that were never built). */
 function zoomBy(f) {
+  lastMoveT = loopNow;
   var k = view.k * f;
   var kmin = fitK * 0.45, kmax = fitK * 1200;
   view.k = Math.max(kmin, Math.min(kmax, k));
@@ -1835,6 +1892,7 @@ function geoAt(px, py) {
    away from the pointer - the "inverted vertical axis" the orthographic view
    showed was this, and it affected every projection, not just that one). */
 function pan(dx, dy) {
+  lastMoveT = loopNow;             /* the tilt waits for the gesture to finish */
   if (mode === '3d') {
     globe.lon -= dx * 0.28;
     globe.lat += dy * 0.28;
@@ -1944,6 +2002,86 @@ function stepInertia(now) {
   var sp = Math.hypot(inertia.vx, inertia.vy);
   if (sp < INERTIA_MIN) { inertia.on = false; return; }
   pan(inertia.vx * dt, inertia.vy * dt);
+}
+
+/* ---------- the two idle animations, stepped once per frame ---------- */
+function smoothstep(t, a, b) {
+  if (t <= a) return 0;
+  if (t >= b) return 1;
+  var x = (t - a) / (b - a);
+  return x * x * (3 - 2 * x);
+}
+function clampK(k) { return Math.max(fitK * 0.45, Math.min(fitK * 1200, k)); }
+
+/* great-circle interpolation of two geographic points; the slerp is what makes a
+   long fly-over arc across the map instead of a straight line in lon/lat (which
+   near a pole would look like the world skidding sideways) */
+function slerpLL(lon0, lat0, lon1, lat1, t) {
+  var a = lat0 * C.DEG, b = lon0 * C.DEG, c = lat1 * C.DEG, d = lon1 * C.DEG;
+  var x1 = Math.cos(a) * Math.cos(b), y1 = Math.sin(a), z1 = -Math.cos(a) * Math.sin(b);
+  var x2 = Math.cos(c) * Math.cos(d), y2 = Math.sin(c), z2 = -Math.cos(c) * Math.sin(d);
+  var dot = Math.max(-1, Math.min(1, x1 * x2 + y1 * y2 + z1 * z2));
+  var ang = Math.acos(dot);
+  if (ang < 1e-6 || Math.PI - ang < 1e-6) {        /* same point, or antipodal */
+    return [lon0 + (lon1 - lon0) * t, lat0 + (lat1 - lat0) * t];
+  }
+  var sa = Math.sin(ang);
+  var s0 = Math.sin((1 - t) * ang) / sa, s1 = Math.sin(t * ang) / sa;
+  var x = s0 * x1 + s1 * x2, y = s0 * y1 + s1 * y2, z = s0 * z1 + s1 * z2;
+  return [Math.atan2(-z, x) / C.DEG, Math.asin(Math.max(-1, Math.min(1, y))) / C.DEG];
+}
+
+/* the double-click flight. Cancelled by any new gesture (see bindPointer): a fly
+   that kept running under the user's finger would fight the drag. */
+function flyTo(lon, lat, kTo) {
+  stopInertia();
+  var k0 = view.k, k1 = clampK(kTo);
+  fly = {
+    t0: loopNow, dur: FLY_DUR,
+    lon0: view.lon, lat0: view.lat, k0: k0,
+    lon1: lon, lat1: lat, k1: k1,
+    kMin: Math.max(fitK * 0.45, Math.min(k0, k1) * 0.45)
+  };
+}
+function stepFly(now) {
+  if (!fly) return;
+  var t = (now - fly.t0) / fly.dur;
+  if (!(t >= 0)) t = 0;
+  if (t > 1) t = 1;
+  /* the zoom dips first, comes back last, and is the SUM of the two ramps so the
+     curve is continuous at every phase boundary */
+  var kNow = fly.kMin + (fly.k0 - fly.kMin) * (1 - smoothstep(t, 0, 0.34)) +
+             (fly.k1 - fly.kMin) * smoothstep(t, 0.62, 1);
+  view.k = clampK(kNow);
+  if (t >= 0.16) {
+    var p = smoothstep(t, 0.16, 0.86);
+    var g = slerpLL(fly.lon0, fly.lat0, fly.lon1, fly.lat1, p);
+    setCenter(g[0], g[1]);
+  }
+  scheduleReproject();                 /* k changed: the LOD level may have too */
+  if (t >= 1) { fly = null; lastMoveT = now; }
+}
+
+/* the gentle tilt back to north-up (see the NORTH-UP comment above) */
+function stepAlign(now) {
+  if (!northUp || fly || inertia.on || drag || touch) { alignPrev = now; return; }
+  if (mode === '3d' || !C.CUR || C.CUR.pseudocyl) { alignPrev = now; return; }
+  var dt = (alignPrev && now > alignPrev) ? Math.min(0.1, (now - alignPrev) / 1000) : 0.016;
+  alignPrev = now;
+  if (now - lastMoveT < ALIGN_DELAY * 1000) return;
+  var cen = C.frameCentre(FRAME, FCEN);
+  /* at the pole "north" has no direction on screen, and the canonical frame there
+     is an arbitrary choice of longitude: aligning would spin the map, which is the
+     very bug the frame-carrying view was introduced to fix. Leave it be. */
+  if (Math.abs(cen[1]) > ALIGN_POLE) return;
+  var roll = C.frameRoll(FRAME);
+  if (!isFinite(roll) || Math.abs(roll) < ALIGN_EPS) return;
+  var d = -roll * Math.min(1, dt / ALIGN_TAU);
+  var cap = ALIGN_MAX_RATE * dt;
+  if (d > cap) d = cap; else if (d < -cap) d = -cap;
+  C.rollFrame(FRAME, d, FRAME2);
+  for (var i = 0; i < 9; i++) FRAME[i] = FRAME2[i];
+  scheduleReproject();
 }
 
 var keys = {};
@@ -2117,6 +2255,8 @@ function loop(now) {
   canvasRect = canvas.getBoundingClientRect();
   stepFps(now);
   stepInertia(now);
+  stepFly(now);
+  stepAlign(now);
   keyStep();
   draw();
   requestAnimationFrame(loop);
@@ -2126,5 +2266,19 @@ window.addEventListener('resize', function () {
   helpEl.textContent = helpText();      /* the hint has a narrow-screen variant */
   hudShown = null;                      /* the HUD wraps differently now */
 });
+
+/* Read-only introspection: the two animations above are timed, and a test that can
+   only see the canvas cannot tell "the tilt finished" from "the tilt never ran".
+   Nothing here writes to the view. */
+window.ViewState = {
+  rollDeg: function () { return C.frameRoll(FRAME) * 180 / Math.PI; },
+  centre: function () { return [view.lon, view.lat]; },
+  k: function () { return view.k; },
+  fitK: function () { return fitK; },
+  geoAt: function (px, py) { return geoAt(px, py); },
+  flying: function () { return !!fly; },
+  northUp: function () { return northUp; },
+  tilted: function () { return Math.abs(C.frameRoll(FRAME)) > 1e-9; }
+};
 
 })();
