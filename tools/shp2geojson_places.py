@@ -9,6 +9,21 @@ them. Shipped slim, the layer is ~700 kB; shipped whole it would be 8 MB of JSON
 to parse before the cities can be drawn. The keys are documented in the file's
 own `"about"` member so the data stays self-describing.
 
+TRANSLATIONS
+Localised names are written to ONE FILE PER LANGUAGE, data/cities.<code>.json:
+`{"lang":"fr","n":7342,"sum":"…","names":{"1519":"Londres", …}}` — index into the
+`places` array -> the name, and only where it DIFFERS from the base name (1536 of
+7 342 for French, 7 342 for a non-Latin script). The viewer fetches the file when
+that language is picked and not before, so choosing French costs 31 kB and the base
+layer stays 0.59 MB. `n` and `sum` are a stamp: if the places list is ever rebuilt
+from another Natural Earth release the indices move, and the viewer must be able to
+notice instead of putting "Londres" on Lagos.
+
+Only languages that BOTH layers carry are emitted: the country layer (10m map units)
+has AR BN DE EL EN ES FA FR HE HI JA KO NL PT RU SV UK ZH, and Natural Earth has no
+Italian/Polish/Turkish names for countries, so offering Italian would leave country
+names in English while cities changed - worse than not offering it.
+
 WHAT THE VIEWER USES
   z  MIN_ZOOM   the zoom at which Natural Earth intends the place to appear
                 (1.7 ... 9.0) - the city layer's LOD, used verbatim
@@ -51,6 +66,27 @@ FCLASS = {
 }
 
 
+LANGS = ['EN', 'FR', 'DE', 'ES', 'PT', 'NL', 'RU', 'ZH', 'JA', 'AR', 'EL', 'FA',
+         'HE', 'HI', 'KO', 'BN', 'SV', 'UK']
+LANG_NAMES = {
+    'en': 'English', 'fr': 'Français', 'de': 'Deutsch', 'es': 'Español',
+    'pt': 'Português', 'nl': 'Nederlands', 'ru': 'Русский', 'zh': '中文',
+    'ja': '日本語', 'ar': 'العربية', 'el': 'Ελληνικά', 'fa': 'فارسی',
+    'he': 'עברית', 'hi': 'हिन्दी', 'ko': '한국어', 'bn': 'বাংলা',
+    'sv': 'Svenska', 'uk': 'Українська',
+}
+
+
+def stamp(names):
+    """a small, stable fingerprint of the place list, so a language file built from
+    another release cannot be silently applied to this one (the keys are indices)."""
+    h = 0
+    for v in names:
+        for ch in v:
+            h = (h * 131 + ord(ch)) & 0xffffffff
+    return '%08x' % h
+
+
 def main(src, dst):
     r = shapefile.Reader(src)
     rows = []
@@ -82,6 +118,7 @@ def main(src, dst):
         rows.append([props['n'], props['c'], props['r'], props['p'], props['z'],
                      props['l'], props['f'], props.get('tz', ''),
                      round(lon, 4), round(lat, 4)])
+    base_names = [r[0] for r in rows]
     # Natural Earth's own order is kept (it is roughly by importance); the viewer
     # sorts by its own rules at draw time
     out = {
@@ -93,11 +130,35 @@ def main(src, dst):
                   'capitals, P populated place, S scientific station, M met. station, '
                   'H historic) tz=timezone lon lat. Coordinates to 4 decimals (~11 m).'),
         'fields': ['n', 'c', 'r', 'p', 'z', 'l', 'f', 'tz', 'lon', 'lat'],
+        # the same fingerprint the language files carry
+        'sum': stamp(base_names),
         'places': rows,
     }
     with open(dst, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, separators=(',', ':'), sort_keys=False)
     print('%s: %d places (%d skipped, no point)' % (dst, len(rows), skipped))
+
+    # ---- one file per language, differing names only ----
+    import os
+    d = os.path.dirname(dst) or '.'
+    written = []
+    for L in LANGS:
+        code = L.lower()
+        names = {}
+        for i, rec in enumerate(r.iterRecords()):
+            if i >= len(rows):
+                break
+            v = rec.as_dict().get('NAME_' + L)
+            if v and v != base_names[i]:
+                names[str(i)] = v
+        out = {'lang': code, 'label': LANG_NAMES[code], 'n': len(rows),
+               'sum': stamp(base_names), 'names': names}
+        fp = os.path.join(d, 'cities.%s.json' % code)
+        with open(fp, 'w', encoding='utf-8') as f:
+            json.dump(out, f, ensure_ascii=False, separators=(',', ':'))
+        written.append((code, len(names), os.path.getsize(fp)))
+    for code, cnt, size in written:
+        print('  cities.%-3s %5d differing names  %5.1f kB' % (code, cnt, size / 1024.0))
     import os
     print('%.2f MB' % (os.path.getsize(dst) / 1048576.0))
     zs = sorted({r[4] for r in rows})

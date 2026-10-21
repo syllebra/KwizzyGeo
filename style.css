@@ -190,6 +190,44 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .menuitem:hover { background: rgba(56, 88, 120, .55); }
 .menuitem:active { background: rgba(80, 124, 164, .7); }
 
+/* ---------- language chips ----------
+   A wrapping row of small chips instead of 18 full-width rows: the sheet stays
+   short, and the native name is the label, so a speaker finds their language
+   without reading a list of exonyms. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  pointer-events: auto; cursor: pointer;
+  padding: 5px 10px; border-radius: 999px;
+  border: 1px solid rgba(180, 205, 225, .16);
+  background: rgba(38, 60, 84, .34);
+  color: rgba(205, 222, 238, .8);
+  font: 12px/16px system-ui, sans-serif;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .1s linear;
+}
+.chip:hover { background: rgba(56, 88, 120, .55); }
+.chip:active { background: rgba(80, 124, 164, .7); }
+.chip.on {
+  color: #f6fafd;
+  background: rgba(96, 150, 196, .42);
+  border-color: rgba(190, 215, 235, .5);
+  box-shadow: 0 1px 0 rgba(255,255,255,.10) inset;
+}
+
+/* the data credit, pinned at the bottom of the sheet: small and quiet, but a real
+   link - Natural Earth is public domain and this is the whole map's provenance */
+.mfoot {
+  margin: 12px 2px 0; padding-top: 9px;
+  border-top: 1px solid rgba(180, 205, 225, .12);
+  font: 10px/14px system-ui, sans-serif;
+  color: rgba(150, 172, 192, .75);
+  letter-spacing: .02em;
+}
+.mfoot a { color: rgba(150, 210, 255, .95); text-decoration: none; pointer-events: auto; }
+.mfoot a:hover { text-decoration: underline; }
+
 /* a coarse pointer (finger) needs bigger rows: 44 px is the usual minimum, and
    the type goes up with it or the label looks lost in the box */
 /* ---------- small screens ----------
@@ -217,6 +255,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   #burger { min-height: 30px; font-size: 22px; }
   #burger .tag { font-size: 11px; }
   .menuitem { min-height: 44px; font-size: 14px; padding: 9px 12px; gap: 11px; }
+  .chip { min-height: 34px; padding: 8px 13px; font-size: 13px; }
   .menuitem .mi-ico { font-size: 17px; width: 20px; }
   .mtitle { font-size: 10px; margin-bottom: 6px; }
   #menu.open #items { max-height: calc(100vh - 110px); }

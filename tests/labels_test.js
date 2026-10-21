@@ -69,7 +69,7 @@ global.document = global.window.document;
 global.requestAnimationFrame = global.window.requestAnimationFrame;
 const DATA = __dirname + '/../data/';
 global.fetch = (u) => {
-  const name = String(u).replace(/^.*\//, '');
+  const name = String(u).replace(/^.*\//, '').replace(/\?.*$/, '');
   const p = DATA + name;
   return Promise.resolve({ ok: true, json: () => JSON.parse(fs.readFileSync(p, 'utf8')) });
 };

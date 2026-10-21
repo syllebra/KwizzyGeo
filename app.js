@@ -28,7 +28,7 @@ var view = { cx: 0, cy: 0, k: 100, lon: 0, lat: 0 }, fitK = 100;
 /* THE CITY LAYER: data/places.json (Natural Earth 10m populated places, 7 342
    points, see tools/shp2geojson_places.py). Switched on/off with `c`, the
    burger's Overlay row, or ?cities=0|1. */
-var places = [], citiesOn = true, placeSeen = 0;
+var places = [], citiesOn = true, placeSeen = 0, placesSum = '';
 var hoverPlace = -1, pickedPlace = -1;
 
 /* ---------- NORTH-UP TILT ----------
@@ -135,6 +135,9 @@ function menuGroups() {
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
     { title: 'Layer', items: layers },
+    /* one chip per language, in a wrapping row: 18 rows of a full-width menu item
+       would be 800 px of sheet on a phone for something most sessions never touch */
+    { title: 'Language', chips: LANGS.map(function (L) { return { id: 'lang:' + L.c, label: L.label }; }) },
     /* an overlay, not a view: the row says whether it is on, and clicking it
        toggles - a chip that is a pick (like the projection rows) would need a
        second row for "off" */
@@ -194,6 +197,24 @@ function buildMenu() {
     title.className = 'mtitle';
     title.textContent = grp.title;
     box.appendChild(title);
+    if (grp.chips) {
+      /* a wrapping row of small chips: one line of type each, no icon, so 18
+         languages cost ~5 rows of sheet instead of 18 */
+      var wrap0 = document.createElement('div');
+      wrap0.className = 'chips';
+      for (var c0 = 0; c0 < grp.chips.length; c0++) {
+        var ch = grp.chips[c0];
+        var cel = document.createElement('div');
+        cel.className = 'chip';
+        cel.dataset.id = ch.id;
+        cel.setAttribute('role', 'menuitem');
+        cel.textContent = ch.label;
+        wrap0.appendChild(cel);
+      }
+      box.appendChild(wrap0);
+      itemsEl.appendChild(box);
+      continue;
+    }
     for (var i = 0; i < grp.items.length; i++) {
       var it = grp.items[i];
       var el = document.createElement('div');
@@ -211,6 +232,13 @@ function buildMenu() {
     }
     itemsEl.appendChild(box);
   }
+  /* the data's provenance, where a curious player can find it without reading the
+     README: the whole map is Natural Earth's, and the licence asks for the credit */
+  var foot = document.createElement('div');
+  foot.className = 'mfoot';
+  foot.innerHTML = 'Data <a href="https://www.naturalearthdata.com/" target="_blank" ' +
+                   'rel="noopener">Natural Earth</a> &middot; public domain';
+  itemsEl.appendChild(foot);
   refreshBurger();
   refreshMenu();
 }
@@ -234,6 +262,7 @@ function menuClick(el) {
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
   if (id === 'north') { toggleNorth(); refreshMenu(); return; }
+  if (id.indexOf('lang:') === 0) { setLang(id.slice(5)); return; }
 }
 /* pick a layer by id (menu row, ?layer=, or the t key) */
 function setLayer(id) {
@@ -271,7 +300,7 @@ function itemFromNode(node) {
   var t = node;
   while (t && t !== menuEl) {
     if (t === burgerEl) return burgerEl;
-    if (t.classList && t.classList.contains('menuitem')) return t;
+    if (t.classList && (t.classList.contains('menuitem') || t.classList.contains('chip'))) return t;
     t = t.parentNode;
   }
   return null;
@@ -347,10 +376,19 @@ function toWorldY(py) { return -(py - H * 0.5) / view.k + view.cy; }
    densify/LOD build (~250 ms) unless they pick the layer. Its LOD is the same
    10-step ladder as the others, computed once at load. */
 var DATA_DIR = 'data/';
+/* THE DATA VERSION. The scripts carry ?v=N in index.html, but the data files are
+   fetched by the code, so they need their own stamp or a rebuilt layer keeps being
+   served from the browser cache (measured: after regenerating ne10m.geojson with its
+   19 name fields, the page kept drawing the six-field one and the country labels
+   simply stayed English - no error, just stale data). GitHub Pages also caches
+   through its CDN, so this is not only a local-dev concern.
+   BUMP THIS whenever a file in data/ changes. */
+var DATA_V = 2;
+function dataURL(name) { return DATA_DIR + name + '?v=' + DATA_V; }
 var LAYERS = [
-  { id: '50m',  file: DATA_DIR + 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
-  { id: '110m', file: DATA_DIR + 'countries.geojson',  label: 'Natural Earth 110m countries' },
-  { id: '10m',  file: DATA_DIR + 'ne10m.geojson',      label: 'Natural Earth 10m map units', lazy: true }
+  { id: '50m',  name: 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
+  { id: '110m', name: 'countries.geojson', label: 'Natural Earth 110m countries' },
+  { id: '10m',  name: 'ne10m.geojson',     label: 'Natural Earth 10m map units', lazy: true }
 ];
 function layerLabel(id) {
   for (var i = 0; i < LAYERS.length; i++) if (LAYERS[i].id === id) return LAYERS[i].label;
@@ -396,6 +434,117 @@ function pickLayerID() {
   var m = /[?&]layer=(110m|50m|10m)/.exec(urlSearch());
   if (m) return m[1];
   return layerName;
+}
+
+/* ---------- LANGUAGE ----------
+   Natural Earth ships the country names in 19 languages and the place names in 26.
+   The selector offers the 18 that BOTH layers carry: an Italian option would put
+   Italian city names on a map whose country names stayed English, which is worse
+   than not offering Italian at all.
+
+   Country names come straight out of the layer (properties NAME_<CODE>). City names
+   do not fit there - 18 languages x 7 342 places would double the base file - so
+   they live in one small file per language, data/cities.<code>.json, holding only
+   the names that DIFFER from the base name (31 kB for French against 182 kB for
+   Russian, and a non-Latin script differs for all 7 342). A language file is fetched
+   the first time that language is picked and never before, so choosing English (or
+   never opening the selector) downloads nothing extra. Each file carries `n` and
+   `sum`, a fingerprint of the place list it was built from: if the data is ever
+   rebuilt from another Natural Earth release the indices move, and the app must
+   notice rather than label Lagos "Londres". */
+var LANGS = [
+  { c: 'en', label: 'English' },
+  { c: 'fr', label: 'Français' },
+  { c: 'de', label: 'Deutsch' },
+  { c: 'es', label: 'Español' },
+  { c: 'pt', label: 'Português' },
+  { c: 'nl', label: 'Nederlands' },
+  { c: 'sv', label: 'Svenska' },
+  { c: 'ru', label: 'Русский' },
+  { c: 'uk', label: 'Українська' },
+  { c: 'el', label: 'Ελληνικά' },
+  { c: 'zh', label: '中文' },
+  { c: 'ja', label: '日本語' },
+  { c: 'ko', label: '한국어' },
+  { c: 'ar', label: 'العربية' },
+  { c: 'fa', label: 'فارسی' },
+  { c: 'he', label: 'עברית' },
+  { c: 'hi', label: 'हिन्दी' },
+  { c: 'bn', label: 'বাংলা' }
+];
+var LANG = 'en';
+var cityNames = {};            /* code -> {place index: name} */
+var cityNamesState = {};       /* code -> 'loading' | 'ok' | 'failed' */
+
+/* the name of a country in the language in play, falling back to the layer's own
+   name: NAME_<CODE> is empty for a handful of features even in Natural Earth */
+function countryName(p) {
+  var v = p['NAME_' + LANG.toUpperCase()];
+  if (v) return v;
+  v = p['NAME_' + LANG.toUpperCase() + '_LONG'];
+  return (v || p.NAME_LONG || p.NAME || '');
+}
+function countryNameIn(p, code) {
+  return p['NAME_' + code.toUpperCase()] || countryNameEn(p);
+}
+function countryNameEn(p) { return p.NAME_EN || p.NAME_LONG || p.NAME || ''; }
+
+/* the name of a place: the loaded language file when it has an entry for this
+   index, else the base name. Never falls back to ANOTHER language - a half
+   translated map is worse than an English name in a French map. */
+function cityName(i) {
+  var t = cityNames[LANG];
+  if (t && t[i] != null) return t[i];
+  var P = places[i];
+  return P ? P.n : '';
+}
+
+/* the language survives a reload; a browser in private mode simply forgets it */
+function storedLang() {
+  try { return window.localStorage.getItem('kwizzy.lang'); } catch (e) { return null; }
+}
+function langLabel(code) {
+  for (var i = 0; i < LANGS.length; i++) if (LANGS[i].c === code) return LANGS[i].label;
+  return code;
+}
+function validLang(code) {
+  for (var i = 0; i < LANGS.length; i++) if (LANGS[i].c === code) return code;
+  return null;
+}
+function loadCityNames(code, done) {
+  if (cityNames[code]) { if (done) done(true); return; }
+  if (cityNamesState[code] === 'loading') return;
+  cityNamesState[code] = 'loading';
+  fetch(dataURL('cities.' + code + '.json')).then(function (r) {
+    if (!r.ok) throw new Error('cities.' + code + ' ' + r.status);
+    return r.json();
+  }).then(function (j) {
+    /* the fingerprint guard: refuse a file built from a different place list */
+    if (j.sum && placesSum && j.sum !== placesSum) throw new Error('cities.' + code + ' is for another data release');
+    if (j.n && places.length && j.n !== places.length) throw new Error('cities.' + code + ' has ' + j.n + ' places');
+    cityNames[code] = j.names || {};
+    cityNamesState[code] = 'ok';
+    if (done) done(true);
+  }).catch(function (e) {
+    cityNamesState[code] = 'failed';
+    cityNames[code] = {};              /* base names: a failed language is not fatal */
+    if (done) done(false, e);
+  });
+}
+function setLang(code, silent) {
+  code = validLang(code) || 'en';
+  if (code === LANG) return;
+  LANG = code;
+  try { window.localStorage.setItem('kwizzy.lang', code); } catch (e) { /* private mode */ }
+  try { if (document.documentElement) document.documentElement.lang = code; } catch (e) {}
+  function apply() {
+    layout = buildLabels();            /* country labels are rebuilt: they carry the name */
+    capCache = null;                   /* the capital lookup matches raw ADM0NAME: keep it */
+    refreshMenu();
+    refreshUI();
+  }
+  if (code === 'en' || cityNames[code]) { apply(); return; }
+  loadCityNames(code, function () { apply(); });
 }
 
 /* ---------- the city layer ---------- */
@@ -463,8 +612,8 @@ function noteRef(geo) {          /* 110m thresholds keyed by NAME and NAME_LONG 
 
 function loadAll() {
   Promise.all([
-    fetch(DATA_DIR + 'countries.geojson').then(function (r) { return r.json(); }),
-    fetch(DATA_DIR + 'so50.geojson').then(function (r) { return r.json(); })
+    fetch(dataURL('countries.geojson')).then(function (r) { return r.json(); }),
+    fetch(dataURL('so50.geojson')).then(function (r) { return r.json(); })
   ]).then(function (pair) {
     var g110 = pair[0], g50 = pair[1];
     noteRef(g110);
@@ -535,12 +684,20 @@ function loadPlaces() {
   /* ?lon/&lat/&z move the centre WITHOUT a drag, so the tilt must not sit waiting
      for a gesture that will never come */
   lastMoveT = loopNow;
-  fetch(DATA_DIR + 'places.json').then(function (r) {
+  fetch(dataURL('places.json')).then(function (r) {
     if (!r.ok) throw new Error('places.json ' + r.status);
     return r.json();
   }).then(function (json) {
     places = buildPlaces(json);
+    placesSum = json.sum || '';
     capCache = null;
+    /* the names must land before the first paint of a city label, so the language
+       is applied here rather than in the URL block above */
+    var ml = /[?&]lang=([A-Za-z-]+)/.exec(urlSearch());
+    var want = validLang((ml ? ml[1] : '') || storedLang() || 'en');
+    if (want && want !== 'en') {
+      loadCityNames(want, function () { setLang(want, true); });
+    }
     refreshHud();
   }).catch(function (e) {
     places = []; citiesOn = false;
@@ -575,7 +732,7 @@ function fetchLayer(id, done) {
   loadingLayer = id;
   var wasText = hud.textContent;
   hud.textContent = 'loading ' + def.label + '…';
-  fetch(def.file).then(function (r) { return r.json(); }).then(function (geo) {
+  fetch(dataURL(def.name)).then(function (r) { return r.json(); }).then(function (geo) {
     loaded[id] = C.buildFeaturesLOD(geo, 0.2, true);
     C.prepareXYZ(loaded[id]);
     loadingLayer = null;
@@ -749,7 +906,7 @@ function buildLabels() {
     var pl2 = projectLabel(gll[0], gll[1]);
     out.push({
       i: i, lx: pl2[0], ly: pl2[1], lonDeg: gll[0], latDeg: gll[1],
-      name: p.NAME_LONG || p.NAME,
+      name: countryName(p),
       rank: p.LABELRANK || 3,
       minz: th[0], maxz: th[1],
       area: f.areaSr * C.SR_TO_KM2
@@ -1004,8 +1161,9 @@ function drawLabels(z) {
 
       var st = labelStyle(kind);
       ctx.font = st.font;
+      var cname = cityName(D2.i);
       var lx = D2.px, ly = D2.py + st.dy;
-      var w2 = trackedWidth(PP.n, st.track) + 8, h2 = isCap2 ? 17 : 15;
+      var w2 = trackedWidth(cname, st.track) + 8, h2 = isCap2 ? 17 : 15;
       /* ONE retry on the other side of the dot before giving up. A ring with no
          name reads as an unfinished label (measured at z 4: 3 of 9 capitals lost
          their name to a country name that happened to sit above them), and the
@@ -1025,7 +1183,7 @@ function drawLabels(z) {
       if (!box2) continue;
       placed.push(box2);
       ly = lyTry;
-      drawTracked(PP.n, lx, ly, st.track, COL[st.fill], st.halo, st.haloLw);
+      drawTracked(cname, lx, ly, st.track, COL[st.fill], st.halo, st.haloLw);
       done++;
     }
   }
@@ -1150,12 +1308,18 @@ function doPick(px, py) {
 
 function refreshMenu() {
   var rows = itemsEl.getElementsByClassName('menuitem');
+  var chips = itemsEl.getElementsByClassName('chip');
+  for (var q0 = 0; q0 < chips.length; q0++) {
+    var cid = chips[q0].dataset.id;
+    if (cid === 'lang:' + LANG) chips[q0].classList.add('on'); else chips[q0].classList.remove('on');
+  }
   for (var i = 0; i < rows.length; i++) {
     var el = rows[i], id = el.dataset.id;
     var on = (id === 'proj:' + projID) ||
              (id === 'layer:' + layerName) ||
              (id === 'cities' && citiesOn) ||
-             (id === 'north' && northUp);
+             (id === 'north' && northUp) ||
+             (id === 'lang:' + LANG);
     if (on) el.classList.add('on'); else el.classList.remove('on');
   }
   refreshBurger();
@@ -1166,8 +1330,14 @@ function refreshMenu() {
    Everything shown comes from the point table; nothing is invented. */
 function showPlacePanel(i) {
   var P = places[i];
+  var loc = cityName(i);
+  var base = P.n;
+  var altCity = [];
+  if (loc !== base) altCity.push(base);
+  else if (P.f === 'A0' || P.f === 'A0R') { /* nothing to add */ }
   var rows = [
-    ['name', P.n],
+    ['name', loc],
+    ['also', altCity.join('  ·  ')],
     ['country', P.c],
     ['region', P.r],
     ['type', PLACE_FCLASS[P.f] || P.f],
@@ -1199,9 +1369,12 @@ function refreshUI() {
     return;
   }
   var p = f.props, km2 = f.areaSr * C.SR_TO_KM2;
+  /* "also": the same country in the other languages, minus the one already shown,
+     English first because it is the common denominator on a map of this kind */
+  var shown = countryName(p);
   var alt = [];
-  var alts = [p.NAME_FR, p.NAME_DE, p.NAME_ES, p.NAME_IT, p.NAME_RU, p.NAME_ZH];
-  for (var i = 0; i < alts.length; i++) if (alts[i]) alt.push(alts[i]);
+  var alts = [countryNameEn(p), p.NAME_FR, p.NAME_DE, p.NAME_ES, p.NAME_RU, p.NAME_ZH, p.NAME_AR, p.NAME_JA];
+  for (var i = 0; i < alts.length; i++) if (alts[i] && alts[i] !== shown && alt.indexOf(alts[i]) < 0) alt.push(alts[i]);
   /* the capital, from the place layer (see capitalOf) - with its population when
      Natural Earth knows it, because "capital: Paris" plus a number is the single
      most useful pair of facts on this panel */
@@ -1209,13 +1382,13 @@ function refreshUI() {
   var capTxt = '';
   if (capIdx >= 0) {
     var CP = places[capIdx];
-    capTxt = CP.n + (CP.p > 0 ? ' · ' + fmtNum(CP.p) : '');
+    capTxt = cityName(capIdx) + (CP.p > 0 ? ' · ' + fmtNum(CP.p) : '');
   }
   var rows = [
-    ['name', p.NAME_LONG || p.NAME],
+    ['name', shown],
     ['also', alt.join('  ·  ')],
     ['capital', capTxt],
-    ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== (p.NAME_LONG || p.NAME) ? ' · sovereign: ' + p.SOVEREIGNT : '')],
+    ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== shown ? ' · sovereign: ' + p.SOVEREIGNT : '')],
     ['region', [p.CONTINENT, p.SUBREGION].filter(function (x) { return x; }).join(' / ')],
     ['area', fmtKm2(km2)],
     ['population', p.POP_EST ? fmtNum(p.POP_EST) + ' est. ' + (p.POP_YEAR || '') : ''],
@@ -1894,8 +2067,17 @@ window.addEventListener('resize', function () {
 
 /* Read-only introspection: the two animations above are timed, and a test that can
    only see the canvas cannot tell "the tilt finished" from "the tilt never ran".
-   Nothing here writes to the view. */
+   Nothing here writes to the view (setLang is the one exception: the language is a
+   property of the whole app, and driving the selector from a test means driving the
+   same entry point the menu row uses). */
 window.ViewState = {
+  lang: function () { return LANG; },
+  /* the ONE writing entry point here: the language is a property of the whole app
+     and a test must drive the same path the menu chip does */
+  setLang: function (code) { setLang(code); },
+  cityName: function (i) { return cityName(i); },
+  cityNamesLoaded: function () { return Object.keys(cityNames); },
+  countryName: function (i) { return feats[i] ? countryName(feats[i].props) : ''; },
   rollDeg: function () { return C.frameRoll(FRAME) * 180 / Math.PI; },
   centre: function () { return [view.lon, view.lat]; },
   k: function () { return view.k; },

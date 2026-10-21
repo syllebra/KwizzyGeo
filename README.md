@@ -4,6 +4,11 @@ Geographical Quiz Game — the map half: a pure HTML/CSS/JS view of Natural Eart
 admin-0 country polygons, no libraries and no map tiles, drawn on one fullscreen
 `<canvas>` in the **Eckert IV** equal-area pseudocylindrical projection.
 
+**Data: [Natural Earth](https://www.naturalearthdata.com/), public domain** — the
+50m sovereignty, 110m countries, 10m map units and 10m populated-places layers, at
+v5.1.1 / v5.1.2, converted by the scripts in `tools/`. If another source is added
+later it goes in that list, and in the credit line at the bottom of the map's menu.
+
 Serve the root, open `index.html`, and it runs — no build step. The doc below
 is the viewer's own account of how it works. Three layers ship in `data/`; two are
 loaded at startup and **50m sovereignty is the default**:
@@ -44,7 +49,9 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
 | `data/places.json` | Natural Earth **10m populated places**: 7,342 cities as a point table, 0.59 MB |
-| `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json`) |
+| `data/cities.<code>.json` | the localised city names, one file per language (18), fetched only when that language is picked |
+| `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json` + the 18 `cities.<code>.json`) |
+| `tools/shp2geojson10m.py` | the 10m map-units converter, including every `NAME_<CODE>` the selector needs |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
@@ -298,6 +305,48 @@ crowded corner drops what does not fit), and a city label that collides above it
 tries once **below** it before giving up. City labels are placed after country labels
 against the same boxes, so a city never lands on a country name.
 
+## Language
+
+The map speaks **18 languages**, and it is Natural Earth's data all the way down:
+`so50.geojson` / `ne10m.geojson` carry `NAME_<CODE>` for each, and the places carry
+`NAME_<CODE>` too. The selector is a wrapping row of chips in the burger sheet, under
+**Language**, each labelled in its own script so a speaker finds it without reading a
+list of exonyms; `?lang=fr` and `localStorage` set it too.
+
+**Only the 18 languages both layers carry are offered.** Natural Earth has Italian,
+Polish and Turkish city names but no Italian/Polish/Turkish *country* names — offering
+Italian would put Italian city names on a map whose country names stayed English,
+which is worse than not offering Italian. (The optional 110m layer carries only six;
+there the app falls back to the English name.)
+
+**City names are a separate file per language.** Eighteen languages × 7 342 places
+would double `places.json`, so `data/cities.<code>.json` holds only the names that
+**differ** from the base name — 31 kB for French (1 536 of 7 342 differ), 182 kB for
+Russian and ~150–250 kB for a non-Latin script, where every name differs. The file is
+fetched the first time that language is picked and never before, so a player who never
+opens the selector downloads nothing.
+
+**The index trap.** Those files are keyed by the *position* of a place in
+`places.json`, so a file built from another Natural Earth release would put "Londres"
+on Lagos and nothing would crash. Both sides therefore carry `sum`, a fingerprint of
+the place list, plus `n`; the app refuses a mismatch and falls back to the base names.
+`tests/lang_test.js` checks the real files against each other, and checks the two names
+you asked about: **London → Londres**, Vienna → Vienne / Wien / Viena, Moscow → Moscou /
+Москва.
+
+A country panel shows the localised name and lists the others under **also**; a city
+panel shows the localised name and puts the base name under **also** when they differ.
+
+**Data credit** lives at the bottom of the burger sheet: *Data Natural Earth · public
+domain*, linking to <https://www.naturalearthdata.com/>. That is the source of every
+layer, and it is public domain, so the credit is a courtesy rather than an obligation —
+but it belongs where a curious player can find it, not only in this README.
+
+### Bumping the data
+The scripts carry `?v=N` in `index.html`; the data files carry `DATA_V` in `app.js`,
+because they are fetched by code and a rebuilt layer would otherwise keep coming from
+the browser cache. **Bump `DATA_V` whenever a file in `data/` changes.**
+
 ## Glass
 
 Every floating surface — HUD, help line, info panel, menu sheet, scrim — is the same
@@ -420,9 +469,9 @@ rather than on pixels.
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Eleven node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Twelve node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All eleven exit 0: the nine asserting ones end in
+directory does not matter). All twelve exit 0: the ten asserting ones end in
 `ALL PASS` (`harness.js` only prints and asserts nothing), and `polarchk.js` /
 `visible_check.js <proj>` print per-centre tables to read.
 
@@ -438,6 +487,7 @@ directory does not matter). All eleven exit 0: the nine asserting ones end in
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
+| `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
 
 The measurement probes quoted in this document (`recenter_cost.js`,

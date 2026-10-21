@@ -113,7 +113,7 @@ const DATA = __dirname + '/../data/';
 global.fetch = function (u) {
   /* the app asks for data/<name>: match on the basename and serve THAT file, so a
      stub can never quietly answer with the wrong layer */
-  const name = String(u).replace(/^.*\//, '');
+  const name = String(u).replace(/^.*\//, '').replace(/\?.*$/, '');
   const known = { 'so50.geojson': 1, 'countries.geojson': 1, 'ne10m.geojson': 1, 'places.json': 1 };
   const p = known[name] ? DATA + name : DATA + 'countries.geojson';
   return Promise.resolve({ ok: true, json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
