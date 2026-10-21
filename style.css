@@ -78,6 +78,22 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .panel.show { display: block; }
 .panel .row { display: grid; grid-template-columns: 84px 1fr; gap: 9px; margin-bottom: 7px; }
 .panel .row:last-child { margin-bottom: 0; }
+/* the links row: real anchors, and the ONE part of the panel that takes the pointer
+   (the panel itself is pointer-events:none so the map stays draggable under it) */
+.panel .links { display: flex; gap: 8px; margin-top: 11px; padding-top: 10px;
+                border-top: 1px solid rgba(180, 205, 225, .12); }
+.panel .btn, .spot .btn {
+  pointer-events: auto; cursor: pointer;
+  font: 11px/15px system-ui, sans-serif;
+  color: rgba(180, 222, 255, .95); text-decoration: none;
+  padding: 5px 10px; border-radius: 8px;
+  border: 1px solid rgba(160, 205, 240, .22);
+  background: rgba(60, 110, 160, .22);
+  transition: background .1s linear;
+}
+.panel .btn:hover, .spot .btn:hover { background: rgba(80, 140, 200, .38); }
+.panel .btn:active, .spot .btn:active { background: rgba(100, 165, 225, .5); }
+
 .panel .k { color: var(--ink-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; padding-top: 2px; }
 .panel .v { color: var(--ink); }
 /* the flag rides in the value cell, on the baseline of the name. .fi is an inline
@@ -101,6 +117,29 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   box-shadow: 0 0 0 1px rgba(255,255,255,.16);
   background-size: cover;
 }
+
+/* ---------- the spot menu (right click / long press) ---------- */
+.spot {
+  position: fixed; z-index: 25; display: none;
+  min-width: 190px; padding: 10px 12px;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-hi);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  pointer-events: auto;
+  font: 12px/16px system-ui, sans-serif; color: var(--ink);
+}
+.spot.show { display: block; }
+.spot .shead { font: 12px/16px ui-monospace, Menlo, monospace; color: var(--ink); }
+.spot .ssub { font: 10px/14px ui-monospace, Menlo, monospace; color: var(--ink-dim); margin: 2px 0 9px; }
+.spot .btn {
+  display: block; width: 100%; text-align: left; box-sizing: border-box;
+  margin-bottom: 6px;
+}
+.spot .btn:last-child { margin-bottom: 0; }
+/* a <button> needs its inherited look removed to sit beside an <a> */
+.spot button.btn { font-family: system-ui, sans-serif; }
 
 /* ---------- menu ----------
    A sheet anchored top-left, ABOVE the stage; #menu has pointer-events:auto so

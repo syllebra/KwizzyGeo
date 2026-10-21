@@ -33,6 +33,17 @@ WHAT THE VIEWER USES
                 A1 admin-1 capital, A1R admin-1 region capital, P populated
                 place, S scientific station, H historic place, M met. station
   n / c / r / tz  name, country (ADM0NAME), region (ADM1NAME), timezone
+  k  CAPIN - WHICH capital this is, verbatim: "Administrative", "Legislative cap",
+                "Judicial capita", "Official capita", "De facto, admin", "Former
+                capital", ... (Natural Earth stores 16 characters, so the strings
+                are truncated; app.js turns them into role tags). A country can have
+                several: South Africa has three (Pretoria administrative, Cape Town
+                legislative, Bloemfontein judicial).  Empty for a place that is not
+                a capital at all, and for most A1/A0R rows.
+  e  NAME_EN, which is what the Wikipedia link uses: the localised name in the panel
+                follows the language selector, but an encyclopedia article does not.
+  a  ADM0CAP as 0/1 - Natural Earth's own "this is the country's capital" flag, which
+                is what decides the PRIMARY capital when there are several.
 
 Coordinates are rounded to 4 decimals (~11 m). At the deepest zoom the view is
 1 px = 11.8 m, so 4 decimals is sub-pixel; 5 would double the file for nothing.
@@ -117,7 +128,9 @@ def main(src, dst):
             props['tz'] = d['TIMEZONE']
         rows.append([props['n'], props['c'], props['r'], props['p'], props['z'],
                      props['l'], props['f'], props.get('tz', ''),
-                     round(lon, 4), round(lat, 4)])
+                     round(lon, 4), round(lat, 4),
+                     (d.get('CAPIN') or '').strip(), d.get('NAME_EN') or name,
+                     int(d.get('ADM0CAP') or 0)])
     base_names = [r[0] for r in rows]
     # Natural Earth's own order is kept (it is roughly by importance); the viewer
     # sorts by its own rules at draw time
@@ -128,8 +141,10 @@ def main(src, dst):
                   'n=name c=country r=region p=pop_max z=min_zoom l=labelrank '
                   'f=feature class (A0 capital, A1 admin-1 capital, A0R/A1R region '
                   'capitals, P populated place, S scientific station, M met. station, '
-                  'H historic) tz=timezone lon lat. Coordinates to 4 decimals (~11 m).'),
-        'fields': ['n', 'c', 'r', 'p', 'z', 'l', 'f', 'tz', 'lon', 'lat'],
+                  'H historic) tz=timezone lon lat k=CAPIN (which capital) '
+                  'e=NAME_EN (the Wikipedia title) a=ADM0CAP 0/1. '
+                  'Coordinates to 4 decimals (~11 m).'),
+        'fields': ['n', 'c', 'r', 'p', 'z', 'l', 'f', 'tz', 'lon', 'lat', 'k', 'e', 'a'],
         # the same fingerprint the language files carry
         'sum': stamp(base_names),
         'places': rows,

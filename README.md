@@ -350,6 +350,54 @@ The scripts carry `?v=N` in `index.html`; the data files carry `DATA_V` in `app.
 because they are fetched by code and a rebuilt layer would otherwise keep coming from
 the browser cache. **Bump `DATA_V` whenever a file in `data/` changes.**
 
+## Capitals
+
+**A country can have several capitals, and Natural Earth says which is which** in
+`CAPIN`: South Africa has three (Pretoria administrative, Cape Town legislative,
+Bloemfontein judicial), Bolivia two (Sucre constitutional, La Paz administrative), the
+Netherlands two (Amsterdam de facto, The Hague official+legislative).
+
+The panel used to take the first match, and for South Africa that named
+**Bloemfontein** — the judicial seat, 460 000 people — as "the capital". The rule now:
+
+1. only places Natural Earth flags as the country's capital (`ADM0CAP = 1`), so a
+   former capital, a regional capital, or a place filed `Admin-0 capital` with no role
+   and no flag (Johannesburg) is not a candidate;
+2. among those, the **administrative** seat leads — that is what a reader means by
+   "the capital";
+3. every other seat is listed under it **with its role**, which is the point of the
+   exercise.
+
+`CAPIN` is stored at 16 characters by Natural Earth, so values arrive truncated
+(`"Legislative cap"`, `"Official, legis"`), plus one typo (`"Offical capital"` on
+Dodoma) and three values that are not roles at all (`"UN Headquarters"` on New York,
+`"EU Parliment"` on Strasbourg, `"While Jerulsale…"` on Tel Aviv). `CAP_WORDS` in
+`app.js` recognises every value that appears in the data and `CAP_ORDER` normalises the
+display order, so a second role arriving after a comma or an "and" is not lost.
+
+A city panel also shows the role when the city is a capital.
+
+## Links out
+
+Two buttons at the bottom of every panel:
+
+* **Wikipedia** — the article for the **English** name (`NAME_EN` for a country,
+`e` for a city), not the name on screen: the panel follows the language selector and an
+encyclopedia does not. Verified: all 201 country names in the 50m layer resolve to an
+article as-is. City names mostly do — 239 of 7 100 do not, and 1 427 are disambiguation
+pages — which is why the URL is `w/index.php?…&go=Go`: it 302s straight to the article
+when the title is right *and* falls back to the search results when it is not, in one
+request. (Checked against the live API.)
+* **Google Maps** — the country's `LABEL` point (or the city's own coordinates) at the
+zoom on screen.
+
+**Right-click the map** (or **long-press** on touch) for the point menu: the coordinates
+under the cursor, the zoom, *Open in Google Maps* at that scale, and *Copy coordinates*.
+The long press is cancelled by any movement, so it can never fire mid-drag, and the menu
+flips back inside the viewport when opened near an edge. The copy button falls back to
+`execCommand` because `navigator.clipboard` needs a secure context and this app is served
+over plain HTTP on a LAN box.
+
 ## Flags
 
 Country flags are SVG, from **[lipis/flag-icons](https://github.com/lipis/flag-icons)**
@@ -512,9 +560,9 @@ rather than on pixels.
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Thirteen node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Fourteen node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All thirteen exit 0: the eleven asserting ones end in
+directory does not matter). All fourteen exit 0: the twelve asserting ones end in
 `ALL PASS` (`harness.js` only prints and asserts nothing), and `polarchk.js` /
 `visible_check.js <proj>` print per-centre tables to read.
 
@@ -530,6 +578,7 @@ directory does not matter). All thirteen exit 0: the eleven asserting ones end i
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
+| `links_test.js` | the capital rule (South Africa → Pretoria, all three seats listed, Johannesburg excluded; Bolivia/Netherlands/Malaysia/Japan; Lagos and New York rejected), every `CAPIN` value parses, both URL builders, and the spot menu open/place/flip/close plus the long press (56 checks) |
 | `flags_test.js` | every code the app can ask for has an SVG and a CSS rule (driven by the two tables, parsed out of `app.js` so they cannot drift); every `url()` resolves; the licence ships; and Somaliland / Northern Cyprus / Siachen stay deliberately flagless (106 checks) |
 | `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
