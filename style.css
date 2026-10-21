@@ -80,6 +80,27 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .panel .row:last-child { margin-bottom: 0; }
 .panel .k { color: var(--ink-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; padding-top: 2px; }
 .panel .v { color: var(--ink); }
+/* the flag rides in the value cell, on the baseline of the name. .fi is an inline
+   block with a fixed width, so the name never shifts between a country that has a
+   flag and one that does not (Somaliland, Northern Cyprus, Siachen: no honest ISO
+   code, so no flag - see NE_ISO2 in app.js) */
+/* THE FLAG IS OUT OF THE FLOW. As an inline-block it pushed the name right only
+   for countries that HAVE a flag, so Somaliland's name started 7 px left of
+   France's - a ragged left edge down a column of rows is exactly what makes a panel
+   look broken. Absolutely positioned instead, with the name given a fixed left
+   indent, so every row starts on the same x whether or not there is a flag. */
+.panel .v { position: relative; }
+/* the indent is UNCONDITIONAL on the name row: every country's name then starts on
+   the same x, and a country with no flag leaves that 26 px empty rather than
+   sliding its name left. (The reverse - padding only when a flag exists - lined
+   up France with Somaliland's ID row instead of with Somaliland's name.) */
+.panel .v .nm { display: inline-block; padding-left: 26px; }
+.panel .v .fi {
+  position: absolute; left: 0; top: 0.18em;
+  width: 19px; height: 13px; border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.16);
+  background-size: cover;
+}
 
 /* ---------- menu ----------
    A sheet anchored top-left, ABOVE the stage; #menu has pointer-events:auto so
@@ -197,6 +218,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   pointer-events: auto; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
   padding: 5px 10px; border-radius: 999px;
   border: 1px solid rgba(180, 205, 225, .16);
   background: rgba(38, 60, 84, .34);
@@ -209,6 +231,15 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 }
 .chip:hover { background: rgba(56, 88, 120, .55); }
 .chip:active { background: rgba(80, 124, 164, .7); }
+/* the flag on a chip is a SQUARE (fis) and smaller than the type: a 4:3 rectangle
+   at text width overpowers a two-word label */
+.chip .fi {
+  width: 1em; height: 1em; border-radius: 50%;
+  background-size: cover;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.22);
+  flex: 0 0 auto;
+}
+.chip .nm { line-height: 1; }
 .chip.on {
   color: #f6fafd;
   background: rgba(96, 150, 196, .42);

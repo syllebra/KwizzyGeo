@@ -50,8 +50,11 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
 | `data/places.json` | Natural Earth **10m populated places**: 7,342 cities as a point table, 0.59 MB |
 | `data/cities.<code>.json` | the localised city names, one file per language (18), fetched only when that language is picked |
+| `data/flags/<cc>.svg` | 249 country flags, vendored SVGs (see **Flags**) |
+| `flags.css` | the generated stylesheet: `.fi` / `.fi-fr` → the right SVG |
 | `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json` + the 18 `cities.<code>.json`) |
 | `tools/shp2geojson10m.py` | the 10m map-units converter, including every `NAME_<CODE>` the selector needs |
+| `tools/fetch_flags.py` | copies the flags the app can ask for and regenerates `flags.css` |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
@@ -347,6 +350,46 @@ The scripts carry `?v=N` in `index.html`; the data files carry `DATA_V` in `app.
 because they are fetched by code and a rebuilt layer would otherwise keep coming from
 the browser cache. **Bump `DATA_V` whenever a file in `data/` changes.**
 
+## Flags
+
+Country flags are SVG, from **[lipis/flag-icons](https://github.com/lipis/flag-icons)**
+— MIT licence, © 2013 Panayiotis Lipiridis (the licence text ships as
+`flags.LICENSE.txt`, beside the CSS). Class names are the library's own, so the API
+is one line:
+
+```html
+<span class="fi fi-fr"></span>          <!-- 4:3 -->  <span class="fi fi-fr fis"></span>  <!-- square -->
+```
+
+**Vendored, not `<link>`-ed from a CDN.** The app is a static page that has to work
+served from a LAN box with no internet, and its whole ethos is "no libraries, no
+tiles". A `<link>` to jsDelivr would make every viewer fetch a third-party asset and
+would make the flags vanish in exactly the case where the map still works. So
+`tools/fetch_flags.py` copies the 249 SVGs the app can actually ask for (1.6 MB, of
+which a browser fetches only the ones it paints — each flag is a `background-image`)
+and generates `flags.css`. Re-run it after adding a layer:
+
+    curl -sSLo f.zip https://github.com/lipis/flag-icons/archive/refs/tags/v7.6.0.zip
+    unzip f.zip && python3 tools/fetch_flags.py flag-icons-7.6.0
+
+**Where a flag shows:** on the name row of a country panel, on the name row of a city
+panel (from the city's country), and on each language chip.
+
+**Natural Earth does not simply give the ISO code**, and pretending it does is how you
+get no flags on half the interesting countries: `ISO_A2` is `-99` for 17 features of the
+50m layer — France, Germany's neighbours, Norway, the Netherlands, the United States,
+the United Kingdom, New Zealand, Israel, Finland, Denmark, Georgia, Australia, China —
+and sub-codes like `CN-TW` / `FR-973` appear as well. `NE_ISO2` in `app.js` maps the
+unambiguous ones by `GEOUNIT`, and the genuinely ambiguous ones — **Somaliland,
+Northern Cyprus, Siachen Glacier, the UNDOF Zone** — are deliberately left **without a
+flag** rather than given a wrong one. A flag is a claim about sovereignty; a missing
+one is honest, a wrong one is not.
+
+**A language is not a country.** The flag on a language chip is a convention — the
+language's main country of origin — and it is one table (`LANG_FLAG`), because it is a
+judgement call: `en` → gb rather than us, `pt` → pt, `ar` → sa, `es` → es. Change a
+line and the chip follows.
+
 ## Glass
 
 Every floating surface — HUD, help line, info panel, menu sheet, scrim — is the same
@@ -469,9 +512,9 @@ rather than on pixels.
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Twelve node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Thirteen node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All twelve exit 0: the ten asserting ones end in
+directory does not matter). All thirteen exit 0: the eleven asserting ones end in
 `ALL PASS` (`harness.js` only prints and asserts nothing), and `polarchk.js` /
 `visible_check.js <proj>` print per-centre tables to read.
 
@@ -487,6 +530,7 @@ directory does not matter). All twelve exit 0: the ten asserting ones end in
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
+| `flags_test.js` | every code the app can ask for has an SVG and a CSS rule (driven by the two tables, parsed out of `app.js` so they cannot drift); every `url()` resolves; the licence ships; and Somaliland / Northern Cyprus / Siachen stay deliberately flagless (106 checks) |
 | `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
 
