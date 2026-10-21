@@ -28,7 +28,7 @@ Three folders, one job each: the code a player loads at the root, the data in
 `data/`, the node scripts in `tests/`.
 
 ```
-index.html  style.css  core.js  app.js  three.bundle.cjs   <- the app
+index.html  style.css  core.js  app.js                   <- the app
 data/   so50.geojson  countries.geojson  ne10m.geojson  places.json
 tests/  test_core.js  gesture_test.js  pole_test.js  ...   <- node only
 tools/  shp2geojson_places.py                              <- data prep, no runtime
@@ -36,11 +36,10 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 
 | file | role |
 |---|---|
-| `index.html` | canvas + three overlay divs (panel, hud, help) |
+| `index.html` | the map canvas + the overlay divs (panel, hud, help, menu) |
 | `style.css` | fullscreen layout, panel styling, touch/mobile tweaks |
 | `core.js` | projection registry + geometry + re-centring, pure functions (unit-tested by `tests/test_core.js`) |
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
-| `three.bundle.cjs` | three.js, vendored for the 3D globe |
 | `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
@@ -62,11 +61,10 @@ hardcodes a layer name. The server test suite reads the same files from
 
 ### Deploying
 
-Upload the five app files at the root and `data/` beside them; `tests/`, `tools/`,
+Upload the four app files at the root and `data/` beside them; `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
-only the game. `index.html` needs `style.css`, `three.bundle.cjs`, `core.js` and
-`app.js` next to it; the layers must keep the `data/` prefix, or `DATA_DIR` must
-be changed to match.
+only the game. `index.html` needs `style.css`, `core.js` and `app.js` next to it;
+the layers must keep the `data/` prefix, or `DATA_DIR` must be changed to match.
 
 ## Projection
 
@@ -253,7 +251,7 @@ hidden and all 7,342 are candidates.
 
 Dots are drawn two `Path2D`s — one for capitals, one for everything else — and
 filled/stroked once each, so a deep zoom is two fills rather than 7,000 state
-changes. The layer is 2D only: the 3D globe draws no markers.
+changes.
 
 `tools/shp2geojson_places.py` rebuilds the table from the shapefile:
 
@@ -337,8 +335,8 @@ slipping away), it is an **exponential settle** (τ = 0.35 s) with a **rate cap 
 rolls: a diagonal drag leaves 1–10°, a straight drag across a pole **154°**. It is
 off at |lat| > 89.4° (at the pole "up" has no direction and the canonical frame is an
 arbitrary choice of longitude, so aligning would spin the map — the very bug the
-matrix-carrying frame was introduced to fix), and off in 3D and for the
-pseudocylindrical projections (there the frame's axes ARE the map's up and right, so
+matrix-carrying frame was introduced to fix), and off for the pseudocylindrical
+projections (there the frame's axes ARE the map's up and right, so
 a roll is not cosmetic). `?north=0`, or the burger's **Overlay → North up** row
 turns it off.
 
@@ -425,8 +423,8 @@ rather than on pixels.
 **Tests.** Eleven node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
 directory does not matter). All eleven exit 0: the nine asserting ones end in
-`ALL PASS`, `harness.js` ends with its expected headless `no three.js` line, and
-`polarchk.js` / `visible_check.js <proj>` print per-centre tables to read.
+`ALL PASS` (`harness.js` only prints and asserts nothing), and `polarchk.js` /
+`visible_check.js <proj>` print per-centre tables to read.
 
 | script | what it checks |
 |---|---|
@@ -441,10 +439,6 @@ directory does not matter). All eleven exit 0: the nine asserting ones end in
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
-
-`harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
-null (reading 'Scene')` in a headless run — that is expected, not a failure
-(there is no WebGL context in node).
 
 The measurement probes quoted in this document (`recenter_cost.js`,
 `poletest2.js`, `rollpc2.js`, the `shp2geojson*.py` converters) are deliberately
@@ -493,11 +487,11 @@ off the bottom of a phone screen. On a coarse pointer the rows become 44 px tall
 14 px type, the sheet scrolls internally with a dark thin scrollbar, and a scrim
 behind it closes it on any tap outside (phones have no Esc). One activation path for
 every input: `pointerdown` records where the press started and `click` acts — a press
-that travelled more than 12 px is a scroll, not a choice. The projection rows dim in
-3D rather than disappearing, so the sheet keeps its height.
+that travelled more than 12 px is a scroll, not a choice.
 
 **Touch gestures.** A tap picks; a drag of more than 8 px pans and flings; a second
-tap within 320 ms and 40 px zooms in on that point; two fingers pinch. Previously a
+tap within 320 ms and 40 px runs the **same fly-to as a double click**; two fingers
+pinch. Previously a
 single tap picked on *touchstart*, so starting a drag showed a pick panel for whatever
 was under the finger.
 
@@ -604,9 +598,9 @@ densified points, 10.6 MB of ladder indices.
 `core.js` still carries the whole registry — Eckert IV, equirectangular, cylindrical
 equal-area, azimuthal equal-area — and every one of them still renders exactly what it
 did (`?proj=eckert4` works today). What changed is that the **menu no longer offers
-them**: with the globe view and the perspective default, the pseudocylindrical world
-maps are a curiosity rather than a way to play, and eleven rows in a sheet that a
-phone user opens on every session is a real cost.
+them**: with the perspective default the pseudocylindrical world maps are a
+curiosity rather than a way to play, and eleven rows in a sheet that a phone user
+opens on every session is a real cost.
 
 The switch is one flag in `app.js`, and it was written as a flag rather than a
 deletion precisely so the feature can come back:
@@ -659,26 +653,14 @@ Adding a projection = one `PROJ` entry (the menu rows and `?proj=` read the tabl
 plus the round-trip test in `test_core.js` for its inverse.
 
 ## Burger menu
-Top-left `≡` picks the view: **Map (2D)**, **Globe**, or one of the projections
-above (the 2D map is re-projected on the fly, keeping the geographic centre). The
-**Globe** is the lit 3D sphere those same lon/lat rings wrap onto
-(the lit 3D sphere those same lon/lat rings wrap onto). Closed, the burger carries a
-tag naming the active view, so the current mode is readable at a glance; tapping it
-opens the column of choices, tapping a chip switches and closes. A chip is a pick,
-not a toggle — clicking the active one only re-opens. `m` still toggles directly.
-`?mode=2d|3d` forces the initial view. The menu sits outside `#stage` and owns the
-pointer events, so clicking it can never pan or hover the map underneath.
+Top-left `≡` opens a sheet grouped **Layer** and **Overlay** — three data layers and
+two toggles (Cities, North up). Closed, the burger carries a tag naming the active
+projection, so what you are looking at is readable at a glance; tapping a row
+applies it and closes the sheet. The menu sits outside `#stage` and owns the pointer
+events, so clicking it can never pan or hover the map underneath.
 
-## Globe geometry
-The lon/lat -> xyz frame is right-handed (`z = -cos(lat) sin(lon)`), which is what
-puts the camera-facing hemisphere in the usual orientation; `sphToVec`, `uv` and
-`placeCamera` must all agree or the globe mirrors.
-
-The ear clipper (`core.js triangulateRing`) is good on COVERAGE but bad on SHAPE:
-densification inserts nearly-collinear vertices, so 24-48 % of the triangles have
-a minimum angle under 2 degrees. `refineTri` (Lawson flips, vendored verbatim from
-earcut v3.2.4) legalizes the interior edges and drops that to 1.2-4.9 %, keeping
-the triangle count and the covered area identical. It mutates in place and returns
-nothing. Triangulations are cached per (ring, LOD level) in `ring.tris[]`, so a
-zoom that crosses an LOD threshold swaps cached meshes instead of re-clipping
-(measured: 2.9 s first build, 1 ms rebuild).
+There is no "View" group any more: **the globe view was removed on 2026-10-21**, with
+its vendored three.js bundle (`three.bundle.cjs`, 1.3 MB), the GL renderer, the
+ear-clipper / Lawson-refinement triangulation it needed, the globe LOD "sewing" pass
+and the `#ggl` canvas. The map is the app. The alternative 2D projections remain in
+`core.js` behind `ARCHIVED_PROJECTIONS`.

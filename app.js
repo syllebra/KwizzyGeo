@@ -6,8 +6,6 @@
 var C = window.AppCore;
 var stage = document.getElementById('stage');
 var canvas = document.getElementById('map');
-var labelsCv = document.getElementById('labels');
-var labelsCtx = labelsCv.getContext('2d');
 var panel = document.getElementById('panel');
 var hud = document.getElementById('hud');
 var helpEl = document.getElementById('help');
@@ -28,9 +26,8 @@ var feats = [], frame = null, grat = null, layout = [];
    the centre moves. k is screen px per plane unit. */
 var view = { cx: 0, cy: 0, k: 100, lon: 0, lat: 0 }, fitK = 100;
 /* THE CITY LAYER: data/places.json (Natural Earth 10m populated places, 7 342
-   points, see tools/shp2geojson_places.py). Drawn only in 2D - the 3D globe has
-   no marker shader and the points would need billboards - and switched on/off
-   with `c` or ?cities=0|1. */
+   points, see tools/shp2geojson_places.py). Switched on/off with `c`, the
+   burger's Overlay row, or ?cities=0|1. */
 var places = [], citiesOn = true, placeSeen = 0;
 var hoverPlace = -1, pickedPlace = -1;
 
@@ -88,8 +85,8 @@ C.rotMat(0, 0, FRAME);                  /* start canonical: identity */
 /* Key in C.PROJ. PERSPECTIVE (3 Earth radii) is the default now: the user asked
    for perspective always, and it is the same cone-clipped family as the
    orthographic - it just keeps the horizon at cos c = 1/P instead of 0, so the
-   limb has the depth cue of a globe instead of a flat disc. `ortho` is still one
-   menu row away for anyone who wants the flat hemisphere.
+   limb has the depth cue of a globe instead of a flat disc. `?proj=ortho` still
+   gives the flat hemisphere.
    Both were the two projections where arriving at a pole exposed the rotation
    problem (see the FRAME comment above); the fix is the same for both, because
    the fix is in the view's rotation, not in the projection.
@@ -98,10 +95,6 @@ var projID = 'persp';
 var menuEl = document.getElementById('menu');
 var burgerEl = document.getElementById('burger');
 var itemsEl = document.getElementById('items');
-
-/* viewing modes: '2d' = Eckert IV plate carree, '3d' = the lit 3D sphere the
-   projection's lon/lat grid wraps onto. Same data, same picking logic. */
-var mode = '2d';
 
 /* the burger menu: closed it is only the burger, whose tag names the active
    view; opening it stacks the choices in a column underneath. A chip is a PICK,
@@ -115,8 +108,8 @@ var mode = '2d';
 /* ---------- ARCHIVED: the alternative 2D projections ----------
    The projection registry in core.js is untouched and every entry still works
    (`?proj=eckert4` renders exactly what it did). What changed is that the MENU no
-   longer offers them: with the globe view and the perspective default, the
-   pseudocylindrical world maps are a curiosity rather than a way to play, and eleven
+   longer offers them: with the perspective default the pseudocylindrical world
+   maps are a curiosity rather than a way to play, and eleven
    rows of a sheet on a phone is a cost paid on every open for a feature nobody uses.
 
    Kept, not deleted, for a future feature (a "compare projections" screen, a
@@ -135,9 +128,10 @@ function menuGroups() {
   }
   var layers = [], files = LAYERS || [];
   for (i = 0; i < files.length; i++) layers.push({ id: 'layer:' + files[i].id, label: '', ico: '\u2263' });
-  var groups = [
-    { title: 'View', items: [{ id: '2d', label: 'Map (2D)', ico: '\u25ad' },
-                             { id: '3d', label: 'Globe', ico: '\u25ce' }] }];
+  /* No "View" group any more: the Globe view was removed (2026-10-21, with the
+     vendored three.js bundle), so the only view is the map and a row for it would
+     be a row with one choice. */
+  var groups = [];
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
     { title: 'Layer', items: layers },
@@ -162,8 +156,6 @@ function closeMenu() {
   if (scrimEl) scrimEl.classList.remove('on');
 }
 function menuLabel(m) {
-  if (m === '2d') return 'Map (2D)';
-  if (m === '3d') return 'Globe';
   if (m.indexOf('proj:') === 0) {
     var p = C.PROJ[m.slice(5)];
     if (p) return p.label;
@@ -173,11 +165,10 @@ function menuLabel(m) {
   if (m === 'north') return 'North up';
   return m;
 }
-/* what the closed burger says: the projection in 2D (more informative than
-   "Map"), the mode itself in 3D */
+/* what the closed burger says: the projection in play, which is more informative
+   than "Map" */
 function burgerTag() {
-  if (mode === '3d') return 'Globe';
-  return C.CUR.label;
+  return C.CUR ? C.CUR.label : 'view';
 }
 /* the row label and the "on" state of the projection rows come from the
    registry, and only a recenterable projection is offered */
@@ -233,24 +224,22 @@ function refreshBurger() {
 function burgerClick() { if (menuOpen()) closeMenu(); else openMenu(); }
 function menuClick(el) {
   var id = el.dataset.id;
-  /* close FIRST, then act: closing last meant that an action which throws (a 3D
-     switch with no WebGL, a failed layer fetch) left the sheet open on top of the
-     error, and the tap looked ignored. It also just feels right: the row is a
-     choice, and the sheet should get out of the way as soon as it is made. */
+  /* close FIRST, then act: closing last meant that an action which throws (a
+     failed layer fetch) left the sheet open on top of the error, and the tap
+     looked ignored. It also just feels right: the row is a choice, and the sheet
+     should get out of the way as soon as it is made. */
   closeMenu();
   if (!id) return;
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
   if (id === 'north') { toggleNorth(); refreshMenu(); return; }
-  setMode(id);
 }
 /* pick a layer by id (menu row, ?layer=, or the t key) */
 function setLayer(id) {
   userPickedLayer = true;
   layerName = id;
   useLayer(id);
-  if (mode === '3d' && loaded[id]) setGlobeLayer(id);
   refreshMenu();
 }
 /* switching projection keeps the geographic centre, so the place you were
@@ -259,7 +248,6 @@ function setProjection(id) {
   if (!C.PROJ[id]) return;
   projID = id;
   C.setProjection(id);
-  if (mode === '3d') setMode('2d');
   fitView(worldBounds());
   reproject();
   /* the tick and the burger tag both follow the projection: without this the menu
@@ -316,30 +304,10 @@ if (scrimEl) {
   scrimEl.addEventListener('touchstart', function (e) { e.preventDefault(); closeMenu(); }, { passive: false });
 }
 
-var THREE = null;                    /* three.js namespace, set by boot.js */
-/* the IIFE's own `var THREE` shadows the global `window.THREE` that three.bundle.cjs
-   sets, so a plain read would stay null forever — grab it explicitly */
-if (window.THREE) THREE = window.THREE;
-var scene3 = null, cam3 = null, renderer3 = null, rayc = null;
-var ndc = null;                      /* reusable NDC pair for the raycaster */
-var globe = { lon: 0, lat: 0, dist: 3.05 };
-var Rg = 1;                          /* globe radius */
-var globeGroup = null;
-var globeCache = {};                 /* (layer, LOD level) -> built meshes, LRU of 2 */
-var globeClock = 0;                  /* LRU stamp */
-var globeSewn = {};                  /* layer id -> the globe ladder was sewn on it */
-var globeLvlOverride = -1;           /* ?lod=NN pins a level (inspection); -1 = auto */
-var gHover = -1, gPicked = -1;
-
 /* buildMenu() is called further down, right before loadAll(): it reads LAYERS and
    PROJ, whose initialisers run after this point in the file */
 
 function dbg() { return /[?&]dbg=1/.exec(urlSearch()) !== null; }
-function urlMode() {
-  var m = /[?&]mode=(2d|3d)/.exec(urlSearch());
-  if (m) return m[1];
-  return mode;
-}
 var hover = -1, picked = -1;
 var mouse = { x: 0, y: 0, inside: false };
 var canvasRect = { left: 0, top: 0 };
@@ -500,7 +468,10 @@ function loadAll() {
   ]).then(function (pair) {
     var g110 = pair[0], g50 = pair[1];
     noteRef(g110);
-    loaded['110m'] = C.buildFeaturesLOD(g110, 0.2, true);   /* keepLL: the 3D globe needs the lon/lat twin of each ring */
+    /* keepLL: the lon/lat twin of each ring. NOT for a globe any more - the 2D
+       re-centre needs it (core.rotateRingLL rotates rg.xyz, and featureExtent
+       reads rg.ll to measure a country's box in another frame). */
+    loaded['110m'] = C.buildFeaturesLOD(g110, 0.2, true);
     loaded['50m'] = C.buildFeaturesLOD(g50, 0.2, true);
     /* the 2D view re-projects rings around the view centre, which it does from
        the unit vectors of the fine lon/lat ring; built once per layer here */
@@ -523,8 +494,7 @@ function loadAll() {
     } else {
       useLayer(layerName);
     }
-    resize();          /* before setMode: init3D sizes the GL canvas from W,H */
-    setMode(urlMode());
+    resize();
     fitView(worldBounds());
     /* ?z=6&lon=178&lat=-18 opens at zoom 6 centred on that point, for inspection */
     var q = urlSearch();
@@ -535,8 +505,7 @@ function loadAll() {
     var mlod = /[?&]lod=(-?[0-9.]+)/.exec(q);
     if (mlod) lodBias = parseFloat(mlod[1]);
     if (mz) {
-      if (mode === '3d') globe.dist = Math.max(1.45, Math.min(9, 3.05 / Math.pow(2, parseFloat(mz[1]) - 2)));
-      else zoomBy(Math.pow(2, parseFloat(mz[1]) - 2));
+      zoomBy(Math.pow(2, parseFloat(mz[1]) - 2));
     }
     layout = buildLabels();
     hud.textContent = hudText();
@@ -596,11 +565,7 @@ function toggleLayer() {
   var other = LAYERS[(i + 1) % LAYERS.length].id;      /* 50m -> 110m -> 10m -> 50m */
   layerName = other;
   useLayer(other);
-  /* the globe meshes are per-layer geometry, so switching layer without
-     rebuilding here left the 3D view drawing the OTHER layer's countries while
-     the HUD read '50m sovereignty' - and buildGlobe's key is (layer, level), so
-     a switch back is a cache hit and costs nothing. */
-  if (mode === '3d') setGlobeLayer(other);
+
 }
 
 function fetchLayer(id, done) {
@@ -628,10 +593,9 @@ function useLayer(id) {
       if (layerName === id) {
         feats = loaded[id];
         hover = -1; picked = -1;
-        globeSewn[id] = 0;
+
         recenterDirty = false;
         reproject();
-        if (mode === '3d') setGlobeLayer(id);
         refreshUI();
       }
     });
@@ -728,7 +692,7 @@ function scheduleReproject() {
 
 /* the actual rebuild, once per frame at most */
 function reproject() {
-  if (mode !== '2d' || !feats.length) return;
+  if (!feats.length) return;
   /* the ladder level drawn: LOD_U[t] * k <= maxPx. `lodBias` shifts it, which is
      how the quality/speed tradeoff is tuned and how ?lod=-1 can be used to
      inspect a coarser level. 0.7 px error is the default budget. */
@@ -857,7 +821,6 @@ function onScreen(f) {
 
 /* ---------- draw: blue ocean, light grey land, whiter on hover/pick ---------- */
 function draw() {
-  if (mode === '3d') { draw3D(); return; }
   segs = 0; seenPieces = 0; gratSegs = 0; skippedPieces = 0;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   var g = ctx.createLinearGradient(0, 0, 0, H);
@@ -1080,7 +1043,7 @@ var cityDots = [];
 function drawCities(z) {
   placeSeen = 0;
   cityDots.length = 0;
-  if (!citiesOn || !places.length || mode === '3d') return;
+  if (!citiesOn || !places.length) return;
   var k = view.k, ox = W * 0.5 - view.cx * k, oy = H * 0.5 + view.cy * k;
   var o = [0, 0];
   var small = null, capital = null, capitalRing = null;
@@ -1167,11 +1130,6 @@ function pickAt(px, py) {
   return best;
 }
 function setHover(px, py) {
-  if (mode === '3d') {
-    var h3 = pick3D(px, py);
-    if (h3 !== gHover) { gHover = h3; highlight3D(); refreshUI(); }
-    return;
-  }
   /* a city beats the country under it: its dot is a 2-3 px target on purpose, so
      reaching the country is a matter of moving a few pixels off the dot */
   var hp = pickPlaceAt(px, py);
@@ -1182,604 +1140,11 @@ function setHover(px, py) {
   var h = pickAt(px, py);
   if (h !== hover || hoverPlace !== -1) { hover = h; hoverPlace = -1; refreshUI(); }
 }
-function pickAtPoint(px, py) { return (mode === '3d') ? pick3D(px, py) : pickAt(px, py); }
 function doPick(px, py) {
-  if (mode !== '3d') {
-    var hp = pickPlaceAt(px, py);
-    if (hp >= 0) { pickedPlace = hp; picked = -1; hoverPlace = hp; hover = -1; refreshUI(); return; }
-    pickedPlace = -1;
-  }
-  var h = pickAtPoint(px, py);
-  if (mode === '3d') gPicked = h; else picked = h;
-  highlight3D();
-  refreshUI();
-}
-
-/* ---------- 3D: the same polygons wrapped onto the sphere ----------
-   A ring is stored twice: projected (for the 2D view) and lon/lat (rg.ll),
-   with IDENTICAL point order, so the same decimation level feeds both views.
-   Triangles ear-clipped in the Eckert IV plane can be mapped back onto the
-   sphere edge for edge - the projection is a bijection - and because it is
-   equal-area, land keeps its true relative size on the globe. */
-function sphToVec(lon, lat) {
-  var la = lon * C.DEG, ph = lat * C.DEG, cp = Math.cos(ph);
-  /* RIGHT-handed sphere frame: three.js is right-handed with +X right, +Y up,
-     +Z toward the viewer, and with the camera at +X looking at the origin the
-     screen's right is -Z. So east (+lon) must land on -Z, i.e. z = -cos(phi)
-     sin(lambda). The old z = +cos(phi) sin(lambda) was a LEFT-handed frame:
-     every meridian folded over the x/y plane, so the whole globe came out
-     mirrored (Africa read east of Europe, labels on the wrong side). */
-  return [Rg * cp * Math.cos(la), Rg * Math.sin(ph), -Rg * cp * Math.sin(la)];
-}
-
-function init3D() {
-  if (!THREE) { fail('no three.js'); return; }
-  renderer3 = new THREE.WebGLRenderer({ antialias: true });
-  renderer3.setPixelRatio(DPR);
-  renderer3.setSize(W, H);
-  renderer3.domElement.id = 'ggl';   /* styled position:fixed in style.css, and the CSS rule is by id */
-  stage.appendChild(renderer3.domElement);
-  rayc = new THREE.Raycaster();
-  newScene();
-}
-
-function newScene() {
-  scene3 = new THREE.Scene();
-  cam3 = new THREE.PerspectiveCamera(38, W / H, 0.001, 100);
-  scene3.add(new THREE.AmbientLight(0xffffff, 0.62));
-  var key = new THREE.DirectionalLight(0xffffff, 0.75);
-  key.position.set(1, 0.65, 1.6);
-  scene3.add(key);
-  /* ocean sphere sits a hair under the land crust */
-  var oceanR = Rg * 0.9965;
-  var mocean = /[?&]ocean=([0-9.]+)/.exec(urlSearch());   /* debug: ocean radius fraction of Rg */
-  if (mocean) oceanR = Rg * parseFloat(mocean[1]);
-  var oc = new THREE.Mesh(new THREE.SphereGeometry(oceanR, 96, 64),
-    new THREE.MeshLambertMaterial({ color: 0x1e4d75 }));
-  oc.userData.ocean = true;
-  scene3.add(oc);
-  if (/[?&]nocean=1/.exec(urlSearch())) scene3.remove(oc);   /* debug: expose geometric holes */
-  /* graticule: same 15 deg grid as the 2D view */
-  var gl = [];
-  for (var la = -180; la < 180; la += 15) {
-    for (var ph = -90; ph < 90; ph += 5) {
-      var a2 = sphToVec(la, ph), b2 = sphToVec(la, ph + 5);
-      gl.push(a2[0], a2[1], a2[2], b2[0], b2[1], b2[2]);
-    }
-  }
-  for (var ph2 = -75; ph2 <= 75; ph2 += 15) {
-    for (var lo = -180; lo < 180; lo += 5) {
-      var c2 = sphToVec(lo, ph2), d2 = sphToVec(lo + 5, ph2);
-      gl.push(c2[0], c2[1], c2[2], d2[0], d2[1], d2[2]);
-    }
-  }
-  var gg = new THREE.BufferGeometry();
-  gg.setAttribute('position', new THREE.Float32BufferAttribute(gl, 3));
-  if (!/[?&]nograticule=1/.exec(urlSearch()))   /* debug: the graticule sits at exactly Rg, same as the land crust */
-  scene3.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x8ab4d4, transparent: true, opacity: 0.2 })));
-}
-
-/* one Mesh per feature so hover/pick is a material swap and picking is a
-   raycast; geometry is built once per (layer, LOD level) and cached */
-/* the land is a crust on the sphere, but each ear triangle is FLAT: its chords
-   dip inside the sphere by 1 - cos(edgeAngle/2), which is 1.5% of R at a 10°
-   edge — and the ocean shell sits at 0.9965 R, so an un-subdivided triangle
-   punches a visible hole in the sea (the Sahara, Siberia, Brazil...). Split
-   each triangle until every edge is under SAG_MAX_DEG.
-
-   A per-triangle test is not enough: two neighbours that split a SHARED edge a
-   different number of times leave a T-junction, and the gap between them reads
-   as a hairline crack across the country. So the split count is a property of
-   the EDGE (same idiom as the LOD ladder in core.js: the coarsest thing that
-   stays under the error), then relaxed until each triangle's depth is the max
-   of its three edges - over the WHOLE LAYER, not per feature: a national border
-   is two separate rings, so its two copies sit in different features and a
-   per-feature relaxation lets them settle apart (measured at LOD 9 on the 50m
-   layer: 11.1 % of the 107 698 shared edges mismatched, i.e. a crack along
-   every border; the global fixed point leaves 1 of them, a duplicate vertex).
-   Measured cost at LOD 9: 91k base triangles -> 3.7 M with cap 3. */
-var SAG_MAX_DEG = 6;      /* caps the sag at 0.137% of R; the ocean shell is 0.35%
-    inboard, so the margin between a chord and the shell is 0.21% of R = about
-    1.3 px at the globe edge - enough that the two never z-fight. At 9 deg the
-    margin was only 0.04% (0.2 px) and the hairline cracks were that fight. */
-var DEPTH_CAP = 3;        /* the relaxation's fixed point wants depth 4 in a few
-    places; at cap 3 the worst chord is 6 deg (sag 0.15% of R, still inside the
-    0.35% ocean inset) and the layer is 3.7 M triangles at LOD 9. Cap 2 would
-    be 1.0 M but its 12.5 deg chords sag 0.60% - past the ocean shell. */
-
-function sphMid(a, b) {
-  var x = (a[0] + b[0]) * 0.5, y = (a[1] + b[1]) * 0.5, z = (a[2] + b[2]) * 0.5;
-  var L = Math.sqrt(x * x + y * y + z * z);
-  if (L < 1e-12) return [a[0], a[1], a[2]];
-  return [x / L, y / L, z / L];
-}
-
-function sphAng(a, b) {
-  var d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  return Math.acos(d < -1 ? -1 : (d > 1 ? 1 : d)) / C.DEG;
-}
-
-/* unit vector for a lon/lat pair, in the sphere's frame: x points at 0,0 and
-   z at +lon, the same convention as sphToVec in core.js */
-function uv(lon, lat) {
-  var la = lon * C.DEG, ph = lat * C.DEG, cp = Math.cos(ph);
-  return [cp * Math.cos(la), Math.sin(ph), -cp * Math.sin(la)];   /* same right-handed frame as sphToVec */
-}
-
-function sphSub(a, b, c, depth, out) {
-  if (depth <= 0) { out.push(a, b, c); return; }
-  var ab = sphMid(a, b), bc = sphMid(b, c), ca = sphMid(c, a);
-  sphSub(a, ab, ca, depth - 1, out);
-  sphSub(ab, b, bc, depth - 1, out);
-  sphSub(ca, bc, c, depth - 1, out);
-  sphSub(ab, bc, ca, depth - 1, out);
-}
-
-/* the split count an edge demands: the coarsest 2^d split that keeps every
-   sub-chord under SAG_MAX_DEG. A PURE function of the edge, so both sides of
-   a shared border compute the same value. */
-function edgeDepth(a, b) {
-  var L = sphAng(a, b);
-  if (L <= SAG_MAX_DEG) return 0;
-  return Math.ceil(Math.log(L / SAG_MAX_DEG) / Math.log(2));
-}
-function ekeyOf(a, b) {
-  var ka = Math.round(a[0] * 1e6) + ',' + Math.round(a[1] * 1e6) + ',' + Math.round(a[2] * 1e6);
-  var kb = Math.round(b[0] * 1e6) + ',' + Math.round(b[1] * 1e6) + ',' + Math.round(b[2] * 1e6);
-  return ka < kb ? ka + '|' + kb : kb + '|' + ka;
-}
-
-/* the GLOBE's own LOD level, from the true screen scale at the tangent point.
-   A perspective camera with fov f puts a world unit at the near surface (dist -
-   Rg) at (H/2)/(tan(f/2) * (dist - Rg)) px. One projected map unit is 2 PI /
-   5.3060017 rad of arc (the whole world spans 5.3060017 projected units), so
-   the budget in projected units is px * that factor. Same 0.9 px budget the 2D
-   view uses. Measured level across the zoom range: z 0.2 -> 2, z 2.0 -> 3,
-   z 2.7 -> 4, z 3.7 -> 5, z 4.8 -> 6 - the old formula stayed at 0 all the way
-   to z 7. */
-function globeLevel() {
-  if (globeLvlOverride >= 0) return globeLvlOverride;
-  var fov = 38;
-  var pxPerR = (H * 0.5) / (Math.tan(fov * 0.5 * C.DEG) * (globe.dist - Rg));
-  var ppu = pxPerR * (2 * Math.PI / 5.3060017);
-  var lvl = 0;
-  for (var t = 0; t < C.LOD_U.length - 1; t++) {
-    if (C.LOD_U[t] * ppu <= 0.9) { lvl = t; break; }
-  }
-  return lvl;
-}
-
-function buildGlobe() {
-  if (!THREE || !feats.length) return;
-  /* ---- LOD level from the TRUE screen scale at the tangent point ----
-     The old formula, min(W,H)*0.5 / (dist*2), is the scale of an ORTHOGRAPHIC
-     view of a globe that spans 2R on a min(W,H)-px screen. This camera is
-     PERSPECTIVE with fov 38 and the near surface sits at dist - Rg, so the real
-     px per world unit at the point facing the camera is
-        (H/2) / (tan(fov/2) * (dist - Rg))
-     which at H=800, dist=3.05 is 268.6 px/R against the 65.6 the old formula
-     gave: 4.1x. Projected map units are not world units either - the whole
-     world (360 deg = 2 PI rad) spans 5.3060 projected units - so one more
-     factor of 2 PI / 5.3060017. Measured: the old pick was LOD 0 at every
-     distance up to dist 0.19, i.e. the same coarsest ring was drawn at
-     z 2.0 AND at z 7, which is the "no LOD when zooming" the user sees.
-     With the correct scale the level walks 3 -> 4 -> 5 -> 6 -> 7 across the
-     zoom range (0.9 px budget, the same one the 2D view uses). */
-  var mlo = /[?&]lod=([0-9]+)/.exec(urlSearch());   /* ?lod=9 forces a level, for inspection */
-  globeLvlOverride = mlo ? Math.max(0, Math.min(C.LOD_U.length - 1, parseInt(mlo[1]))) : -1;
-  var lvl = globeLevel();
-  var ck = layerName + ':' + lvl;
-  var cached = globeCache[ck];
-  if (cached) {
-    cached.used = ++globeClock;
-    /* setMode('2d') leaves the group in scene3 (the renderer is just hidden), so
-       a second scene3.add() of the same group would double it in .children and
-       draw the layer twice: detach before attaching. */
-    if (cached.group.parent) cached.group.parent.remove(cached.group);
-    globeGroup = cached.group; scene3.add(globeGroup); return;
-  }
-  /* pass 1: every triangle of the WHOLE LAYER in one array - stride 8: the 3
-     unit-sphere vertices, the 3 edge keys, the split depth, the feature index.
-     The layer is relaxed as ONE problem because a national border is TWO rings
-     (the dataset carries no topology), so the two copies of a shared edge live
-     in different features. Measured on the 50m layer at LOD 9, over all 107 698
-     shared edges: relaxing feature by feature leaves 11.1 % of them split
-     differently on the two sides -> a hairline crack along every border. The
-     global fixed point below leaves 1 of them, and that one is a duplicated
-     ring vertex, not a real T-junction. */
-  var T = [], edgeTri = {}, t0 = Date.now();
-  /* the globe's ladder is SEWN (see core.js): the 2D ladder above is per-ring
-     and leaves 24-93 % of the drawn border edges on one side only, which on a
-     globe is a crack down to the ocean shell rather than a hairline on land.
-     Sewing costs 118 ms (110m) / 306 ms (50m) once per layer. */
-  if (!globeSewn[layerName]) { C.sewGlobeLadder(feats); globeSewn[layerName] = 1; }
-  for (var i = 0; i < feats.length; i++) {
-    var ft = feats[i];
-    for (var r = 0; r < ft.rings.length; r++) {
-      var rg = ft.rings[r];
-      if (!rg.ll) continue;
-      /* triangulate the DECIMATED lon/lat ring, not the projected one: the
-         ear-clipping tests (collinearity, convexity, diagonal-vs-edge) must run
-         in the space the vertices are actually placed in, and a geodesic edge
-         is not straight in Eckert IV. Decimating first also keeps the triangle
-         count down at low LOD, where the coarse ring is what is drawn. */
-      var lla = C.ringGlobeLLAtLevel(rg, lvl);   /* the GLOBE ladder (sewn), not the 2D one */
-      if (!lla) continue;   /* triangulateRing returns [] for a ring with < 3 points;
-         a length guard of 8 (4 points) silently drops whole small islands */
-      var tr = C.ringGlobeTris(rg, lvl);   /* cached per (ring, level) on the globe ladder:
-         the clip is 1.7 s of the 50m LOD-8 build, the Lawson refine only 16 ms of it, so a
-         rebuild or a layer switch pays the refine alone. Measured with the sewn ladder:
-         pass 1 warm is 180-330 ms on the 50m layer at LOD 3-6 */
-      for (var k = 0; k < tr.length; k += 3) {
-        var i1 = tr[k], i2 = tr[k + 1], i3 = tr[k + 2];
-        if (i1 === i2 || i2 === i3 || i3 === i1) continue;
-        var A = uv(lla[i1 * 2], lla[i1 * 2 + 1]), B = uv(lla[i2 * 2], lla[i2 * 2 + 1]),
-            Cc = uv(lla[i3 * 2], lla[i3 * 2 + 1]);
-        var e0 = ekeyOf(A, B), e1 = ekeyOf(B, Cc), e2 = ekeyOf(Cc, A);
-        var d0 = edgeDepth(A, B), d1 = edgeDepth(B, Cc), d2 = edgeDepth(Cc, A);
-        var s0 = T.length;
-        T.push(A, B, Cc, e0, e1, e2,
-          d0 > d1 ? (d0 > d2 ? d0 : d2) : (d1 > d2 ? d1 : d2), i);
-        for (var q0 = 0; q0 < 3; q0++) {
-          var ek = T[s0 + 3 + q0];
-          if (edgeTri[ek]) edgeTri[ek].push(s0); else edgeTri[ek] = [s0];
-        }
-      }
-    }
-  }
-  /* pass 2: relax to a fixed point over the LAYER. A triangle must be split at
-     least as often as the most demanding of its 3 edges, and raising that depth
-     raises the other triangles on those edges, which raises their edges... so
-     sweep the edge -> triangle adjacency until nothing moves.
-
-     The plain sweep is a measurement trap: it needs 26 passes before the cascade
-     stops moving (measured: 63-870 ms per build, and the sweep count kept hitting
-     the cap), because it propagates one hop per pass. Same fixed point, propagated
-     once: bucket the edges by the depth they demand and drain HIGH TO LOW, pushing
-     an edge back into its new bucket when raising a neighbour demands more. A
-     triangle's depth is the max over its 3 edges, so a depth can only rise - the
-     drain terminates and each edge is re-examined only when something changed.
-     Verified: 0 shared edges with two different depths on their two sides (the
-     old sweep's own "1 mismatched edge" was a duplicate ring vertex). Cost
-     measured: 9 ms (110m) / 81-108 ms (50m) instead of 63-870 ms. */
-  var edgeD = {}, maxD = 0;
-  var ekeys2 = Object.keys(edgeTri);
-  for (var ek3 = 0; ek3 < ekeys2.length; ek3++) {
-    var arr0 = edgeTri[ekeys2[ek3]], dm0 = 0;
-    for (var a4 = 0; a4 < arr0.length; a4++) if (T[arr0[a4] + 6] > dm0) dm0 = T[arr0[a4] + 6];
-    edgeD[ekeys2[ek3]] = dm0;
-    if (dm0 > maxD) maxD = dm0;
-  }
-  var bucketsD = [];
-  for (var d2 = 0; d2 <= maxD; d2++) bucketsD.push([]);
-  for (var ek4 = 0; ek4 < ekeys2.length; ek4++) if (edgeD[ekeys2[ek4]] > 0) bucketsD[edgeD[ekeys2[ek4]]].push(ekeys2[ek4]);
-  for (var d3 = maxD; d3 >= 1; d3--) {
-    var buck = bucketsD[d3];
-    for (var n2 = 0; n2 < buck.length; n2++) {   /* the same array: pushes land after n2 */
-      var ek5 = buck[n2];
-      if (edgeD[ek5] !== d3) continue;
-      var arr1 = edgeTri[ek5];
-      var dm1 = d3;
-      for (var a5 = 0; a5 < arr1.length; a5++) if (T[arr1[a5] + 6] > dm1) dm1 = T[arr1[a5] + 6];
-      if (dm1 !== d3) { if (dm1 <= maxD) bucketsD[dm1].push(ek5); edgeD[ek5] = dm1; continue; }
-      for (var a6 = 0; a6 < arr1.length; a6++) {
-        var si = arr1[a6];
-        if (T[si + 6] < d3) {
-          T[si + 6] = d3;
-          for (var q2 = 0; q2 < 3; q2++) {
-            var ek6 = T[si + 3 + q2];
-            if (edgeD[ek6] < d3) { edgeD[ek6] = d3; bucketsD[d3].push(ek6); }
-          }
-        }
-      }
-    }
-  }
-  /* pass 3: emit one mesh per feature, so picking and highlighting stay
-     per-country. Vertices are not shared any more - the subdivision points are
-     new and the ring vertices get duplicated, at most 2.4x the memory. */
-  var buckets = [];
-  for (var b = 0; b < feats.length; b++) buckets.push(null);
-  for (var t = 0; t < T.length; t += 8) {
-    var bi = T[t + 7];
-    if (!buckets[bi]) buckets[bi] = [];
-    buckets[bi].push(t);
-  }
-  var group = new THREE.Group();
-  for (var i2 = 0; i2 < buckets.length; i2++) {
-    var bt = buckets[i2];
-    if (!bt) continue;
-    var pos = [], idx = [], pOff = 0;
-    for (var b2 = 0; b2 < bt.length; b2++) {
-      var t2 = bt[b2];
-      var dep = T[t2 + 6] > DEPTH_CAP ? DEPTH_CAP : T[t2 + 6];
-      var sub = [];
-      sphSub(T[t2], T[t2 + 1], T[t2 + 2], dep, sub);
-      for (var s = 0; s < sub.length; s++) {
-        var u = sub[s];
-        pos.push(u[0] * Rg, u[1] * Rg, u[2] * Rg);
-        idx.push(pOff++);
-      }
-    }
-    if (!pos.length) continue;
-    var g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    var mat = /[?&]flat=1/.exec(urlSearch())
-      ? new THREE.MeshBasicMaterial({ color: 0xc9c9c7, side: THREE.DoubleSide })   /* debug: unlit, isolates normals/lighting from geometry */
-      : new THREE.MeshLambertMaterial({ color: 0xc9c9c7, side: THREE.DoubleSide });
-    var m = new THREE.Mesh(g, mat);
-    m.userData.tris = idx.length / 3;
-    m.userData.nan = 0;
-    for (var nn = 0; nn < pos.length; nn++) if (!(pos[nn] === pos[nn])) m.userData.nan++;
-    m.userData.i = i2;
-    group.add(m);
-  }
-  /* ---- pass 4: stroke the interior borders over the crust.
-     Each country carries its OWN copy of a shared border and the two copies
-     are decimated INDEPENDENTLY, so along a border the two sides keep
-     different vertices: measured at LOD 9, 76 815 of the 119 927 decimated
-     edges are used once, and a vertex-conform pass changes nothing (0
-     interior vertices are shared). So the gap cannot be closed by matching
-     keys or by depth relaxation - 29 hairline slivers of sea were still
-     visible inside land. 2D hides the same thing by stroking the border, so
-     do the same here: a strip on the border, floated just above the crust,
-     in a slightly darker grey. Only INTERIOR borders get a strip - decided
-     from the FINEST data, where a shared edge really is shared - so coastlines
-     keep their exact shape and the sea edge stays crisp. */
-  var FIN = C.LOD_U.length - 1;   /* the level map is built in LON/LAT at the
-     finest level - the same space the decimated rings below live in. rg.pts is
-     PROJECTED world space, a different one: mixing the two left the strip
-     empty (kids stayed 201 and no border was drawn). */
-  var vk = function (x, y) { return Math.round(x * 1e6) + ',' + Math.round(y * 1e6); };
-  var inter = {};
-  for (var fi = 0; fi < feats.length; fi++) for (var ri = 0; ri < feats[fi].rings.length; ri++) {
-    var rgf = feats[fi].rings[ri];
-    var pts = rgf.ll ? C.ringLLAtLevel(rgf, FIN) : null;
-    if (!pts || pts.length < 6) continue;
-    var nf2 = pts.length / 2;
-    for (var ei2 = 0; ei2 < nf2; ei2++) {
-      var ka = vk(pts[ei2 * 2], pts[ei2 * 2 + 1]);
-      var kb = vk(pts[((ei2 + 1) % nf2) * 2], pts[((ei2 + 1) % nf2) * 2 + 1]);
-      if (ka === kb) continue;
-      var kk = ka < kb ? ka + '|' + kb : kb + '|' + ka;
-      if (inter[kk]) inter[kk] = 2; else inter[kk] = 1;
-    }
-  }
-  /* a decimated edge is on an interior border when the FINE edge it spans is
-     shared by two features. The level lists are index subsets of the same ring,
-     so the drawn edge ia->ib covers the fine edges ia..ib: testing the fine edge
-     ia -> ia+1 in `inter` is exact, no grid and no tolerance needed. (The grid
-     version matched a LON/LAT `inter` map against PROJECTED rg.pts midpoints, so
-     it found nothing at all: the strip mesh was never built, kids stayed 201 and
-     the cracks along the borders stayed open down to the ocean shell.) */
-  var meanStep = 0, nStep = 0;
-  for (var f3 = 0; f3 < feats.length; f3++) for (var r3 = 0; r3 < feats[f3].rings.length; r3++) {
-    var rg3 = feats[f3].rings[r3];
-    if (!rg3.ll) continue;
-    var l3 = C.ringGlobeLLAtLevel(rg3, lvl);
-    if (!l3 || l3.length < 6) continue;
-    var n3 = l3.length / 2;
-    for (var e3 = 0; e3 < n3; e3++) {
-      meanStep += Math.hypot(l3[((e3 + 1) % n3) * 2] - l3[e3 * 2], l3[((e3 + 1) % n3) * 2 + 1] - l3[e3 * 2 + 1]);
-      nStep++;
-    }
-  }
-  var bandDeg = nStep ? Math.max(0.05, Math.min(2.0, 2.6 * (meanStep / nStep))) : 0.1;
-  var bp = [];
-  for (var f4 = 0; f4 < feats.length; f4++) for (var r4 = 0; r4 < feats[f4].rings.length; r4++) {
-    var rg4 = feats[f4].rings[r4];
-    var llF = rg4.ll ? C.ringLLAtLevel(rg4, FIN) : null;
-    if (!llF || llF.length < 6) continue;
-    var nF = llF.length / 2;
-    var idxs = rg4.gl[lvl];
-    var nd = idxs.length;
-    if (nd < 3) continue;
-    for (var e4 = 0; e4 < nd; e4++) {
-      var ia = idxs[e4], ib = idxs[(e4 + 1) % nd];
-      if (ia === ib) continue;
-      /* the drawn edge stands for the fine edges ia..ib; a coarse span can
-         start on a coast and end on a border, so decide by MAJORITY of the fine
-         edges it covers (sampled, at most 8) rather than the first one only */
-      var span = (ib - ia + nF) % nF;
-      if (span < 1) continue;
-      var nsamp = span < 8 ? span : 8, hit = 0;
-      for (var s4 = 0; s4 < nsamp; s4++) {
-        var fa = (ia + Math.floor(s4 * span / nsamp)) % nF;
-        var fb = (fa + 1) % nF;
-        var ka4 = vk(llF[fa * 2], llF[fa * 2 + 1]);
-        var kb4 = vk(llF[fb * 2], llF[fb * 2 + 1]);
-        if (ka4 !== kb4 && inter[ka4 < kb4 ? ka4 + '|' + kb4 : kb4 + '|' + ka4] === 2) hit++;
-      }
-      if (hit * 2 <= nsamp) continue;
-      var ax4 = llF[ia * 2], ay4 = llF[ia * 2 + 1], bx4 = llF[ib * 2], by4 = llF[ib * 2 + 1];
-      var A1 = uv(ax4, ay4), B1 = uv(bx4, by4);
-      var nx = A1[1] * B1[2] - A1[2] * B1[1], ny = A1[2] * B1[0] - A1[0] * B1[2], nz = A1[0] * B1[1] - A1[1] * B1[0];
-      var LL = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (LL < 1e-12) continue;
-      nx /= LL; ny /= LL; nz /= LL;
-      var px = ny * A1[2] - nz * A1[1], py = nz * A1[0] - nx * A1[2], pz = nx * A1[1] - ny * A1[0];
-      var PL = Math.sqrt(px * px + py * py + pz * pz);
-      if (PL < 1e-12) continue;
-      px /= PL; py /= PL; pz /= PL;
-      var s2 = bandDeg * C.DEG * 0.5;
-      var A2 = [A1[0] + s2 * px, A1[1] + s2 * py, A1[2] + s2 * pz];
-      var B2 = [B1[0] + s2 * px, B1[1] + s2 * py, B1[2] + s2 * pz];
-      var A3 = [A1[0] - s2 * px, A1[1] - s2 * py, A1[2] - s2 * pz];
-      var B3 = [B1[0] - s2 * px, B1[1] - s2 * py, B1[2] - s2 * pz];
-      var L2a = Math.sqrt(A2[0] * A2[0] + A2[1] * A2[1] + A2[2] * A2[2]);
-      var L2b = Math.sqrt(B2[0] * B2[0] + B2[1] * B2[1] + B2[2] * B2[2]);
-      var L2c = Math.sqrt(A3[0] * A3[0] + A3[1] * A3[1] + A3[2] * A3[2]);
-      var L2d = Math.sqrt(B3[0] * B3[0] + B3[1] * B3[1] + B3[2] * B3[2]);
-      var lift = 1.0018;
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              B1[0] * Rg * lift, B1[1] * Rg * lift, B1[2] * Rg * lift,
-              B2[0] / L2b * Rg * lift, B2[1] / L2b * Rg * lift, B2[2] / L2b * Rg * lift);
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              B2[0] / L2b * Rg * lift, B2[1] / L2b * Rg * lift, B2[2] / L2b * Rg * lift,
-              A2[0] / L2a * Rg * lift, A2[1] / L2a * Rg * lift, A2[2] / L2a * Rg * lift);
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              B3[0] / L2d * Rg * lift, B3[1] / L2d * Rg * lift, B3[2] / L2d * Rg * lift,
-              B1[0] * Rg * lift, B1[1] * Rg * lift, B1[2] * Rg * lift);
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              A3[0] / L2c * Rg * lift, A3[1] / L2c * Rg * lift, A3[2] / L2c * Rg * lift,
-              B3[0] / L2d * Rg * lift, B3[1] / L2d * Rg * lift, B3[2] / L2d * Rg * lift);
-    }
-  }
-  if (bp.length) {
-    var bg2 = new THREE.BufferGeometry();
-    bg2.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3));
-    bg2.computeVertexNormals();
-    var bm = new THREE.Mesh(bg2, new THREE.MeshBasicMaterial({ color: 0x9a9a98, side: THREE.DoubleSide }));
-    bm.userData.i = -1;   /* not pickable: pick3D skips i < 0 */
-    group.add(bm);
-  }
-  /* one entry per (layer, LOD level). Measured per-entry size: 110m lvl 3 = 378 k
-     triangles, 50m lvl 3-6 = 0.88-1.0 M, and a THREE BufferGeometry costs 24 B
-     per vertex (position + normal) so a 50m entry is ~72 MB of GPU buffers.
-     Keeping every level of both layers would be ~600 MB, so this is an LRU of
-     2: the level in view and the one the zoom is about to cross. Evicted groups
-     are disposed, not just dropped - a dropped BufferGeometry keeps its
-     attributes alive on the GPU. */
-  var ck2 = null, old = -1;
-  for (var k2 in globeCache) {
-    var en = globeCache[k2];
-    if (en.used > old) { old = en.used; ck2 = k2; }
-  }
-  if (ck2 !== null && Object.keys(globeCache).length >= 2 && ck2 !== ck) {
-    var ev = globeCache[ck2];
-    for (var c2 = 0; c2 < ev.group.children.length; c2++) {
-      var o2 = ev.group.children[c2];
-      if (o2.geometry) o2.geometry.dispose();
-      if (o2.material) o2.material.dispose();
-    }
-    scene3.remove(ev.group);   /* Object3D.remove() with no args is a no-op: it
-       iterates its arguments. Leaving the evicted group in the scene would draw
-       it again under the new one (double geometry, z-fighting) */
-    delete globeCache[ck2];
-  }
-  globeCache[ck] = { group: group, used: ++globeClock, lvl: lvl, ms: Date.now() - t0 };
-  globeGroup = group;
-  scene3.add(group);
-}
-
-function setGlobeLayer(id) {
-  if (globeGroup) scene3.remove(globeGroup);
-  var c = globeCache[id + ':' + globeLevel()];
-  if (c) { c.used = ++globeClock; globeGroup = c.group; scene3.add(globeGroup); }
-  else { layerName = id; buildGlobe(); }
-}
-
-function placeCamera() {
-  /* setMode() can run before resize(), so the aspect from the constructor may
-     be 0/0 = NaN, which makes the whole frustum NaN and culls every mesh */
-  cam3.aspect = W / H;
-  cam3.updateProjectionMatrix();
-  var la = globe.lon * C.DEG, ph = globe.lat * C.DEG, cp = Math.cos(ph);
-  cam3.position.set(cp * Math.cos(la) * globe.dist,
-                    Math.sin(ph) * globe.dist,
-                    -cp * Math.sin(la) * globe.dist);   /* stays on sphToVec(lon,lat): the camera faces exactly that point */
-  cam3.lookAt(0, 0, 0);
-}
-
-function draw3D() {
-  if (!renderer3) return;
-  refreshGlobe();          /* the LOD level follows globe.dist: without this the
-     globe draws the same level forever, which is the "no LOD when zooming" bug */
-  placeCamera();
-  renderer3.render(scene3, cam3);   /* r170 reads camera.parent immediately: the 2nd arg is not optional */
-  drawLabels3D(zoomLevel3D());
-}
-
-function zoomLevel3D() {
-  /* dist 3.05 frames the whole globe, which we call z 2 - the same label
-     scale the dataset was authored on */
-  return 2 + Math.log2(3.05 / globe.dist) * 1.15;
-}
-
-/* labels are drawn on a transparent canvas above the WebGL one, so they stay
-   crisp and unlit; the back of the globe is culled by a dot product */
-function drawLabels3D(z) {
-  if (!labelsCtx) return;
-  labelsCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  labelsCtx.clearRect(0, 0, W, H);
-  labelsCtx.font = '11px system-ui, -apple-system, sans-serif';
-  labelsCtx.textAlign = 'center'; labelsCtx.textBaseline = 'middle';
-  var camPos = cam3.position, len = Math.hypot(camPos.x, camPos.y, camPos.z);
-  var placed = [], shown = 0;
-  for (var i = 0; i < layout.length; i++) {
-    var L = layout[i];
-    if (z < L.minz - 0.2 || z > L.maxz + 0.6) continue;
-    var v = sphToVec(L.lonDeg, L.latDeg);
-    if ((v[0] * camPos.x + v[1] * camPos.y + v[2] * camPos.z) / len < Rg * 0.16) continue;
-    var sp = new THREE.Vector3(v[0], v[1], v[2]);
-    sp.project(cam3);
-    var px = (sp.x * 0.5 + 0.5) * W, py = (0.5 - sp.y * 0.5) * H;
-    if (px < 24 || py < 12 || px > W - 24 || py > H - 12) continue;
-    var w = labelsCtx.measureText(L.name).width + 8, h = 15;
-    var box = [px - w / 2, py - h / 2, px + w / 2, py + h / 2];
-    var ok = true;
-    for (var q = 0; q < placed.length && ok; q++) {
-      var b = placed[q];
-      if (box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]) ok = false;
-    }
-    if (!ok) continue;
-    placed.push(box);
-    labelsCtx.lineWidth = 3; labelsCtx.strokeStyle = 'rgba(12,22,32,.75)'; labelsCtx.strokeText(L.name, px, py);
-    labelsCtx.fillStyle = 'rgba(255,255,255,.92)'; labelsCtx.fillText(L.name, px, py);
-    if (++shown > 70) break;
-  }
-}
-
-/* picking in 3D: three.js ray against the land crust, smallest feature wins
-   where several stack (islands over the country behind them) */
-function pick3D(px, py) {
-  if (!rayc || !globeGroup) return -1;
-  /* r170 dropped the legacy setCoords: go through setFromCamera with NDC
-     (-1..1, not the -0.5..0.5 the old call passed) */
-  if (!ndc) ndc = new THREE.Vector2(0, 0);
-  ndc.set(px / W * 2 - 1, 1 - py / H * 2);
-  rayc.setFromCamera(ndc, cam3);
-  var hits = rayc.intersectObjects(globeGroup.children, false);
-  var best = -1, bestA = 0;
-  for (var h = 0; h < hits.length; h++) {
-    var jh = hits[h].object.userData.i;
-    if (jh < 0) continue;                      /* the border strip is not pickable */
-    if (best < 0 || feats[jh].areaSr < bestA) { bestA = feats[jh].areaSr; best = jh; }
-  }
-  return best;
-}
-
-function highlight3D() {
-  if (!globeGroup) return;
-  var kids = globeGroup.children;
-  for (var i = 0; i < kids.length; i++) {
-    var o = kids[i], j = o.userData.i;
-    if (j < 0) continue;   /* the border strip keeps its own colour */
-    var col = (j === gPicked) ? 0xffffff : (j === gHover) ? 0xedf0e9 : 0xc9c9c7;
-    o.material.color.setHex(col);
-  }
-}
-
-function setMode(m) {
-  if (m === mode) return;
-  mode = m;
-  if (m === '3d') {
-    if (!renderer3) init3D();
-    if (!scene3) newScene();
-    buildGlobe();
-    canvas.style.display = 'none';
-    labelsCv.style.display = '';   /* setMode('2d') hid it inline; a later switch back would keep it hidden */
-  } else {
-    if (renderer3) renderer3.domElement.style.display = 'none';
-    canvas.style.display = 'block';
-    labelsCv.style.display = 'none';
-    /* the 2D view's geometry is centred on view.lon/lat and is rebuilt on the
-       centre; coming back from the globe, the pieces may be stale (a rebuild
-       was skipped while in 3D), so refresh them */
-    reproject();
-  }
-  refreshMenu();
+  var hp = pickPlaceAt(px, py);
+  if (hp >= 0) { pickedPlace = hp; picked = -1; hoverPlace = hp; hover = -1; refreshUI(); return; }
+  pickedPlace = -1;
+  picked = pickAt(px, py);
   refreshUI();
 }
 
@@ -1787,37 +1152,13 @@ function refreshMenu() {
   var rows = itemsEl.getElementsByClassName('menuitem');
   for (var i = 0; i < rows.length; i++) {
     var el = rows[i], id = el.dataset.id;
-    var on = (id === '2d' && mode === '2d') ||
-             (id === '3d' && mode === '3d') ||
-             (mode === '2d' && id === 'proj:' + projID) ||
+    var on = (id === 'proj:' + projID) ||
              (id === 'layer:' + layerName) ||
              (id === 'cities' && citiesOn) ||
              (id === 'north' && northUp);
     if (on) el.classList.add('on'); else el.classList.remove('on');
   }
-  /* the projection rows cannot apply in 3D: dim that section instead of hiding
-     it, so the sheet keeps the same height and the eye keeps its place */
-  var grps = itemsEl.getElementsByClassName('mgroup');
-  for (var q = 0; q < grps.length; q++) {
-    if (grps[q].classList.contains('needs2d')) {
-      if (mode === '3d') grps[q].classList.add('dim'); else grps[q].classList.remove('dim');
-    }
-  }
   refreshBurger();
-}
-
-function refreshGlobe() {
-  /* the level in view may have moved (zoom, or a resize that changes H): swap
-     the group for the one keyed to the current level. Cheap when nothing moved,
-     because the entry is already cached. */
-  if (!globeGroup) { buildGlobe(); return; }
-  var lvl = globeLevel();
-  var c = globeCache[layerName + ':' + lvl];
-  if (c && c.group === globeGroup) return;
-  scene3.remove(globeGroup);
-  if (c) { c.used = ++globeClock; globeGroup = c.group; }
-  else { globeGroup = null; buildGlobe(); return; }
-  scene3.add(globeGroup);
 }
 
 /* ---------- info panel ---------- */
@@ -1849,7 +1190,7 @@ function showPlacePanel(i) {
 
 function refreshUI() {
   var pi = (pickedPlace >= 0) ? pickedPlace : hoverPlace;
-  if (mode !== '3d' && pi >= 0 && places[pi]) { showPlacePanel(pi); return; }
+  if (pi >= 0 && places[pi]) { showPlacePanel(pi); return; }
   var idx = picked >= 0 ? picked : hover;
   var f = idx >= 0 ? feats[idx] : null;
   if (!f) {
@@ -1895,17 +1236,6 @@ function refreshUI() {
 }
 function hudText() {
   var nm = layerLabel(layerName);
-  if (mode === '3d') {
-    var main = 'Globe 3D · ' + nm + ' · z ' + zoomLevel3D().toFixed(1) +
-           ' · lon ' + globe.lon.toFixed(1) + '°, lat ' + globe.lat.toFixed(1) + '°';
-    /* the readout goes on a line of its own: .hud is white-space:pre and pinned
-       bottom-left, and the .help line is pinned bottom-RIGHT and long, so a
-       debug segment appended to the same line is drawn over the help text
-       (measured: both collided from x 380 on a 1280 px viewport) */
-    if (!dbg()) return main;
-    return 'lod ' + globeLevel() + ' · tri ' + renderer3.info.render.triangles +
-           ' kids ' + (globeGroup ? globeGroup.children.length : 0) + '\n' + main;
-  }
   var z = zoomLevel();
   /* the centre is the point of the SPHERE that is the centre of projection -
      read it from view, not from unprojecting a plane position */
@@ -1925,15 +1255,6 @@ function hudText() {
   return segLine + ' · reproject ' + lastMs.toFixed(1) + ' ms (rings ' + reprojSplit.rings.toFixed(1) +
          ' + ' + reprojSplit.rest.toFixed(1) + ') · path ' + drawMs.path.toFixed(1) +
          ' ms · paint ' + drawMs.paint.toFixed(1) + ' ms\n' + main;
-}
-function pieceCount() {
-  var n = 0;
-  for (var i = 0; i < feats.length; i++) {
-    for (var r = 0; r < feats[i].rings.length; r++) {
-      n += feats[i].rings[r].pieces ? feats[i].rings[r].pieces.length : 0;
-    }
-  }
-  return n;
 }
 function helpText() {
   /* two lengths: the full hint needs room the narrow layouts do not have, and it
@@ -1959,7 +1280,6 @@ function resize() {
   canvas.width = Math.round(w * DPR); canvas.height = Math.round(h * DPR);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   W = w; H = h;
-  if (renderer3) renderer3.setSize(W, H);   /* the GL canvas is not the #map one, it needs its own resize */
 }
 
 var drag = null;
@@ -1990,12 +1310,10 @@ function bindPointer(el) {
   el.addEventListener('mouseleave', function () {
     mouse.inside = false;
     if (hover !== -1) { hover = -1; refreshUI(); }
-    if (gHover !== -1) { gHover = -1; highlight3D(); refreshUI(); }
   });
   el.addEventListener('click', function (e) { doPick(e.offsetX, e.offsetY); });
   el.addEventListener('dblclick', function (e) {
     doPick(e.offsetX, e.offsetY);
-    if (mode === '3d') { zoomGlobe(1.6); refreshUI(); return; }
     /* one gesture for "take me there", ANIMATED: the view pulls back (so the
        target and its surroundings stay in view while the world turns), travels the
        great circle, then comes in to the zoom that fits the target's own bounding
@@ -2008,7 +1326,6 @@ function bindPointer(el) {
     stopInertia();               /* a wheel step takes over from any glide */
     fly = null;                  /* ...and from any flight */
     var f = zoomFactor(e.deltaY);
-    if (mode === '3d') { zoomGlobe(f); return; }
     /* WHEEL = ZOOM, as it always was. A previous version made the plain wheel move
        the centre of projection and required ctrl+wheel to zoom; that broke the one
        gesture everybody expects. Zoom is about the centre of projection (k only),
@@ -2060,12 +1377,6 @@ function geoAt(px, py) {
    showed was this, and it affected every projection, not just that one). */
 function pan(dx, dy) {
   lastMoveT = loopNow;             /* the tilt waits for the gesture to finish */
-  if (mode === '3d') {
-    globe.lon -= dx * 0.28;
-    globe.lat += dy * 0.28;
-    globe.lat = Math.max(-89.5, Math.min(89.5, globe.lat));
-    return;
-  }
   var g = geoAt(W * 0.5 - dx, H * 0.5 - dy);
   if (!g) {
     /* outside the map figure (the corner outside an orthographic disc): nothing
@@ -2081,12 +1392,6 @@ function pan(dx, dy) {
 function scrollCentre(dLon, dLat) {
   var degPerPx = 0.25 * (fitK / view.k);
   setCenter(view.lon + dLon * degPerPx, view.lat + dLat * degPerPx);
-}
-
-function zoomGlobe(f) {
-  globe.dist = Math.max(1.12, Math.min(9, globe.dist * f));
-  highlight3D();
-  refreshUI();
 }
 
 /* ---------- keyboard ---------- */
@@ -2308,7 +1613,6 @@ function flyTarget(x, y) {
    phone got a different (and worse) behaviour from the mouse: a bare 1.7x zoom
    instead of the fitted flight. */
 function gestureGo(x, y) {
-  if (mode === '3d') { zoomGlobe(1.6); refreshUI(); return; }
   var t = flyTarget(x, y);
   if (!t) return;
   flyTo(t.lon, t.lat, t.k);
@@ -2356,7 +1660,7 @@ function stepFly(now) {
      enough that the spin is not a snap, and the rate cap keeps a 154 deg roll (a
      drag over a pole) from whipping. A correct roll is a no-op here, so a flight
      that starts north-up does no extra work. */
-  if (mode === '2d' && C.CUR && !C.CUR.pseudocyl && !flyAtPole()) {
+  if (C.CUR && !C.CUR.pseudocyl && !flyAtPole()) {
     var roll = C.frameRoll(FRAME);
     if (isFinite(roll) && Math.abs(roll) > 1e-5) {
       /* A FIXED time constant is not enough: moving the centre re-rolls the frame
@@ -2392,7 +1696,7 @@ function flyAtPole() {
 /* the gentle tilt back to north-up (see the NORTH-UP comment above) */
 function stepAlign(now) {
   if (!northUp || fly || inertia.on || drag || touch) { alignPrev = now; return; }
-  if (mode === '3d' || !C.CUR || C.CUR.pseudocyl) { alignPrev = now; return; }
+  if (!C.CUR || C.CUR.pseudocyl) { alignPrev = now; return; }
   var dt = (alignPrev && now > alignPrev) ? Math.min(0.1, (now - alignPrev) / 1000) : 0.016;
   alignPrev = now;
   if (now - lastMoveT < ALIGN_DELAY * 1000) return;
@@ -2415,16 +1719,14 @@ window.addEventListener('keydown', function (e) {
   keys[e.key] = true;
   stopInertia();
   if (e.key === 'Enter') {
-    if (mode !== '3d' && hoverPlace >= 0) { pickedPlace = hoverPlace; picked = -1; refreshUI(); return; }
-    picked = (mode === '3d') ? gHover : hover; if (mode === '3d') gPicked = gHover; pickedPlace = -1; refreshUI();
+    if (hoverPlace >= 0) { pickedPlace = hoverPlace; picked = -1; refreshUI(); return; }
+    picked = hover; pickedPlace = -1; refreshUI();
   }
   if (e.key === 'r' || e.key === 'R') {
-    if (mode === '3d') { globe.lon = 0; globe.lat = 0; globe.dist = 3.05; }
-    else { setCenterFresh(0, 0); fitView(worldBounds()); }
+    setCenterFresh(0, 0); fitView(worldBounds());
     refreshUI();
   }
-  if (e.key === 'm' || e.key === 'M') { setMode(mode === '3d' ? '2d' : '3d'); closeMenu(); }
-  if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; gPicked = -1; pickedPlace = -1; hoverPlace = -1; highlight3D(); refreshUI(); } }
+  if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; pickedPlace = -1; hoverPlace = -1; refreshUI(); } }
   if (e.key === 'c' || e.key === 'C') toggleCities();
   if (e.key === 't' || e.key === 'T') toggleLayer();
 });
@@ -2439,10 +1741,7 @@ function keyStep() {
   if (keys.a || keys.A) zf *= 1.07;
   if (keys.d || keys.D) zf /= 1.07;
   if (dx || dy) pan(dx, dy);
-  if (zf !== 1) {
-    if (mode === '3d') zoomGlobe(zf);
-    else zoomBy(zf);
-  }
+  if (zf !== 1) zoomBy(zf);
 }
 
 /* ---------- touch ----------
@@ -2496,7 +1795,7 @@ function touchHandler(e, start) {
   }
   if (touch.d) {
     var f = d / touch.d;
-    if (mode === '3d') zoomGlobe(f); else zoomBy(f);
+    zoomBy(f);
     pan(mx - touch.x, my - touch.y);
     touch.d = d; touch.x = mx; touch.y = my;
   }
@@ -2613,7 +1912,6 @@ window.ViewState = {
   pickedPlace: function () { return pickedPlace; },
   pickAt: function (px, py) { return pickAt(px, py); },
   pickPlaceAt: function (px, py) { return pickPlaceAt(px, py); },
-  mode: function () { return mode; },
   /* the screen box of a feature as it is drawn NOW: what "the target fits" means */
   screenBox: function (i) {
     var f = feats[i];

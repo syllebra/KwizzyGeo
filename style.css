@@ -24,14 +24,11 @@
   --ink-dim: rgba(190, 210, 228, .72);
 }
 
-/* fullscreen stage; the 2D canvas, the WebGL canvas and the label overlay
-   stack inside it, all non-interactive so the stage div gets the events */
+/* fullscreen stage: one map canvas; the stage div carries the pointer handlers */
 html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background: #143456; }
 #stage { position: fixed; inset: 0; touch-action: none; cursor: crosshair; }
 #map { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
-#ggl { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
-#labels { position: fixed; inset: 0; display: block; pointer-events: none; }
-#stage, #map, #ggl { pointer-events: auto; }
+#stage, #map { pointer-events: auto; }
 
 .hud {
   position: fixed; left: 14px; bottom: 14px; pointer-events: none;

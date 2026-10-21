@@ -165,13 +165,12 @@ setTimeout(function () {
       dispatch('mousemove', mouse(720, 380));
       console.log('after t -> hud:  ' + hudEl.textContent);
       console.log('panel after t:  ' + panelEl.innerHTML.replace(/<\/?(div|span)[^>]*>/g, ' | ').replace(/\s+/g, ' ').trim());
-      /* switch to the globe and back: the 3D path reads rg.pts/rg.levels, which
-         the recentering must never have overwritten */
-      try { L['win:keydown']({ key: 'm' }); } catch (e) { errors.push('m(3d): ' + e.message); }
+      /* the `m` key used to toggle the globe; it is gone with the 3D view, so this
+         asserts the view SURVIVES a stray press instead of switching */
+      try { L['win:keydown']({ key: 'm' }); } catch (e) { errors.push('m: ' + e.message); }
       console.log('after m -> hud:  ' + hudEl.textContent.split('\n')[0]);
-      try { L['win:keydown']({ key: 'm' }); } catch (e) { errors.push('m(2d): ' + e.message); }
       dispatch('mousemove', mouse(700, 400));
-      console.log('back in 2d -> hud:  ' + hudEl.textContent.split('\n')[0]);
+      console.log('after m, same view -> hud:  ' + hudEl.textContent.split('\n')[0]);
       console.log('errors:  ' + (errors.length ? errors : 'none'));
       process.exit(0);
     }, 400);

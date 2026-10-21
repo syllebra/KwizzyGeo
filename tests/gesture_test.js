@@ -189,15 +189,17 @@ setTimeout(function () {
   /* a row: pick a PROJECTION row (the 3D row needs WebGL, which the harness has
      no business providing) and check it both closes the sheet and takes effect */
   const rows = items.getElementsByClassName('menuitem');
-  /* 2 (view) + 3 (layers) + 2 (overlays) - the projection group is archived */
-  check('menu has rows', rows.length >= 7 && rows.length <= 8, rows.length + ' rows');
+  /* 3 layers + 2 overlays. The Globe row is gone with the 3D view, and the
+     projection group is archived, so there is no "View" group left to have one
+     choice in. */
+  check('menu has rows', rows.length === 5, rows.length + ' rows');
   /* View / Projection / Layer / Overlay: the groups are the sheet's structure, so
      the count is asserted - a group that silently stops being rendered is a
      section the user can no longer reach */
-  /* View / Layer / Overlay. The PROJECTION group is archived (ARCHIVED_PROJECTIONS
-     in app.js): the registry still works via ?proj=, but the sheet no longer offers
-     eleven world maps nobody plays with. */
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3,
+  /* Layer / Overlay, and no View group: the globe view was removed and the
+     PROJECTION group is archived (ARCHIVED_PROJECTIONS in app.js). The registry
+     still works via ?proj=. */
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 2,
         items.getElementsByClassName('mgroup').length + ' groups');
   check('the projection rows are archived, not rendered',
         !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
