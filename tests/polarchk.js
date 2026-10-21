@@ -6,10 +6,10 @@
    poles was already right (within 0.2 %) before the frame fix: what was wrong was
    the ORIENTATION, not the coverage - see README "Moving the centre of projection". */
 const fs = require('fs');
-const src = fs.readFileSync(__dirname + '/core.js', 'utf8');
+const src = fs.readFileSync(__dirname + '/../core.js', 'utf8');
 const C = new Function(src + '\nreturn CORE;')();
 const DEG = Math.PI / 180;
-const geo = JSON.parse(fs.readFileSync(__dirname + '/countries.geojson', 'utf8'));
+const geo = JSON.parse(fs.readFileSync(__dirname + '/../countries.geojson', 'utf8'));
 const feats = C.buildFeaturesLOD(geo, 0.2, true);
 C.prepareXYZ(feats);
 const geoFeats = C.buildFeaturesLOD(geo, 0.2, false);

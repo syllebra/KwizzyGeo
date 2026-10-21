@@ -13,7 +13,7 @@
    CANONICAL frame; assert that, and that the map is not sheared: the rotated
    frame's equator is drawn horizontal and its central meridian vertical. */
 const fs = require('fs');
-const C = new Function(fs.readFileSync(__dirname + '/core.js', 'utf8') + '\nreturn CORE;')();
+const C = new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8') + '\nreturn CORE;')();
 const DEG = Math.PI / 180;
 let fails = 0;
 function chk(n, ok) { console.log((ok ? 'ok   ' : 'FAIL ') + n); if (!ok) fails++; }

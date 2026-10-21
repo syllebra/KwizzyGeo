@@ -19,17 +19,31 @@ Switch layers with **`t`** or the URL param **`?layer=110m`**. The 2D view opens
 
 ## Files
 
+The repository root is **exactly what a player loads** — serve it and the game
+runs. Nothing else is needed at runtime; the node scripts live in `tests/` and are
+never fetched by the browser.
+
 | file | role |
 |---|---|
 | `index.html` | canvas + three overlay divs (panel, hud, help) |
 | `style.css` | fullscreen layout, panel styling, touch/mobile tweaks |
-| `core.js` | projection registry + geometry + re-centring, pure functions (unit-tested by `test_core.js`) |
+| `core.js` | projection registry + geometry + re-centring, pure functions (unit-tested by `tests/test_core.js`) |
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
+| `three.bundle.cjs` | three.js, vendored for the 3D globe |
 | `so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
 | `countries.geojson` | 177 features |
 | `ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
-| `visible_check.js` | audits what is actually painted against the source data, per centre |
-| `test_core.js` / `harness.js` | node tests: projection maths, areas, picking, headless app run |
+| `tests/` | the node test scripts (below) — development only |
+| `README.md`, `LICENSE` | this document, MIT |
+
+### Deploying
+
+Upload the seven runtime files above (`index.html`, `style.css`, `core.js`,
+`app.js`, `three.bundle.cjs` and the three `.geojson`); leave `tests/`, the
+README and the licence out if the host only serves the game. `index.html` needs
+`style.css`, `three.bundle.cjs`, `core.js` and `app.js` next to it, and `app.js`
+fetches the `.geojson` files **by bare filename** (`fetch('so50.geojson')`), so
+all seven must stay in the same directory.
 
 ## Projection
 
@@ -187,9 +201,11 @@ in the three pseudocylindrical ones, `moveCentre` returns the canonical frame to
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Seven node scripts, all run from the repository root. The six
-unattended runs exit 0 and end in `ALL PASS` (`harness.js` ends with its expected
-headless `no three.js` line); `visible_check.js` takes a projection name.
+**Tests.** Eight node scripts in `tests/`, run as `node tests/<script>.js` (they
+locate `core.js`, `app.js` and the data through `__dirname`, so the working
+directory does not matter). All eight exit 0: the five asserting ones end in
+`ALL PASS`, `harness.js` ends with its expected headless `no three.js` line, and
+`polarchk.js` / `visible_check.js <proj>` print per-centre tables to read.
 
 | script | what it checks |
 |---|---|
@@ -198,6 +214,7 @@ headless `no three.js` line); `visible_check.js` takes a projection name.
 | `pole_test.js` | the centre of projection turns the frame by exactly the angle travelled, and the frame never drifts across a pole |
 | `pole_sim.js` | the same on the app's own chain (pan → `geoAt` → `moveCentre` → reproject), per re-centring projection |
 | `artifact_test.js` | no stray geometry after a wheel zoom between two reprojections, a drag and a layer switch |
+| `polarchk.js` | audit table: how far the drawn picture diverges from the true visible land, per centre (cone projections) |
 | `harness.js` | headless app run: draw, hover, pick, layer switch, HUD |
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 

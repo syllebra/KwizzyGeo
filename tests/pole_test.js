@@ -8,7 +8,7 @@
    Also checks the frame stays orthonormal and that the centre it produces is the
    one asked for (frameCentre(rotFrom(...)) == the requested centre). */
 const fs = require('fs');
-const C = new Function(fs.readFileSync(__dirname + '/core.js', 'utf8') + '\nreturn CORE;')();
+const C = new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8') + '\nreturn CORE;')();
 const DEG = Math.PI / 180;
 let fails = 0;
 function chk(n, ok) { console.log((ok ? 'ok   ' : 'FAIL ') + n); if (!ok) fails++; }

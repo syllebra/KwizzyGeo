@@ -11,10 +11,10 @@
      landDelta  : drawn land minus true visible land, as % of true visible land
    A correct render is 0 / 0 / ~0 (differences only on the 1-px edge).        */
 const fs = require('fs');
-const src = fs.readFileSync(__dirname + '/core.js', 'utf8');
+const src = fs.readFileSync(__dirname + '/../core.js', 'utf8');
 const C = new Function(src + '\nreturn CORE;')();
 const DEG = Math.PI / 180;
-const geo = JSON.parse(fs.readFileSync(__dirname + '/countries.geojson', 'utf8'));
+const geo = JSON.parse(fs.readFileSync(__dirname + '/../countries.geojson', 'utf8'));
 const feats = C.buildFeaturesLOD(geo, 0.2, true);      /* reference for "is land" */
 C.prepareXYZ(feats);
 const geoFeats = C.buildFeaturesLOD(geo, 0.2, false);  /* planar reference at centre 0 */

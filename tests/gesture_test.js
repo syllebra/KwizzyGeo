@@ -49,11 +49,11 @@ global.window = { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 1, locat
     createElement() { return el(); }, addEventListener() {} } };
 global.document = global.window.document;
 global.requestAnimationFrame = global.window.requestAnimationFrame;
-const files = { 'so50.geojson': __dirname + '/so50.geojson', 'countries.geojson': __dirname + '/countries.geojson', 'ne10m.geojson': __dirname + '/ne10m.geojson' };
+const files = { 'so50.geojson': __dirname + '/../so50.geojson', 'countries.geojson': __dirname + '/../countries.geojson', 'ne10m.geojson': __dirname + '/../ne10m.geojson' };
 global.fetch = () => Promise.resolve({ json: () => JSON.parse(fs.readFileSync(files['countries.geojson'], 'utf8')) });
 
-new Function(fs.readFileSync(__dirname + '/core.js', 'utf8')).call();
-new Function(fs.readFileSync(__dirname + '/app.js', 'utf8')).call();
+new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8')).call();
+new Function(fs.readFileSync(__dirname + '/../app.js', 'utf8')).call();
 
 /* the app's frame function is queued through requestAnimationFrame; drain it with
    explicit timestamps so the glide can be stepped deterministically */

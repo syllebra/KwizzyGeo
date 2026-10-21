@@ -6,9 +6,9 @@
 
    Run: node artifact_test.js                                          */
 const fs = require('fs');
-const src = fs.readFileSync(__dirname + '/core.js', 'utf8');
+const src = fs.readFileSync(__dirname + '/../core.js', 'utf8');
 const C = new Function(src + '\nreturn CORE;')();
-const geo = JSON.parse(fs.readFileSync(__dirname + '/ne10m.geojson', 'utf8'));
+const geo = JSON.parse(fs.readFileSync(__dirname + '/../ne10m.geojson', 'utf8'));
 const feats = C.buildFeaturesLOD(geo, 0.2, true);
 C.prepareXYZ(feats);
 

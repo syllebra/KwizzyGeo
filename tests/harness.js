@@ -110,13 +110,13 @@ global.document = global.window.document;
 global.requestAnimationFrame = function (f) { return 1; };
 global.Promise = Promise;
 global.fetch = function (u) {
-  const p = (u === 'so50.geojson') ? __dirname + '/so50.geojson' : __dirname + '/countries.geojson';
+  const p = (u === 'so50.geojson') ? __dirname + '/../so50.geojson' : __dirname + '/../countries.geojson';
   return Promise.resolve({ json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
 };
 
-const coreSrc = fs.readFileSync(__dirname + '/core.js', 'utf8');
+const coreSrc = fs.readFileSync(__dirname + '/../core.js', 'utf8');
 new Function(coreSrc).call();
-const appSrc = fs.readFileSync(__dirname + '/app.js', 'utf8');
+const appSrc = fs.readFileSync(__dirname + '/../app.js', 'utf8');
 try { new Function(appSrc).call(); } catch (e) { errors.push('load: ' + e); }
 
 const stage2d = stageCalls;
