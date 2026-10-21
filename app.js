@@ -336,7 +336,13 @@ var COL = {
   /* cities: a bright dot with a dark ring, so it reads over land (light grey) and
      over ocean (mid blue) alike; the picked one takes the accent */
   city: 'rgba(255,255,255,.95)', cityRing: 'rgba(14,26,38,.85)',
-  cityPick: '#ffd166', cityLabel: 'rgba(255,255,255,.96)'
+  cityPick: '#ffd166', cityLabel: 'rgba(255,255,255,.96)',
+  /* three label voices, so the three kinds of name are never mistaken for each
+     other: countries are quiet background (uppercase, tracked, muted), cities are
+     plain white, capitals are the accent - gold, bolder, and with a ring around
+     their dot */
+  countryLabel: 'rgba(226,238,248,.72)', countryHalo: 'rgba(12,22,32,.62)',
+  capitalLabel: '#ffd166', capitalHalo: 'rgba(28,20,4,.82)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -859,16 +865,71 @@ function refreshHud() {
    the MIN_LABEL/MAX_LABEL scale the dataset was authored on */
 function zoomLevel() { return 2 + Math.log2(view.k / fitK); }
 
+/* ---------- label typography ----------
+   THE THREE KINDS OF NAME ARE DRAWN DIFFERENTLY, on purpose. An atlas does this and
+   it is not decoration: the reader has to tell, at a glance and without reading, a
+   country from a capital from an ordinary city, and colour alone is not enough for
+   a colour-blind reader or for a name over pale land.
+     country  UPPERCASE, letter-spaced, muted, thin halo  - background context
+     capital  Title Case, bold, gold, plus a RING around its dot (see drawCities)
+     city     Title Case, regular, white
+   The tracking is real: ctx.letterSpacing is not in every browser this runs on, so
+   drawTracked() places each character itself and the collision box is measured with
+   the same tracking (a box that ignores tracking would let labels overlap by a few
+   px per letter - measured, 18 px on a 16-character name). */
+var LABEL_STYLE = {
+  country: { font: '600 10.5px system-ui, -apple-system, sans-serif', track: 1.15, upper: true,
+             fill: 'countryLabel', halo: COL.countryHalo, haloLw: 2.6, dy: 0 },
+  /* no tracking on these two: a couple of tenths of a px per letter buys nothing the
+     weight and size already say, and drawing a name letter by letter costs one
+     fillText + one strokeText per CHARACTER (a deep zoom shows ~60 city names, i.e.
+     ~1 000 canvas calls a frame instead of ~120) */
+  capital: { font: '700 12px system-ui, -apple-system, sans-serif', track: 0, upper: false,
+             fill: 'capitalLabel', halo: COL.capitalHalo, haloLw: 3.2, dy: -10 },
+  city:    { font: '11px system-ui, -apple-system, sans-serif', track: 0, upper: false,
+             fill: 'cityLabel', halo: 'rgba(12,22,32,.8)', haloLw: 3, dy: -8 }
+};
+function labelStyle(kind) { return LABEL_STYLE[kind] || LABEL_STYLE.city; }
+function labelText(kind, name) { return labelStyle(kind).upper ? String(name).toUpperCase() : name; }
+/* width of a tracked string at the CURRENT ctx.font */
+function trackedWidth(txt, track) {
+  var w = ctx.measureText(txt).width;
+  return track ? w + track * Math.max(0, txt.length - 1) : w;
+}
+/* centred tracked text: ctx has no portable letter-spacing, so the characters are
+   placed one by one. Falls back to a single fillText when there is no tracking. */
+function drawTracked(txt, cx, cy, track, fill, halo, lw) {
+  if (!track) {
+    if (halo) { ctx.lineWidth = lw; ctx.strokeStyle = halo; ctx.strokeText(txt, cx, cy); }
+    ctx.fillStyle = fill; ctx.fillText(txt, cx, cy);
+    return;
+  }
+  var prevAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  var x = cx - trackedWidth(txt, track) / 2;
+  for (var i = 0; i < txt.length; i++) {
+    var ch = txt.charAt(i);
+    if (ch !== ' ') {
+      if (halo) { ctx.lineWidth = lw; ctx.strokeStyle = halo; ctx.strokeText(ch, x, cy); }
+      ctx.fillStyle = fill; ctx.fillText(ch, x, cy);
+    }
+    x += ctx.measureText(ch).width + track;
+  }
+  ctx.textAlign = prevAlign;
+}
+
 function drawLabels(z) {
-  ctx.font = '11px system-ui, -apple-system, sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.textBaseline = 'middle';
   var placed = [], shown = 0;
+  var stC = labelStyle('country');
+  ctx.font = stC.font;
   for (var i = 0; i < layout.length; i++) {
     var L = layout[i];
     if (z < L.minz - 0.2 || z > L.maxz + 0.6) continue;
     var px = sx(L.lx), py = sy(L.ly);
     if (px < 24 || py < 12 || px > W - 24 || py > H - 12) continue;
-    var w = ctx.measureText(L.name).width + 8, h = 15;
+    var cTxt = labelText('country', L.name);
+    var w = trackedWidth(cTxt, stC.track) + 8, h = 15;
     var box = [px - w / 2, py - h / 2, px + w / 2, py + h / 2];
     var ok = true;
     for (var q = 0; q < placed.length && ok; q++) {
@@ -877,8 +938,7 @@ function drawLabels(z) {
     }
     if (!ok) continue;
     placed.push(box);
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(12,22,32,.75)'; ctx.strokeText(L.name, px, py);
-    ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillText(L.name, px, py);
+    drawTracked(cTxt, px, py + stC.dy, stC.track, COL[stC.fill], stC.halo, stC.haloLw);
     if (++shown > 80) break;
   }
   /* ---- city labels, placed after the country names and against the same boxes,
@@ -899,27 +959,50 @@ function drawLabels(z) {
     for (var c2 = 0; c2 < cand.length && done < cap; c2++) {
       var D2 = cand[c2], PP = places[D2.i];
       var forced = (D2.i === pickedPlace || D2.i === hoverPlace);
+      /* a capital is drawn in its own voice: bold, gold, ring around the dot */
+      var kind = (PP.f === 'A0' || PP.f === 'A0R') ? 'capital' : 'city';
       /* a coarse zoom is not the place for rank 7 towns: they would bury the
-         continent names */
-      if (!forced) {
+         continent names. CAPITALS are exempt from the rank cut: a ringed dot with
+         no name reads as an unfinished label, and a capital is exactly the kind of
+         name an atlas keeps when it drops everything else (measured at z 4:
+         Copenhagen, Amsterdam and Bratislava were ringed and silent). They are
+         still subject to the collision test, so a crowded corner drops the ones
+         that do not fit rather than piling names on top of each other. */
+      if (!forced && kind !== 'capital') {
         if (z < 4.5 && PP.l > 3) continue;
         if (z < 6 && PP.l > 6) continue;
       }
-      var lx = D2.px, ly = D2.py - 8;
-      var w2 = ctx.measureText(PP.n).width + 8, h2 = 15;
-      var box2 = [lx - w2 / 2, ly - h2 / 2, lx + w2 / 2, ly + h2 / 2];
-      var ok2 = true;
-      for (var q2 = 0; q2 < placed.length && ok2; q2++) {
-        var b2 = placed[q2];
-        if (box2[0] < b2[2] && box2[2] > b2[0] && box2[1] < b2[3] && box2[3] > b2[1]) ok2 = false;
+      /* NO extra rank cut for capitals at the world view either: a gold ring with
+         no name is an unfinished label (measured at z 2: Paris, Lisbon, Dodoma
+         ringed and silent). The collision test is what prunes a crowded corner, and
+         a capital is exactly the name an atlas keeps when it drops the rest. */
+
+      var st = labelStyle(kind);
+      ctx.font = st.font;
+      var lx = D2.px, ly = D2.py + st.dy;
+      var w2 = trackedWidth(PP.n, st.track) + 8, h2 = kind === 'capital' ? 17 : 15;
+      /* ONE retry on the other side of the dot before giving up. A ring with no
+         name reads as an unfinished label (measured at z 4: 3 of 9 capitals lost
+         their name to a country name that happened to sit above them), and the
+         fix is cheap - the space below a dot is almost always free when the space
+         above is not. */
+      var box2 = null, lyTry = ly;
+      for (var side = 0; side < 2 && !box2; side++) {
+        var candY = (side === 0) ? ly : D2.py - st.dy + (kind === 'capital' ? 12 : 10);
+        var bx = [lx - w2 / 2, candY - h2 / 2, lx + w2 / 2, candY + h2 / 2];
+        var ok2 = true;
+        for (var q2 = 0; q2 < placed.length && ok2; q2++) {
+          var b2 = placed[q2];
+          if (bx[0] < b2[2] && bx[2] > b2[0] && bx[1] < b2[3] && bx[3] > b2[1]) ok2 = false;
+        }
+        if (ok2) { box2 = bx; lyTry = candY; }
       }
-      if (!ok2) continue;
+      if (!box2) continue;
       placed.push(box2);
+      ly = lyTry;
       var picked2 = (D2.i === pickedPlace);
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(12,22,32,.8)';
-      ctx.strokeText(PP.n, lx, ly);
-      ctx.fillStyle = picked2 ? COL.cityPick : COL.cityLabel;
-      ctx.fillText(PP.n, lx, ly);
+      var fill2 = picked2 ? COL.cityPick : COL[st.fill];
+      drawTracked(PP.n, lx, ly, st.track, fill2, st.halo, st.haloLw);
       done++;
     }
   }
@@ -940,7 +1023,7 @@ function drawCities(z) {
   if (!citiesOn || !places.length || mode === '3d') return;
   var k = view.k, ox = W * 0.5 - view.cx * k, oy = H * 0.5 + view.cy * k;
   var o = [0, 0];
-  var small = null, capital = null;
+  var small = null, capital = null, capitalRing = null;
   for (var i = 0; i < places.length; i++) {
     var P = places[i];
     /* Natural Earth's own MIN_ZOOM, verbatim: it is the zoom at which that place is
@@ -952,9 +1035,18 @@ function drawCities(z) {
     if (px < -4 || py < -4 || px > W + 4 || py > H + 4) continue;
     var r = placeRadius(P.f);
     cityDots.push({ px: px, py: py, i: i, r: r });
-    var path = (r > 2.2) ? (capital || (capital = new Path2D())) : (small || (small = new Path2D()));
+    var isCap = (P.f === 'A0' || P.f === 'A0R');
+    var path = isCap ? (capital || (capital = new Path2D())) : (small || (small = new Path2D()));
     path.moveTo(px + r, py);
     path.arc(px, py, r, 0, 6.283185307179586);
+    if (isCap) {
+      /* the ring sits just outside the dot, in its own pass, so the two strokes
+         never fight over the same pixels */
+      if (!capitalRing) capitalRing = new Path2D();
+      var rr = r + 2.1;
+      capitalRing.moveTo(px + rr, py);
+      capitalRing.arc(px, py, rr, 0, 6.283185307179586);
+    }
     placeSeen++;
   }
   if (!placeSeen) return;
@@ -964,10 +1056,17 @@ function drawCities(z) {
     ctx.fillStyle = COL.city; ctx.fill(small);
     ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(small);
   }
+  /* a CAPITAL is marked differently from a city, not just drawn bigger: a gold
+     ring around the dot, i.e. the same voice as its label. Two identical dots of
+     different size read as "same thing, further away" - the wrong message. */
   if (capital) {
     ctx.fillStyle = COL.city; ctx.fill(capital);
     ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(capital);
     ctx.fillStyle = COL.city; ctx.fill(capital);      /* the stroke eats into the dot */
+    if (capitalRing) {
+      ctx.strokeStyle = COL.capitalLabel; ctx.lineWidth = 1.3;
+      ctx.stroke(capitalRing);
+    }
   }
   /* the hovered/picked city on top of the rest, so it is never hidden by a dot */
   var sel = pickedPlace >= 0 ? pickedPlace : hoverPlace;

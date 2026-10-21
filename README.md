@@ -261,6 +261,37 @@ changes. The layer is 2D only: the 3D globe draws no markers.
     unzip ne_10m_populated_places.zip && python3 tools/shp2geojson_places.py \
         ne_10m_populated_places.shp data/places.json
 
+## Labels: three voices
+
+An atlas distinguishes its label kinds and this one does too, because the reader has
+to tell a country from a capital from an ordinary city without reading the name —
+and colour alone fails for a colour-blind reader, or for a name over pale land. All
+three are drawn through one table, `LABEL_STYLE`:
+
+| kind | case | weight / size | colour | marker |
+|---|---|---|---|---|
+| **country** | UPPERCASE, letter-spaced | 600 / 10.5 px | muted `rgba(226,238,248,.72)`, thin halo | — |
+| **capital** (`A0`, `A0R`) | Title Case | 700 / 12 px | gold `#ffd166`, warm halo | dot **plus a gold ring** around it |
+| **city** | Title Case | 400 / 11 px | white `.96` | plain dot |
+
+Tracking is real for the country labels (`ctx.letterSpacing` is not available
+everywhere, so `drawTracked()` places each character and the collision box is
+measured **with** the tracking — a box that ignores it lets labels overlap by a few
+px per letter). The two city voices have no tracking: a couple of tenths of a px per
+letter buys nothing that weight and size do not already say, and it would cost one
+`fillText` + one `strokeText` per *character* — a deep zoom shows ~60 city names,
+i.e. ~1 000 canvas calls a frame instead of ~150 (measured).
+
+A capital's dot is also ringed, not merely bigger: two identical dots of different
+size read as "same thing, further away", which is the wrong message. And a **ringed
+capital is never left nameless** while the space for its name is free — measured at
+z 4, three of nine capitals were ringed and silent because a country name happened to
+sit above them. Two fixes: capitals are exempt from the `LABELRANK` cut that prunes
+ordinary towns at a coarse zoom (they are still subject to the collision test, so a
+crowded corner drops what does not fit), and a city label that collides above its dot
+tries once **below** it before giving up. City labels are placed after country labels
+against the same boxes, so a city never lands on a country name.
+
 ## Two idle animations
 
 ### North up
@@ -321,9 +352,9 @@ rather than on pixels.
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Ten node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Eleven node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All ten exit 0: the eight asserting ones end in
+directory does not matter). All eleven exit 0: the nine asserting ones end in
 `ALL PASS`, `harness.js` ends with its expected headless `no three.js` line, and
 `polarchk.js` / `visible_check.js <proj>` print per-centre tables to read.
 
@@ -339,6 +370,7 @@ directory does not matter). All ten exit 0: the eight asserting ones end in
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
+| `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (18 checks) |
 
 `harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
 null (reading 'Scene')` in a headless run — that is expected, not a failure
