@@ -2054,6 +2054,81 @@ function projectRotLLVis(lonDeg, latDeg, m, proj, out) {
   return vis;
 }
 
+/* PLANE EXTENT of one feature in a given frame, without touching the view.
+   Used to answer "how far must I zoom so that this country's bounding box fits?":
+   the app flies to a country and needs the destination zoom BEFORE it starts moving.
+
+   Why it does not just read feat.bbox: those are the boxes of the CURRENT centre's
+   re-projected pieces, and the destination is a different centre - the extent of a
+   country in the plane changes with the frame (a rotation shears it, and near a
+   pole it can double). So the ring's lon/lat twin (rg.ll) is rotated by `m` and
+   projected, exactly as the draw path would.
+
+   Two things this has to get right:
+   * a cone projection draws only the visible cap, so a point on the far side is
+     skipped (fwdVec + the X' >= clipCos test, the same pair projectRotLLVis uses);
+   * a SEAM projection renders lon' = +-180 on both sides of the frame, so a country
+     that straddles the seam would otherwise report a width of the whole world. The
+     fix is geometric and exact for that family (x is 360-periodic in lon'): if the
+     raw lon' span exceeds 180, the negatives are shifted by +360, which places the
+     two halves contiguously instead of on opposite edges. Both placements are
+     mirror images of the same size, so "smaller box" is the honest one.
+   Rings are sampled at a cap of ~2000 points each: the extent is a fit, not a
+   measurement, and a country's bbox does not move by a pixel for that. */
+var FE_LL = new Float64Array(4096), FE_LO = new Float64Array(4096);
+function featureExtent(f, m, proj, out) {
+  out = out || [0, 0, 0, 0];
+  var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  var o = [0, 0];
+  for (var r = 0; r < f.rings.length; r++) {
+    var ll = f.rings[r].ll;
+    if (!ll || ll.length < 6) continue;
+    var np = ll.length / 2;
+    var stride = Math.max(1, Math.ceil(np / 2000));
+    var m2 = 0, i, lo, la;
+    /* first pass: rotated position per sampled point */
+    for (i = 0; i < np; i += stride) {
+      var phi = ll[i * 2 + 1] * DEG, lam = ll[i * 2] * DEG;
+      var cp = Math.cos(phi);
+      var x = cp * Math.cos(lam), y = Math.sin(phi), z = -cp * Math.sin(lam);
+      var X = m[0] * x + m[1] * y + m[2] * z,
+          Y = m[3] * x + m[4] * y + m[5] * z,
+          Z = m[6] * x + m[7] * y + m[8] * z;
+      if (proj.clip === 'cone' && X < (proj.clipCos || 0)) continue;
+      FE_LL[m2 * 3] = X; FE_LL[m2 * 3 + 1] = Y; FE_LL[m2 * 3 + 2] = Z;
+      FE_LO[m2] = Math.atan2(-Z, X) / DEG;
+      m2++;
+      if (m2 >= 1365) break;                 /* FE_LL holds 4096/3 */
+    }
+    if (m2 < 3) continue;
+    var shift = 0;
+    if (proj.clip !== 'cone') {
+      var mn = Infinity, mx = -Infinity;
+      for (i = 0; i < m2; i++) { if (FE_LO[i] < mn) mn = FE_LO[i]; if (FE_LO[i] > mx) mx = FE_LO[i]; }
+      if (mx - mn > 180) shift = 360;        /* it straddles the seam */
+    }
+    for (i = 0; i < m2; i++) {
+      var X2 = FE_LL[i * 3], Y2 = FE_LL[i * 3 + 1], Z2 = FE_LL[i * 3 + 2];
+      if (proj.fwdVec && proj.clip === 'cone') {
+        proj.fwdVec(X2, Y2, Z2, o);
+      } else {
+        lo = FE_LO[i];
+        if (shift && lo < 0) lo += shift;
+        la = Math.asin(Math.max(-1, Math.min(1, Y2))) / DEG;
+        proj.fwd(lo * DEG, la * DEG, o);
+      }
+      if (!isFinite(o[0]) || !isFinite(o[1])) continue;
+      if (o[0] < x0) x0 = o[0];
+      if (o[0] > x1) x1 = o[0];
+      if (o[1] < y0) y0 = o[1];
+      if (o[1] > y1) y1 = o[1];
+    }
+  }
+  if (x0 === Infinity) return null;
+  out[0] = x0; out[1] = y0; out[2] = x1; out[3] = y1;
+  return out;
+}
+
 /* Would a point at (lon,lat) be inside the drawn figure, seen from the frame
    centered at (lon0,lat0)? Needed for halo-free label placement: a horizon
    projection draws only x' >= 0, so a label anchored on the hidden hemisphere
@@ -2405,7 +2480,7 @@ var CORE = {
   clipLonF: clipLonF, CLIPB: CLIPB, CLIPA: CLIPA,
   pieceLevelIndex: pieceLevelIndex, hitTestPieces: hitTestPieces,
   projectRotLL: projectRotLL, projectRotLLVis: projectRotLLVis,
-  frameRoll: frameRoll, rollFrame: rollFrame,
+  frameRoll: frameRoll, rollFrame: rollFrame, featureExtent: featureExtent,
   frameFor: frameFor, graticuleRot: graticuleRot,
   buildFeatures: buildFeatures, hitTest: hitTest,
   buildFeaturesLOD: buildFeaturesLOD, hitTestLOD: hitTestLOD,

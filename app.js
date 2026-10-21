@@ -1926,13 +1926,11 @@ function bindPointer(el) {
   el.addEventListener('dblclick', function (e) {
     doPick(e.offsetX, e.offsetY);
     if (mode === '3d') { zoomGlobe(1.6); refreshUI(); return; }
-    /* one gesture for "take me there", ANIMATED: the clicked point becomes the
-       centre of projection and the view zooms in, but along a flight path that
-       first pulls back (so the target and its surroundings stay in view while the
-       world turns), travels the great circle, then comes in. Jumping straight
-       there lost the reader's sense of where they went. */
-    var g = geoAt(e.offsetX, e.offsetY);
-    if (g) flyTo(g[0], g[1], view.k * 2);
+    /* one gesture for "take me there", ANIMATED: the view pulls back (so the
+       target and its surroundings stay in view while the world turns), travels the
+       great circle, then comes in to the zoom that fits the target's own bounding
+       box. Jumping straight there lost the reader's sense of where they went. */
+    gestureGo(e.offsetX, e.offsetY);
     refreshUI();
   });
   el.addEventListener('wheel', function (e) {
@@ -2130,6 +2128,89 @@ function slerpLL(lon0, lat0, lon1, lat1, t) {
   return [Math.atan2(-z, x) / C.DEG, Math.asin(Math.max(-1, Math.min(1, y))) / C.DEG];
 }
 
+/* WHERE a "take me there" gesture should end, and HOW FAR IN.
+   A fixed factor (the old zoomBy(2)) is wrong for both extremes: it leaves France
+   filling a quarter of the screen and puts Vatican City in a 3 px dot. So the
+   destination zoom is COMPUTED from the target's own bounding box: the ring's
+   lon/lat twin is rotated into the frame centred on the destination and projected
+   (core.featureExtent), and k is the one that makes that box fit the viewport with
+   a margin.
+
+   Two passes, because centring on the CLICK POINT does not centre the country: the
+   extent is measured at the clicked point first, its box centre is turned back into
+   lon/lat, and the second pass measures the extent at that centre. Only then is the
+   fit honest - a box measured off-centre is bigger than the box you get when the
+   centre is the box's own middle, and the final zoom would be slightly too wide.
+
+   No feature under the cursor (open ocean) keeps the old behaviour: zoom in by 2
+   about the clicked point. */
+var FLY_PAD = 0.06;               /* fraction of the viewport kept free on each side */
+function fitKForExtent(e, pad) {
+  var w = Math.max(1e-9, e[2] - e[0]), h = Math.max(1e-9, e[3] - e[1]);
+  var kx = W * (1 - 2 * pad) / w, ky = H * (1 - 2 * pad) / h;
+  return clampK(Math.min(kx, ky));
+}
+var CITY_ZOOM = 7;               /* z of a "stand in this city" view */
+function flyTarget(x, y) {
+  var g = geoAt(x, y);
+  if (!g) return null;
+  /* A CITY wins over the country under it, exactly as it does for picking: a dot
+     is a deliberate 2-3 px target, and flying to the whole country when the user
+     aimed at a city would answer a different question. A city has no bbox of its
+     own, so its "fit" is a fixed street-level zoom - but never a zoom OUT, so
+     double-clicking a city while already closer in does not pull back. */
+  var hp = pickPlaceAt(x, y);
+  if (hp >= 0 && places[hp]) {
+    var P = places[hp];
+    return { lon: P.lon, lat: P.lat, k: clampK(Math.max(view.k, fitK * Math.pow(2, CITY_ZOOM - 2))),
+             fit: false, place: hp };
+  }
+  var fi = pickAt(x, y);
+  if (fi < 0 || !feats[fi]) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
+  var proj = C.CUR;
+  var m1 = C.moveCentre(FRAME, g[0], g[1], proj, new Float64Array(9));
+  var e1 = C.featureExtent(feats[fi], m1, proj);
+  if (!e1) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
+  /* the box centre, back to lon/lat. unproject() answers the ROTATED lon/lat (and
+     null outside a cone projection's disc), so the frame inverse turns it into a
+     geographic point; if it falls outside the disc, the clicked point stands. */
+  var cxp = (e1[0] + e1[2]) / 2, cyp = (e1[1] + e1[3]) / 2;
+  var rl = C.unproject(cxp, cyp);
+  var gc = rl ? C.unrotM(m1, rl[0] * C.DEG, rl[1] * C.DEG) : null;
+  if (!gc || !isFinite(gc[0]) || !isFinite(gc[1])) gc = g;
+  /* REFINE. Centring on the first box centre moves the box: rotating the frame
+     changes the shape of an axis-aligned bbox, so the centre of the NEW box is a
+     little off the point we just centred on. Measured for Germany (persp): 0.054
+     plane units after one pass, 3e-4 after two, 0 after three. Two extra passes cost
+     a few ms once, at the moment of the click, and buy a country that is actually
+     centred instead of 24 px off. */
+  var e2 = null, m2 = null;
+  for (var it = 0; it < 3; it++) {
+    m2 = C.moveCentre(m1, gc[0], gc[1], proj, new Float64Array(9));
+    e2 = C.featureExtent(feats[fi], m2, proj);
+    if (!e2) break;
+    var nx = (e2[0] + e2[2]) / 2, ny = (e2[1] + e2[3]) / 2;
+    if (Math.abs(nx) < 1e-5 && Math.abs(ny) < 1e-5) break;
+    var rl2 = C.unproject(nx, ny);
+    var g2 = rl2 ? C.unrotM(m2, rl2[0] * C.DEG, rl2[1] * C.DEG) : null;
+    if (!g2 || !isFinite(g2[0]) || !isFinite(g2[1])) break;
+    gc = g2;
+  }
+  if (!e2) return { lon: gc[0], lat: gc[1], k: clampK(view.k * 2), fit: false };
+  return { lon: gc[0], lat: gc[1], k: fitKForExtent(e2, FLY_PAD), fit: true, fi: fi };
+}
+
+/* ONE handler for "go there and show me that", whatever produced it: a double
+   click on a desktop, a double tap on a touch screen. Having two rules meant the
+   phone got a different (and worse) behaviour from the mouse: a bare 1.7x zoom
+   instead of the fitted flight. */
+function gestureGo(x, y) {
+  if (mode === '3d') { zoomGlobe(1.6); refreshUI(); return; }
+  var t = flyTarget(x, y);
+  if (!t) return;
+  flyTo(t.lon, t.lat, t.k);
+}
+
 /* the double-click flight. Cancelled by any new gesture (see bindPointer): a fly
    that kept running under the user's finger would fight the drag. */
 function flyTo(lon, lat, kTo) {
@@ -2296,14 +2377,14 @@ function touchEnd(e) {
       var isDouble = (now - lastTap.t < TAP_MS) &&
                      Math.hypot(x - lastTap.x, y - lastTap.y) < TAP_DIST;
       if (isDouble) {
+        /* THE SAME gesture as a double click. It used to be a bare 1.7x zoom plus a
+           recentre, so a touch screen got a different, worse answer to the same
+           question ("show me that country") than a mouse did - no flight, no
+           fitted zoom, and it threw away the selection. */
         lastTap.t = 0;
-        if (mode === '3d') { zoomGlobe(1.7); }
-        else {
-          var g = geoAt(x, y);
-          if (g) setCenter(g[0], g[1]);
-          zoomBy(1.7);
-        }
-        picked = -1; hover = -1;
+        doPick(x, y);
+        setHover(x, y);
+        gestureGo(x, y);
         refreshUI();
       } else {
         lastTap.t = now; lastTap.x = x; lastTap.y = y;
@@ -2375,6 +2456,26 @@ window.ViewState = {
   k: function () { return view.k; },
   fitK: function () { return fitK; },
   geoAt: function (px, py) { return geoAt(px, py); },
+  /* a geographic point -> a screen pixel, for tests that must aim at a place */
+  project: function (lon, lat) {
+    var o = [0, 0];
+    if (!C.projectRotLLVis(lon, lat, FRAME, C.CUR, o)) return null;
+    return [o[0] * view.k + (W * 0.5 - view.cx * view.k),
+            (H * 0.5 + view.cy * view.k) - o[1] * view.k];
+  },
+  pickedFeat: function () { return picked; },
+  pickedPlace: function () { return pickedPlace; },
+  pickAt: function (px, py) { return pickAt(px, py); },
+  pickPlaceAt: function (px, py) { return pickPlaceAt(px, py); },
+  mode: function () { return mode; },
+  /* the screen box of a feature as it is drawn NOW: what "the target fits" means */
+  screenBox: function (i) {
+    var f = feats[i];
+    if (!f) return null;
+    var b = f.bbox;
+    return [sx(b[0]), sy(b[3]), sx(b[2]), sy(b[1])];
+  },
+  viewSize: function () { return [W, H]; },
   flying: function () { return !!fly; },
   northUp: function () { return northUp; },
   tilted: function () { return Math.abs(C.frameRoll(FRAME)) > 1e-9; }

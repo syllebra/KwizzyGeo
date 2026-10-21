@@ -317,11 +317,38 @@ pseudocylindrical projections (there the frame's axes ARE the map's up and right
 a roll is not cosmetic). `?north=0`, or the burger's **Overlay → North up** row
 turns it off.
 
-### Fly-to on double click
+### Fly-to on double click / double tap
 
-A double click used to jump: centre there, `zoomBy(2)`, done — which loses the
-reader's sense of where they went. It is now one 950 ms timeline with three
-**overlapping** phases (a strict sequence reads as three separate jerks):
+One gesture, two triggers: a **double click** on a desktop and a **double tap** on a
+touch screen run the same handler (`gestureGo`). They used to be two different rules
+— the click flew, the tap did a bare 1.7× zoom plus a recentre — so a phone got a
+different, worse answer to the same question and threw away the selection. The old
+double-tap behaviour is gone.
+
+**Where it lands.** The destination zoom is *computed from the target's own bounding
+box*, not a fixed factor: `core.featureExtent` rotates the country's lon/lat ring into
+the frame centred on the destination and projects it (skipping the hidden cap on a
+cone projection, and placing the two halves contiguously on a seam projection so a
+country straddling the antimeridian does not report a box the width of the world).
+`k` is then the one that fits that box to the viewport with 6 % of margin per side.
+Measured: z 3 → **4.7 for Italy** (box uses 88 % of the screen), and a fixed 2× would
+have left France at a quarter of the screen and Vatican City as a dot.
+
+Two refinements that matter in practice:
+
+* **it re-centres on the box, not on the click.** Centring on the click leaves the
+  country off-centre by however far the click was from its middle; the box centre is
+  turned back into lon/lat (frame inverse) and measured again. Rotating the frame
+  changes the *shape* of an axis-aligned box, so this is iterated — measured for
+  Germany: 0.054 plane units off after one pass, 3e-4 after two, 0 after three. Three
+  passes at click time, a few ms, for a country that is actually centred.
+* **a city beats the country under it**, exactly as it does for picking. A city has no
+  box, so its destination is a fixed street-level zoom (z 7) — but **never a zoom
+  out**, so double-clicking a city while already closer in does not pull back. Open
+  ocean (no feature at all) keeps the old behaviour: zoom in 2× about the point.
+
+Then the animation itself: one 950 ms timeline with three **overlapping** phases (a
+strict sequence reads as three separate jerks):
 
 ```
 0.00–0.34   k falls to 45 % of the closer of the two zooms   (dezoom)
@@ -342,11 +369,14 @@ rather than on pixels.
 
 * **mouse** — wheel = zoom, drag = move the centre of projection (the world turns
   under the pointer, both axes), shift+wheel / horizontal trackpad = move the
-  centre, double-click = fly there + zoom (see below), move = hover, click = pick
+  centre, double-click = fly there at the zoom that fits it (see below), move =
+  hover, click = pick
 * **keyboard** — arrows = move the centre, `a`/`d` = zoom, `t` = switch layer,
   `c` = cities on/off, `Enter` = pick the hovered city or country, `Esc` = clear,
   `r` = reset to whole world
-* **touch** — 1 finger drag = move the centre, 2 fingers = pinch zoom; a tap picks
+* **touch** — 1 finger drag = move the centre, 2 fingers = pinch zoom, a tap picks,
+  a double tap flies to the place (the same flight as a double click, and the same
+  fitted destination zoom)
 * **URL params** (debugging): `?z=6` zoom level (z 2 = fitted world),
   `&lon=178&lat=-18` centre of projection, `?layer=110m|10m` layer,
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
@@ -361,7 +391,7 @@ directory does not matter). All eleven exit 0: the nine asserting ones end in
 | script | what it checks |
 |---|---|
 | `test_core.js` | 46 unit checks on `core.js`: projection maths, inverse round trip, equal-area, picking, LOD, orthographic back-face audit |
-| `gesture_test.js` | 42 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim, the **north-up tilt** (a diagonal drag rolls the frame, the tilt waits for the gesture to end, settles to 0, does not move the centre, obeys its toggle) and the **fly-to** (pulls back before it comes in, lands the clicked point at the screen centre, is cancelled by a press) |
+| `gesture_test.js` | 54 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim, the **north-up tilt** (a diagonal drag rolls the frame, the tilt waits for the gesture to end, settles to 0, does not move the centre, obeys its toggle) and the **fly-to** (pulls back before it comes in, is cancelled by a press, lands the target's box centred and filling 88 % of the viewport for France/Vatican/Russia, and a **double tap reaches the same place at the same zoom as a double click**) |
 | `pole_test.js` | the centre of projection turns the frame by exactly the angle travelled, and the frame never drifts across a pole |
 | `pole_sim.js` | the same on the app's own chain (pan → `geoAt` → `moveCentre` → reproject), per re-centring projection |
 | `artifact_test.js` | no stray geometry after a wheel zoom between two reprojections, a drag and a layer switch |
