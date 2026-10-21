@@ -271,8 +271,16 @@ three are drawn through one table, `LABEL_STYLE`:
 | kind | case | weight / size | colour | marker |
 |---|---|---|---|---|
 | **country** | UPPERCASE, letter-spaced | 600 / 10.5 px | muted `rgba(226,238,248,.72)`, thin halo | — |
-| **capital** (`A0`, `A0R`) | Title Case | 700 / 12 px | gold `#ffd166`, warm halo | dot **plus a gold ring** around it |
+| **capital** (`A0`, `A0R`) | Title Case | **700 / 12 px** | white `.98` | dot **plus a white ring** |
 | **city** | Title Case | 400 / 11 px | white `.96` | plain dot |
+| **the selected country's capital** | Title Case | 800 / 12.5 px, tracked | accent `#8ed0ff` | — |
+
+The capital used to be **gold**, which was the wrong voice: gold read as a
+warning/accent colour competing with the selection highlight, and a map with a
+dozen capitals on screen turned into confetti. A capital is now emphasis by
+**weight** — how an atlas does it — and the accent colour has exactly **one**
+meaning: the thing you selected. So the capital of the selected country is drawn in
+`#8ed0ff`, and so is the city you clicked.
 
 Tracking is real for the country labels (`ctx.letterSpacing` is not available
 everywhere, so `drawTracked()` places each character and the collision box is
@@ -291,6 +299,23 @@ ordinary towns at a coarse zoom (they are still subject to the collision test, s
 crowded corner drops what does not fit), and a city label that collides above its dot
 tries once **below** it before giving up. City labels are placed after country labels
 against the same boxes, so a city never lands on a country name.
+
+## Glass
+
+Every floating surface — HUD, help line, info panel, menu sheet, scrim — is the same
+material, defined once as CSS custom properties (`--glass-tint`, `--glass-blur`,
+`--glass-border`, `--glass-shadow`) so the pieces cannot drift apart: they used to
+have four slightly different alphas, which read as "unstyled" next to each other.
+A translucent dark tint, a real `backdrop-filter` that frosts whatever is under it, a
+hairline light border and a soft shadow.
+
+Two decisions worth knowing:
+
+* the tint stays at **.55–.72 alpha**, not .25: `backdrop-filter` is still missing on
+  some builds, and where it is the tint alone has to keep pale text legible over pale
+  land.
+* the blur radius stays at **14 px**. A larger radius on a full-screen surface costs a
+  lot of fill rate on a phone GPU for a difference nobody can see over a map.
 
 ## Two idle animations
 
@@ -356,6 +381,21 @@ strict sequence reads as three separate jerks):
 0.62–1.00   k rises to the destination zoom                  (zoom)
 ```
 
+**The tilt travels with the flight.** The north-up animation deliberately stands down
+while a flight is running (a slow drift under a moving camera reads as the horizon
+sagging), which used to mean the journey ended with the zoom settling and *then* the
+picture sliding upright — two movements where the user asked for one. The flight now
+untwists on its own clock and is guaranteed north-up on the last frame. Two things had
+to be true for that:
+
+* the destination zoom is computed **in the frame the flight will arrive in**, not the
+  one it starts from (a rolled frame measures a different axis-aligned box: Russia
+  fitted to 88 % of the viewport from a rolled start and arrived at 55 %);
+* `moveCentre` on a cone projection is parallel transport, which keeps the roll it
+  starts with — and that drifts relative to the canonical frame as the path bends, so
+  transporting from a north-up start does **not** land north-up. The measurement frame
+  is therefore straightened after every move.
+
 The centre path is a **slerp of the two unit vectors**, not an interpolation of
 lon/lat: a linear interpolation near a pole looks like the world skidding sideways,
 and it would not follow the shortest route. The zoom is the *sum* of two smoothstep
@@ -391,7 +431,7 @@ directory does not matter). All eleven exit 0: the nine asserting ones end in
 | script | what it checks |
 |---|---|
 | `test_core.js` | 46 unit checks on `core.js`: projection maths, inverse round trip, equal-area, picking, LOD, orthographic back-face audit |
-| `gesture_test.js` | 54 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim, the **north-up tilt** (a diagonal drag rolls the frame, the tilt waits for the gesture to end, settles to 0, does not move the centre, obeys its toggle) and the **fly-to** (pulls back before it comes in, is cancelled by a press, lands the target's box centred and filling 88 % of the viewport for France/Vatican/Russia, and a **double tap reaches the same place at the same zoom as a double click**) |
+| `gesture_test.js` | 57 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim, the **north-up tilt** (a diagonal drag rolls the frame, the tilt waits for the gesture to end, settles to 0, does not move the centre, obeys its toggle) and the **fly-to** (pulls back before it comes in, is cancelled by a press, **arrives already north-up** (the tilt travels with the flight), lands the target's box centred and filling 75-90 % of the viewport for France/Vatican/Russia, and a **double tap reaches the same place at the same zoom as a double click**) |
 | `pole_test.js` | the centre of projection turns the frame by exactly the angle travelled, and the frame never drifts across a pole |
 | `pole_sim.js` | the same on the app's own chain (pan → `geoAt` → `moveCentre` → reproject), per re-centring projection |
 | `artifact_test.js` | no stray geometry after a wheel zoom between two reprojections, a drag and a layer switch |
@@ -400,7 +440,7 @@ directory does not matter). All eleven exit 0: the nine asserting ones end in
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
-| `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (18 checks) |
+| `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
 
 `harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
 null (reading 'Scene')` in a headless run — that is expected, not a failure
@@ -413,7 +453,8 @@ recorded here instead.
 
 Colours as requested: blue ocean (vertical gradient), light grey countries,
 white on hover/pick. The panel shows name, localised names, type/sovereign,
-region, area, population, GDP, economy, ISO codes and geometry stats.
+region, area, **capital** (with its population, from the place layer), population, GDP,
+economy, ISO codes and geometry stats.
 
 Labels use the dataset's own `MIN_LABEL`/`MAX_LABEL` thresholds with screen-space
 collision detection, so big countries appear first. The 50m sovereignty layer parks
@@ -557,6 +598,25 @@ It is **lazy**: fetched, densified and given its 10-step LOD ladder only when th
 layer is picked (`layer` key cycles 50m → 110m → 10m, or the menu row, or
 `?layer=10m`). Measured: 148 ms parse + 213 ms build + 40 ms vectors, 564 320
 densified points, 10.6 MB of ladder indices.
+
+### The other 2D projections are archived
+
+`core.js` still carries the whole registry — Eckert IV, equirectangular, cylindrical
+equal-area, azimuthal equal-area — and every one of them still renders exactly what it
+did (`?proj=eckert4` works today). What changed is that the **menu no longer offers
+them**: with the globe view and the perspective default, the pseudocylindrical world
+maps are a curiosity rather than a way to play, and eleven rows in a sheet that a
+phone user opens on every session is a real cost.
+
+The switch is one flag in `app.js`, and it was written as a flag rather than a
+deletion precisely so the feature can come back:
+
+```js
+var ARCHIVED_PROJECTIONS = true;   // false brings the whole section back
+```
+
+Kept for a future feature — a "compare projections" screen, a printable world map, an
+about page.
 
 ## Projection registry (`core.js` → `PROJ`)
 

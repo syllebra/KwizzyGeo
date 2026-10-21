@@ -112,26 +112,41 @@ var mode = '2d';
    phone user cannot tell which of "Eckert IV" and "50m sovereignty" is a
    projection and which is a layer. The groups are built from this model, so
    adding a projection or a layer to the registries still needs no edit here. */
+/* ---------- ARCHIVED: the alternative 2D projections ----------
+   The projection registry in core.js is untouched and every entry still works
+   (`?proj=eckert4` renders exactly what it did). What changed is that the MENU no
+   longer offers them: with the globe view and the perspective default, the
+   pseudocylindrical world maps are a curiosity rather than a way to play, and eleven
+   rows of a sheet on a phone is a cost paid on every open for a feature nobody uses.
+
+   Kept, not deleted, for a future feature (a "compare projections" screen, a
+   printable world map, an about page). Setting ARCHIVED_PROJECTIONS = false brings
+   the whole section back with no other change - that was the point of routing the
+   menu through this flag instead of deleting the code. */
+var ARCHIVED_PROJECTIONS = true;
 function menuGroups() {
   var projs = [], i;
-  for (var key in C.PROJ) {
-    if (!C.PROJ.hasOwnProperty(key)) continue;
-    if (!C.PROJ[key].recenter) continue;         /* cannot be shown re-centered */
-    projs.push({ id: 'proj:' + key, label: '', ico: '\u25a6' });
+  if (!ARCHIVED_PROJECTIONS) {
+    for (var key in C.PROJ) {
+      if (!C.PROJ.hasOwnProperty(key)) continue;
+      if (!C.PROJ[key].recenter) continue;       /* cannot be shown re-centered */
+      projs.push({ id: 'proj:' + key, label: '', ico: '\u25a6' });
+    }
   }
   var layers = [], files = LAYERS || [];
   for (i = 0; i < files.length; i++) layers.push({ id: 'layer:' + files[i].id, label: '', ico: '\u2263' });
-  return [
+  var groups = [
     { title: 'View', items: [{ id: '2d', label: 'Map (2D)', ico: '\u25ad' },
-                             { id: '3d', label: 'Globe', ico: '\u25ce' }] },
-    { title: 'Projection', items: projs, needs2d: true },
+                             { id: '3d', label: 'Globe', ico: '\u25ce' }] }];
+  if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
+  return groups.concat([
     { title: 'Layer', items: layers },
     /* an overlay, not a view: the row says whether it is on, and clicking it
        toggles - a chip that is a pick (like the projection rows) would need a
        second row for "off" */
     { title: 'Overlay', items: [{ id: 'cities', label: 'Cities', ico: '\u25c9' },
                                 { id: 'north', label: 'North up', ico: '\u2191' }], needs2d: true }
-  ];
+  ]);
 }
 var scrimEl = document.getElementById('scrim');
 function menuOpen() { return menuEl.classList.contains('open'); }
@@ -342,7 +357,14 @@ var COL = {
      plain white, capitals are the accent - gold, bolder, and with a ring around
      their dot */
   countryLabel: 'rgba(226,238,248,.72)', countryHalo: 'rgba(12,22,32,.62)',
-  capitalLabel: '#ffd166', capitalHalo: 'rgba(28,20,4,.82)'
+  /* The capital used to be GOLD, and gold was the wrong voice: it read as a
+     warning/accent colour competing with the selection highlight, and on a map with
+     a dozen capitals on screen it turned into confetti. A capital is now simply
+     BOLDER and slightly larger - typographic emphasis, which is how an atlas does
+     it - and the accent colour is kept for ONE meaning: the capital of the country
+     you have selected. */
+  capitalLabel: 'rgba(255,255,255,.98)', capitalHalo: 'rgba(10,18,28,.9)',
+  capitalPick: '#8ed0ff', capitalPickHalo: 'rgba(4,22,38,.92)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -426,6 +448,32 @@ function buildPlaces(json) {
   }
   return out;
 }
+/* THE CAPITAL OF A COUNTRY, from the place layer: the places whose ADM0NAME is that
+   country and whose class is a national capital (A0 / A0R). Natural Earth spells a
+   country the same way in both files, but not always, so the match tries the
+   sovereign name, the long name and the admin name before giving up - the entries
+   that differ are things like "United States of America" vs "United States".
+   Returns the place index (for the panel and the map highlight) or -1. */
+var capCache = null;
+function capitalOf(featureIndex) {
+  var f = feats[featureIndex];
+  if (!f || !places.length) return -1;
+  var p = f.props;
+  var names = [p.SOVEREIGNT, p.ADMIN, p.NAME_LONG, p.NAME, p.GEOUNIT];
+  if (!capCache) {
+    capCache = {};
+    for (var i = 0; i < places.length; i++) {
+      var P = places[i];
+      if (P.f !== 'A0' && P.f !== 'A0R') continue;
+      if (!capCache[P.c]) capCache[P.c] = i;
+    }
+  }
+  for (var q = 0; q < names.length; q++) {
+    if (names[q] && capCache[names[q]] !== undefined) return capCache[names[q]];
+  }
+  return -1;
+}
+
 /* population, or nothing at all when Natural Earth says -99 (unknown) */
 function popText(p) { return (p > 0) ? fmtNum(p) : ''; }
 var PLACE_FCLASS = {
@@ -523,6 +571,7 @@ function loadPlaces() {
     return r.json();
   }).then(function (json) {
     places = buildPlaces(json);
+    capCache = null;
     refreshHud();
   }).catch(function (e) {
     places = []; citiesOn = false;
@@ -886,6 +935,11 @@ var LABEL_STYLE = {
      ~1 000 canvas calls a frame instead of ~120) */
   capital: { font: '700 12px system-ui, -apple-system, sans-serif', track: 0, upper: false,
              fill: 'capitalLabel', halo: COL.capitalHalo, haloLw: 3.2, dy: -10 },
+  /* the capital of the SELECTED country: same weight, but accented and set a little
+     wider, so it is found without hunting. One extra step in the hierarchy, not a
+     new colour scheme. */
+  capitalSel: { font: '800 12.5px system-ui, -apple-system, sans-serif', track: 0.4, upper: false,
+                fill: 'capitalPick', halo: COL.capitalPickHalo, haloLw: 3.4, dy: -10 },
   city:    { font: '11px system-ui, -apple-system, sans-serif', track: 0, upper: false,
              fill: 'cityLabel', halo: 'rgba(12,22,32,.8)', haloLw: 3, dy: -8 }
 };
@@ -946,6 +1000,7 @@ function drawLabels(z) {
      compete: LABELRANK first (Natural Earth's own priority: 0 = Paris, Tokyo),
      then population, then the capitals. */
   if (citiesOn && cityDots.length) {
+    var capOfPicked = (picked >= 0) ? capitalOf(picked) : -1;
     var cand = cityDots.slice(0);
     cand.sort(function (a, b) {
       var pa = places[a.i], pb = places[b.i];
@@ -959,8 +1014,15 @@ function drawLabels(z) {
     for (var c2 = 0; c2 < cand.length && done < cap; c2++) {
       var D2 = cand[c2], PP = places[D2.i];
       var forced = (D2.i === pickedPlace || D2.i === hoverPlace);
-      /* a capital is drawn in its own voice: bold, gold, ring around the dot */
-      var kind = (PP.f === 'A0' || PP.f === 'A0R') ? 'capital' : 'city';
+      /* a capital is drawn in its own voice: BOLD, slightly larger, white; and the
+         capital of the SELECTED country gets the accent so it can be found without
+         hunting for it */
+      var isCap2 = (PP.f === 'A0' || PP.f === 'A0R');
+      /* ONE accent, one meaning: the thing you selected. So the city you clicked
+         and the capital of the country you clicked are both drawn in the accent
+         voice; every other capital is bold white, every other city plain white. */
+      var selected2 = (D2.i === pickedPlace) || (isCap2 && D2.i === capOfPicked);
+      var kind = selected2 ? 'capitalSel' : (isCap2 ? 'capital' : 'city');
       /* a coarse zoom is not the place for rank 7 towns: they would bury the
          continent names. CAPITALS are exempt from the rank cut: a ringed dot with
          no name reads as an unfinished label, and a capital is exactly the kind of
@@ -968,7 +1030,7 @@ function drawLabels(z) {
          Copenhagen, Amsterdam and Bratislava were ringed and silent). They are
          still subject to the collision test, so a crowded corner drops the ones
          that do not fit rather than piling names on top of each other. */
-      if (!forced && kind !== 'capital') {
+      if (!forced && !isCap2) {
         if (z < 4.5 && PP.l > 3) continue;
         if (z < 6 && PP.l > 6) continue;
       }
@@ -980,7 +1042,7 @@ function drawLabels(z) {
       var st = labelStyle(kind);
       ctx.font = st.font;
       var lx = D2.px, ly = D2.py + st.dy;
-      var w2 = trackedWidth(PP.n, st.track) + 8, h2 = kind === 'capital' ? 17 : 15;
+      var w2 = trackedWidth(PP.n, st.track) + 8, h2 = isCap2 ? 17 : 15;
       /* ONE retry on the other side of the dot before giving up. A ring with no
          name reads as an unfinished label (measured at z 4: 3 of 9 capitals lost
          their name to a country name that happened to sit above them), and the
@@ -988,7 +1050,7 @@ function drawLabels(z) {
          above is not. */
       var box2 = null, lyTry = ly;
       for (var side = 0; side < 2 && !box2; side++) {
-        var candY = (side === 0) ? ly : D2.py - st.dy + (kind === 'capital' ? 12 : 10);
+        var candY = (side === 0) ? ly : D2.py - st.dy + (isCap2 ? 12 : 10);
         var bx = [lx - w2 / 2, candY - h2 / 2, lx + w2 / 2, candY + h2 / 2];
         var ok2 = true;
         for (var q2 = 0; q2 < placed.length && ok2; q2++) {
@@ -1000,9 +1062,7 @@ function drawLabels(z) {
       if (!box2) continue;
       placed.push(box2);
       ly = lyTry;
-      var picked2 = (D2.i === pickedPlace);
-      var fill2 = picked2 ? COL.cityPick : COL[st.fill];
-      drawTracked(PP.n, lx, ly, st.track, fill2, st.halo, st.haloLw);
+      drawTracked(PP.n, lx, ly, st.track, COL[st.fill], st.halo, st.haloLw);
       done++;
     }
   }
@@ -1064,7 +1124,7 @@ function drawCities(z) {
     ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(capital);
     ctx.fillStyle = COL.city; ctx.fill(capital);      /* the stroke eats into the dot */
     if (capitalRing) {
-      ctx.strokeStyle = COL.capitalLabel; ctx.lineWidth = 1.3;
+      ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 1.3;
       ctx.stroke(capitalRing);
     }
   }
@@ -1801,9 +1861,19 @@ function refreshUI() {
   var alt = [];
   var alts = [p.NAME_FR, p.NAME_DE, p.NAME_ES, p.NAME_IT, p.NAME_RU, p.NAME_ZH];
   for (var i = 0; i < alts.length; i++) if (alts[i]) alt.push(alts[i]);
+  /* the capital, from the place layer (see capitalOf) - with its population when
+     Natural Earth knows it, because "capital: Paris" plus a number is the single
+     most useful pair of facts on this panel */
+  var capIdx = capitalOf(idx);
+  var capTxt = '';
+  if (capIdx >= 0) {
+    var CP = places[capIdx];
+    capTxt = CP.n + (CP.p > 0 ? ' · ' + fmtNum(CP.p) : '');
+  }
   var rows = [
     ['name', p.NAME_LONG || p.NAME],
     ['also', alt.join('  ·  ')],
+    ['capital', capTxt],
     ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== (p.NAME_LONG || p.NAME) ? ' · sovereign: ' + p.SOVEREIGNT : '')],
     ['region', [p.CONTINENT, p.SUBREGION].filter(function (x) { return x; }).join(' / ')],
     ['area', fmtKm2(km2)],
@@ -2168,7 +2238,18 @@ function flyTarget(x, y) {
   var fi = pickAt(x, y);
   if (fi < 0 || !feats[fi]) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
   var proj = C.CUR;
-  var m1 = C.moveCentre(FRAME, g[0], g[1], proj, new Float64Array(9));
+  /* MEASURE IN THE FRAME THE FLIGHT WILL ARRIVE IN, not the one it starts from.
+     The flight now untwists as it travels, so it lands north-up; a destination
+     computed from the current (possibly rolled) frame is fitted to a box that will
+     not exist on arrival. Measured for Russia from a rolled start: the box was
+     computed 88 % of the viewport and arrived at 55 % - the roll had changed the
+     shape of the axis-aligned box. Taking the roll out first makes the computation
+     match the arrival by construction. */
+  var mUp = new Float64Array(9);
+  var rollNow = C.frameRoll(FRAME);
+  if (isFinite(rollNow) && Math.abs(rollNow) > 1e-9) C.rollFrame(FRAME, -rollNow, mUp);
+  else for (var q0 = 0; q0 < 9; q0++) mUp[q0] = FRAME[q0];
+  var m1 = C.moveCentre(mUp, g[0], g[1], proj, new Float64Array(9));
   var e1 = C.featureExtent(feats[fi], m1, proj);
   if (!e1) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
   /* the box centre, back to lon/lat. unproject() answers the ROTATED lon/lat (and
@@ -2184,20 +2265,42 @@ function flyTarget(x, y) {
      plane units after one pass, 3e-4 after two, 0 after three. Two extra passes cost
      a few ms once, at the moment of the click, and buy a country that is actually
      centred instead of 24 px off. */
-  var e2 = null, m2 = null;
+  /* NORTH-UP, EVERY TIME. moveCentre on a cone projection is parallel transport,
+     which keeps the roll it starts with - and "the roll it starts with" drifts
+     relative to the CANONICAL frame as the path bends, so transporting from a
+     north-up start does not land north-up. Measured for Russia: the transported
+     frame measured a box 1.71 plane units wide where the arrival frame (which the
+     flight untwists) measures 1.09, i.e. the fit was computed for a frame that never
+     exists. So the roll is removed after every move, which is exactly the frame the
+     flight guarantees on arrival. */
+  function upright(m) {
+    var r = C.frameRoll(m);
+    if (!isFinite(r) || Math.abs(r) < 1e-12) return m;
+    return C.rollFrame(m, -r, new Float64Array(9));
+  }
+  var e2 = null;
   for (var it = 0; it < 3; it++) {
-    m2 = C.moveCentre(m1, gc[0], gc[1], proj, new Float64Array(9));
-    e2 = C.featureExtent(feats[fi], m2, proj);
+    var mIt = upright(C.moveCentre(mUp, gc[0], gc[1], proj, new Float64Array(9)));
+    e2 = C.featureExtent(feats[fi], mIt, proj);
     if (!e2) break;
     var nx = (e2[0] + e2[2]) / 2, ny = (e2[1] + e2[3]) / 2;
     if (Math.abs(nx) < 1e-5 && Math.abs(ny) < 1e-5) break;
     var rl2 = C.unproject(nx, ny);
-    var g2 = rl2 ? C.unrotM(m2, rl2[0] * C.DEG, rl2[1] * C.DEG) : null;
+    var g2 = rl2 ? C.unrotM(mIt, rl2[0] * C.DEG, rl2[1] * C.DEG) : null;
     if (!g2 || !isFinite(g2[0]) || !isFinite(g2[1])) break;
     gc = g2;
+    e2 = null;                     /* the extent just measured belongs to the OLD centre */
   }
-  if (!e2) return { lon: gc[0], lat: gc[1], k: clampK(view.k * 2), fit: false };
-  return { lon: gc[0], lat: gc[1], k: fitKForExtent(e2, FLY_PAD), fit: true, fi: fi };
+  /* MEASURE ONCE MORE AT THE CENTRE BEING RETURNED. Updating `gc` at the end of the
+     loop leaves `e2` describing the centre it replaced - measured for Russia, that
+     fitted the arrival to 88 % of the viewport and delivered 55 %. (The extent is
+     not a smooth function of the centre near a pole: a 2.6 deg move took Russia's
+     box from 0.71 x 1.07 to 1.09 x 0.67 plane units, so a stale measurement is not
+     "close enough".) */
+  var eFin = C.featureExtent(feats[fi], upright(C.moveCentre(mUp, gc[0], gc[1], proj,
+                new Float64Array(9))), proj) || e2;
+  if (!eFin) return { lon: gc[0], lat: gc[1], k: clampK(view.k * 2), fit: false };
+  return { lon: gc[0], lat: gc[1], k: fitKForExtent(eFin, FLY_PAD), fit: true, fi: fi };
 }
 
 /* ONE handler for "go there and show me that", whatever produced it: a double
@@ -2217,17 +2320,21 @@ function flyTo(lon, lat, kTo) {
   stopInertia();
   var k0 = view.k, k1 = clampK(kTo);
   fly = {
-    t0: loopNow, dur: FLY_DUR,
+    t0: loopNow, dur: FLY_DUR, last: 0,
     lon0: view.lon, lat0: view.lat, k0: k0,
     lon1: lon, lat1: lat, k1: k1,
     kMin: Math.max(fitK * 0.45, Math.min(k0, k1) * 0.45)
   };
 }
+var FLY_ROLL_TAU = 0.13;         /* s: how fast the flight untwists the picture */
+var FLY_ROLL_RATE = 4.0;         /* rad/s cap, so a 154 deg roll does not whip */
 function stepFly(now) {
   if (!fly) return;
   var t = (now - fly.t0) / fly.dur;
   if (!(t >= 0)) t = 0;
   if (t > 1) t = 1;
+  var dt = fly.last ? Math.min(0.1, Math.max(0.004, (now - fly.last) / 1000)) : 0.016;
+  fly.last = now;
   /* the zoom dips first, comes back last, and is the SUM of the two ramps so the
      curve is continuous at every phase boundary */
   var kNow = fly.kMin + (fly.k0 - fly.kMin) * (1 - smoothstep(t, 0, 0.34)) +
@@ -2238,8 +2345,48 @@ function stepFly(now) {
     var g = slerpLL(fly.lon0, fly.lat0, fly.lon1, fly.lat1, p);
     setCenter(g[0], g[1]);
   }
+  /* THE TILT TRAVELS WITH THE FLIGHT. stepAlign deliberately stands down while a
+     flight is running (below), because a slow exponential drift under a moving
+     camera reads as the horizon sagging. But that left the arrival rolled: the
+     flight ends, then the tilt starts from wherever the drag had left it, so the
+     last second of the journey was the picture sliding upright AFTER the zoom had
+     settled - two movements where the user asked for one. So the flight itself
+     untwists, on the same clock, arriving north-up by construction. The time
+     constant is short enough (0.13 s) to be finished in the 950 ms flight but long
+     enough that the spin is not a snap, and the rate cap keeps a 154 deg roll (a
+     drag over a pole) from whipping. A correct roll is a no-op here, so a flight
+     that starts north-up does no extra work. */
+  if (mode === '2d' && C.CUR && !C.CUR.pseudocyl && !flyAtPole()) {
+    var roll = C.frameRoll(FRAME);
+    if (isFinite(roll) && Math.abs(roll) > 1e-5) {
+      /* A FIXED time constant is not enough: moving the centre re-rolls the frame
+         (parallel transport) by an amount that scales with how fast the world is
+         turning, so on a long diagonal flight the correction and the motion can
+         reach a balance that never reaches zero - measured, 31.9 deg of roll was
+         still -2.5 deg at arrival. So the fraction removed is the larger of "what
+         the time constant says" and "all of what is left, spread over the frames
+         that remain": the same shape early, and a guarantee that the last frame
+         lands on zero. */
+      var remain = Math.max(0.05, (1 - t) * fly.dur / 1000);
+      var flat = (t > 0.82);        /* final stretch: remove whatever is left */
+      var d = flat ? -roll : -roll * Math.min(1, Math.max(dt / FLY_ROLL_TAU, dt / remain));
+      if (!flat) {
+        var rcap = FLY_ROLL_RATE * dt;
+        if (d > rcap) d = rcap; else if (d < -rcap) d = -rcap;
+      }
+      C.rollFrame(FRAME, d, FRAME2);
+      for (var i = 0; i < 9; i++) FRAME[i] = FRAME2[i];
+    }
+  }
   scheduleReproject();                 /* k changed: the LOD level may have too */
-  if (t >= 1) { fly = null; lastMoveT = now; }
+  if (t >= 1) { fly = null; lastMoveT = now; alignPrev = now; }
+}
+/* at the pole "up" has no direction on screen and the canonical frame is an
+   arbitrary choice of longitude, so aligning there would spin the map - the same
+   guard stepAlign uses, in one place so the two can never disagree */
+function flyAtPole() {
+  var c = C.frameCentre(FRAME, FCEN);
+  return Math.abs(c[1]) > ALIGN_POLE;
 }
 
 /* the gentle tilt back to north-up (see the NORTH-UP comment above) */
@@ -2249,11 +2396,10 @@ function stepAlign(now) {
   var dt = (alignPrev && now > alignPrev) ? Math.min(0.1, (now - alignPrev) / 1000) : 0.016;
   alignPrev = now;
   if (now - lastMoveT < ALIGN_DELAY * 1000) return;
-  var cen = C.frameCentre(FRAME, FCEN);
-  /* at the pole "north" has no direction on screen, and the canonical frame there
+  /* at the pole "north" has no direction on screen and the canonical frame there
      is an arbitrary choice of longitude: aligning would spin the map, which is the
      very bug the frame-carrying view was introduced to fix. Leave it be. */
-  if (Math.abs(cen[1]) > ALIGN_POLE) return;
+  if (flyAtPole()) return;
   var roll = C.frameRoll(FRAME);
   if (!isFinite(roll) || Math.abs(roll) < ALIGN_EPS) return;
   var d = -roll * Math.min(1, dt / ALIGN_TAU);

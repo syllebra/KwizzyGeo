@@ -139,7 +139,12 @@ setTimeout(function () {
   check('a capital name is drawn', !!cap);
   if (cap) {
     check('capital names are Title Case, not uppercase', cap.text !== cap.text.toUpperCase(), cap.text);
-    check('capital names are gold', /#ffd166|255,209,102/.test(cap.colour), cap.colour);
+    /* NOT gold: gold competed with the selection accent and turned a map with a
+       dozen capitals into confetti. A capital is emphasis by WEIGHT, and the accent
+       colour is reserved for the one thing you selected. */
+    check('capital names are not gold', !/ffd166|255,209,102/.test(cap.colour), cap.colour);
+    check('capital names are white, brighter than the country voice',
+          /255,255,255/.test(cap.colour), cap.colour);
     check('capital names are bold', /700|bold/.test(cap.font), cap.font);
     check('capital names are bigger than cities',
           parseFloat(cap.font) > 11, cap.font);
@@ -150,7 +155,7 @@ setTimeout(function () {
                W.find(w => w.text.length > 3 && !/700/.test(w.font) && w.colour === 'rgba(255,255,255,.96)');
   check('an ordinary city is drawn', !!city);
   if (city) {
-    check('city names are not gold', !/255,209,102|#ffd166/.test(city.colour), city.colour);
+    check('city names are not the accent colour', !/142,208,255|8ed0ff/.test(city.colour), city.colour);
     check('city names are regular weight', !/700|bold/.test(city.font), city.font);
     check('a city is not drawn in the country voice',
           city.text !== city.text.toUpperCase() || city.colour !== (country && country.colour));

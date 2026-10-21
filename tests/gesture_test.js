@@ -189,17 +189,23 @@ setTimeout(function () {
   /* a row: pick a PROJECTION row (the 3D row needs WebGL, which the harness has
      no business providing) and check it both closes the sheet and takes effect */
   const rows = items.getElementsByClassName('menuitem');
-  check('menu has rows', rows.length >= 8, rows.length + ' rows');
+  /* 2 (view) + 3 (layers) + 2 (overlays) - the projection group is archived */
+  check('menu has rows', rows.length >= 7 && rows.length <= 8, rows.length + ' rows');
   /* View / Projection / Layer / Overlay: the groups are the sheet's structure, so
      the count is asserted - a group that silently stops being rendered is a
      section the user can no longer reach */
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
+  /* View / Layer / Overlay. The PROJECTION group is archived (ARCHIVED_PROJECTIONS
+     in app.js): the registry still works via ?proj=, but the sheet no longer offers
+     eleven world maps nobody plays with. */
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3,
         items.getElementsByClassName('mgroup').length + ' groups');
-  const perspRow = rows.find(r => r.dataset.id === 'proj:persp');
+  check('the projection rows are archived, not rendered',
+        !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
+  const perspRow = rows.find(r => r.dataset.id === 'layer:50m');
   L['menu:click']({ target: perspRow, clientX: 10, clientY: 10 });
   check('clicking a row closes the menu', !menu.classList.contains('open'));
   check('scrim hidden again', !scrim.classList.contains('on'));
-  check('the row took effect (projection switched)', /Perspective/.test(hud.textContent), hud.textContent.split('\n').pop());
+  check('the row took effect (layer switched)', /50m sovereignty/.test(hud.textContent), hud.textContent.split('\n').pop());
   check('the row is marked active', perspRow.classList.contains('on'));
 
   /* the CITY overlay row: a toggle, and the HUD must say which state it is in */
@@ -285,6 +291,12 @@ setTimeout(function () {
   function settleFly() {
     let n = 0;
     while (VS.flying() && n < 300) { fakeNow += 16; frame(fakeNow); n++; }
+    /* the reprojection of the final centre is SCHEDULED, not applied: the app
+       coalesces it to the next animation frame, and feature bboxes (what the
+       screen-box assertions read) are computed by that pass. Two more frames, or
+       the test measures the box of the previous centre - which is what made
+       Russia look 55 % fitted when it was 88 %. */
+    for (let i = 0; i < 3; i++) { fakeNow += 16; frame(fakeNow); }
     return n;
   }
   function touchEv(x, y, changed) {
@@ -325,6 +337,33 @@ setTimeout(function () {
           Math.max((tapBox[2] - tapBox[0]) / VW2, (tapBox[3] - tapBox[1]) / VH2) > 0.75,
           tapBox.map(v => v.toFixed(0)).join(','));
   }
+
+  /* ---------- 8a-bis. the flight arrives NORTH-UP ----------
+     The tilt used to stand down during a flight and start afterwards, so the
+     journey ended with the zoom settling and then the picture sliding upright:
+     two movements where the user asked for one. */
+  resetView();
+  /* roll the frame with a diagonal drag, then fly somewhere */
+  fire('mousedown', ev(350, 350));
+  let rx = 350, ry = 350;
+  for (let i = 0; i < 9; i++) { fakeNow += 16; rx += 15; ry += 25; fire('mousemove', ev(rx, ry)); frame(fakeNow); }
+  fire('mouseup', ev(rx, ry));
+  for (let i = 0; i < 120; i++) { fakeNow += 16; frame(fakeNow); }   /* let the glide end */
+  const rollBeforeFly = VS.rollDeg();
+  const aim2 = VS.project(20, 45);
+  fire('dblclick', ev(Math.round(aim2[0]), Math.round(aim2[1])));
+  let rollAtArrival = null;
+  while (VS.flying()) { fakeNow += 16; frame(fakeNow); rollAtArrival = VS.rollDeg(); }
+  check('the flight starts from a rolled picture', Math.abs(rollBeforeFly) > 0.3,
+        rollBeforeFly.toFixed(2) + ' deg');
+  check('it arrives already north-up (no slide afterwards)',
+        Math.abs(VS.rollDeg()) < 0.4,
+        rollBeforeFly.toFixed(1) + ' -> ' + VS.rollDeg().toFixed(2) + ' deg at arrival');
+  /* and the tilt must not keep turning after arrival: the centre is settled */
+  const rollNow = VS.rollDeg();
+  for (let i = 0; i < 40; i++) { fakeNow += 16; frame(fakeNow); }
+  check('nothing slides upright after the arrival', Math.abs(VS.rollDeg() - rollNow) < 0.35,
+        rollNow.toFixed(2) + ' -> ' + VS.rollDeg().toFixed(2) + ' deg');
 
   /* ---------- 8b. the fitted destination zoom ----------
      A fixed factor was wrong at both ends: France filled a quarter of the screen and
