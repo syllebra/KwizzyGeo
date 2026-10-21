@@ -363,6 +363,49 @@ function rotRoll(lon0, lat0, s, m) {
   return m;
 }
 
+/* ---------- ROLL: how far the picture is turned, and how to turn it back ----------
+   The frame of a cone projection (persp, ortho) carries a ROLL on top of its
+   centre: a drag that goes diagonally, or crosses a pole, leaves the frame turned
+   about the view axis, so north is no longer up. The centre is row 0 and a roll
+   never touches it; the roll lives entirely in rows 1 and 2, so it is measured and
+   applied there.
+
+   frameRoll(m) returns the roll in RADIANS, signed, 0 when north is up: compare
+   the up row of m with the up row of the CANONICAL frame of the same centre. Both
+   lie in the plane perpendicular to row 0, so the angle between them - with the
+   frame's own row 2 giving the sign - is the roll by definition, not by an
+   approximation. */
+function frameRoll(m) {
+  var c = FCENB;
+  frameCentre(m, c);
+  var lon = c[0] * DEG, lat = c[1] * DEG;
+  var ca = Math.cos(lon), sa = Math.sin(lon), cb = Math.cos(lat), sb = Math.sin(lat);
+  /* row 1 of rotMat(lon, lat): the centre's north, i.e. "up" */
+  var c1x = -sb * ca, c1y = cb, c1z = sb * sa;
+  /* row 2 of the canonical frame: the centre's east */
+  var c2x = sa, c2y = 0, c2z = ca;
+  var ux = m[3], uy = m[4], uz = m[5];
+  var cosA = ux * c1x + uy * c1y + uz * c1z;
+  var sinA = ux * c2x + uy * c2y + uz * c2z;
+  return Math.atan2(sinA, cosA);
+}
+var FCENB = [0, 0];
+
+/* Turn the frame by `d` radians about the VIEW axis: row 0 (the centre) is kept
+   exactly, rows 1 and 2 are mixed. The picture spins, the centre and the zoom do
+   not move, so this is the only rotation that "tilts north up" without moving the
+   place you are looking at. Verified by frameRoll(rollFrame(m, d)) = frameRoll(m)
+   + d. */
+function rollFrame(m, d, out) {
+  var c = Math.cos(d), s = Math.sin(d);
+  out[0] = m[0]; out[1] = m[1]; out[2] = m[2];
+  var a0 = m[3], a1 = m[4], a2 = m[5];
+  var b0 = m[6], b1 = m[7], b2 = m[8];
+  out[3] = c * a0 + s * b0; out[4] = c * a1 + s * b1; out[5] = c * a2 + s * b2;
+  out[6] = -s * a0 + c * b0; out[7] = -s * a1 + c * b1; out[8] = -s * a2 + c * b2;
+  return out;
+}
+
 /* THE MOVE OF THE CENTRE. m = the frame in play, (lon0,lat0) the new centre
    (any longitude is fine, the trig is periodic). Let v = m x be the NEW centre
    in the OLD frame's coordinates. The new frame must map x to e0 = (1,0,0), so
@@ -1333,20 +1376,6 @@ function buildFeaturesLOD(geo, step, keepLL) {
   return feats;
 }
 
-/* same decimated ring, but reading the lon/lat twin (identical point order
-   as ring.pts) so the 3D globe can map the very same LOD subset onto a sphere */
-function ringLLAtLevel(ring, t) {
-  var idx = ensureLevel(ring, t), ll = ring.ll;
-  if (!ll) return null;
-  if (idx.length === ll.length / 2) return ll;
-  var out = new Array(cnt * 2);
-  for (var a = 0; a < cnt; a++) {
-    var i = idx[a];
-    out[a * 2] = ll[i * 2]; out[a * 2 + 1] = ll[i * 2 + 1];
-  }
-  return out;
-}
-
 /* The LOD ladder of a ring is built ON DEMAND. Building all ten levels for the
    10m layer costs ~100 ms of the 205 ms load and 10.6 MB of Int32Array, and a
    session typically uses two or three levels (the world view reads one, the globe
@@ -1382,19 +1411,6 @@ function levelIndex(ring, k, maxPx) {
   return LOD_U.length - 1;
 }
 
-/* index list of a ring at an explicit ladder level (for the 3D globe, where
-   the level is chosen by camera distance rather than by current view) */
-function ringAtLevel(ring, t) {
-  var idx = ensureLevel(ring, t), pts = ring.pts;
-  if (idx.length === pts.length / 2) return pts;
-  var out = new Array(idx.length * 2);
-  for (var a = 0; a < idx.length; a++) {
-    var i = idx[a];
-    out[a * 2] = pts[i * 2]; out[a * 2 + 1] = pts[i * 2 + 1];
-  }
-  return out;
-}
-
 /* flat projected coords of a ring at zoom k (coarsest level under maxPx error) */
 function ringFlat(ring, k, maxPx) {
   var t = levelIndex(ring, k, maxPx);
@@ -1405,435 +1421,6 @@ function ringFlat(ring, k, maxPx) {
     var i = idx[a];
     out[a * 2] = pts[i * 2]; out[a * 2 + 1] = pts[i * 2 + 1];
   }
-  return out;
-}
-
-/* Lawson flips: turn the ear-clipped mesh toward a constrained Delaunay
-   triangulation, in place. VENDORED VERBATIM from earcut v3.2.4 `src/earcut.js`
-   (the `refine` post-pass and its scratch/predicates; only the exported name is
-   renamed to refineTri and the `export` keyword dropped).
-
-   Why this matters: the ear clipper below is fine on COVERAGE (measured on the
-   real 50m layer: 0 gaps, 0.4 % spikes over sea, and that 0.4 % is the geodesic
-   chord, not the clipper) but its ear ORDER is terrible on SHAPE, because
-   densification inserts vertices nearly collinear with their neighbours. Measured
-   across all 9 LOD levels: 24 % of triangles at LOD 0 and 48 % at LOD 8 have a
-   minimum angle under 2 degrees - the long thin slivers that made the globe look
-   bad. Legalizing every interior edge drops that to 1.2 % / 4.9 %, costs ~1 % of
-   the clip (16 ms vs 1.7 s at LOD 8), keeps triangle COUNT and covered area
-   identical, and cannot cross a boundary edge (those keep he = -1), so the
-   coastline stays exactly where the ring puts it.
-
-   Precondition: consistently CCW input, which triangulateRing guarantees by
-   normalizing the signed area. */
-
-// Reusable module-level scratch for refine():
-//   he      = twin half-edge of each edge, or -1 on the polygon boundary
-//   hTable  = open-addressing hash, slot -> half-edge index, valid iff hStamp[slot] === gen
-//   edgeStamp = pending-in-stack flag, cleared when the edge is popped
-/** @type {Int32Array} */ let edgeStack;
-/** @type {Int32Array} */ let he;
-/** @type {Int32Array} */ let hTable;
-/** @type {Uint32Array} */ let hStamp;
-/** @type {Uint8Array} */ let edgeStamp;
-let hMask = 0, gen = 0;
-
-/**
- * Refine a triangulation toward the constrained Delaunay triangulation by legalizing every
- * interior edge in place with Lawson flips — maximizing the minimum angle and removing most
- * slivers. An optional post-pass for {@link earcut} output, or any manifold triangle-index array
- * indexing into `coords`. Adapted from delaunator's edge legalization.
- *
- * Uses non-robust predicates: float input is fine, and the worst case is a not-quite-Delaunay
- * edge, never an invalid mesh.
- *
- * @param {number[]} triangles triangle indices, as returned by {@link earcut}; mutated in place
- * @param {ArrayLike<number>} coords the flat vertex coordinates passed to {@link earcut}
- * @param {number} [dim=2] number of coordinates per vertex in `coords`
- * @example refine(earcut(data), data);
- */
-function refineTri(triangles, coords, dim = 2) {
-    const t = triangles;
-    const n = t.length;
-    if (n < 6) return;
-    ensureScratch(n);
-    gen++;              // bumping the generation logically empties the hash (no clearing)
-    he.fill(-1, 0, n);
-
-    // Build half-edge twins with an undirected-edge hash; consumed slots mark linked pairs. As each
-    // pair is linked we seed the stack with one representative (s, the earlier-inserted edge) — this
-    // fuses the initial "push every interior edge" pass into the build, saving a full O(n) scan.
-    // edgeStamp is all-zero here (balanced push/pop leaves it clean) and each pair links once, so
-    // the seed write needs no dedup guard.
-    let i = 0;
-    for (let e = 0; e < n; e++) {
-        const a = t[e], b = t[nextHE(e)];
-        const lo = a < b ? a : b, hi = a < b ? b : a;
-        let h = (Math.imul(lo, 0x9e3779b1) ^ Math.imul(hi, 0x85ebca6b)) & hMask;
-        while (hStamp[h] === gen) {
-            const s = hTable[h];
-            // s === -1 marks a consumed slot (a pair already linked) — skip past it
-            if (s !== -1) {
-                const sa = t[s], sb = t[nextHE(s)];
-                if ((sa === lo && sb === hi) || (sa === hi && sb === lo)) {
-                    he[e] = s; he[s] = e; hTable[h] = -1; // link, then consume the slot
-                    edgeStamp[s] = 1; edgeStack[i++] = s; // seed the interior edge for the cascade
-                    break;
-                }
-            }
-            h = (h + 1) & hMask;
-        }
-        if (hStamp[h] !== gen) { hTable[h] = e; hStamp[h] = gen; } // first occurrence: insert
-    }
-
-    while (i > 0) {
-        const a = edgeStack[--i];
-        edgeStamp[a] = 0;
-        const b = he[a];
-        if (b === -1) continue;
-
-        const a0 = a - a % 3;
-        const b0 = b - b % 3;
-        const ar = a0 + (a + 2) % 3;
-        const al = a0 + (a + 1) % 3;
-        const bl = b0 + (b + 2) % 3;
-        const br = b0 + (b + 1) % 3;
-        const p0 = t[ar], pr = t[a], pl = t[al], p1 = t[bl];
-
-        const x0 = coords[p0 * dim], y0 = coords[p0 * dim + 1];
-        const xr = coords[pr * dim], yr = coords[pr * dim + 1];
-        const xl = coords[pl * dim], yl = coords[pl * dim + 1];
-        const x1 = coords[p1 * dim], y1 = coords[p1 * dim + 1];
-
-        // Test inCircle first: most interior edges are already Delaunay (inCircle true → no flip),
-        // so this short-circuits before the two convexity orients on the common path. The quad must
-        // also be convex (both new triangles CCW) — flipping a reflex quad would push a triangle
-        // outside the polygon. Boundary/hole edges need no guard — they self-protect via he === -1.
-        if (!inCircle(x0, y0, xr, yr, xl, yl, x1, y1) &&
-            orient(x0, y0, xr, yr, x1, y1) > 0 && orient(x0, y0, x1, y1, xl, yl) > 0) {
-            t[a] = p1; t[b] = p0;
-            const hbl = he[bl], har = he[ar];
-            he[a] = hbl; if (hbl !== -1) he[hbl] = a;
-            he[b] = har; if (har !== -1) he[har] = b;
-            he[ar] = bl; he[bl] = ar;
-
-            // re-check the quad's four outer edges; skip boundary edges (he === -1) and any
-            // already queued (edgeStamp), which also keeps the stack bounded by n.
-            if (hbl    !== -1 && edgeStamp[a]  === 0) { edgeStamp[a]  = 1; edgeStack[i++] = a; }
-            if (har    !== -1 && edgeStamp[b]  === 0) { edgeStamp[b]  = 1; edgeStack[i++] = b; }
-            if (he[al] !== -1 && edgeStamp[al] === 0) { edgeStamp[al] = 1; edgeStack[i++] = al; }
-            if (he[br] !== -1 && edgeStamp[br] === 0) { edgeStamp[br] = 1; edgeStack[i++] = br; }
-        }
-    }
-}
-
-/** @param {number} ax @param {number} ay @param {number} bx @param {number} by @param {number} cx @param {number} cy */
-function orient(ax, ay, bx, by, cx, cy) {
-    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-}
-
-// Whether p is inside or exactly on the circumcircle of triangle (a, b, c). Sign is negated vs the
-// usual predicate to match earcut's CCW winding — the standard sign would build the anti-Delaunay
-// mesh. Cocircular quads are legal ties, so refine only flips when this returns false.
-/** @param {number} ax @param {number} ay @param {number} bx @param {number} by @param {number} cx @param {number} cy @param {number} px @param {number} py */
-function inCircle(ax, ay, bx, by, cx, cy, px, py) {
-    const dx = ax - px, dy = ay - py, ex = bx - px, ey = by - py, fx = cx - px, fy = cy - py;
-    const ap = dx * dx + dy * dy, bp = ex * ex + ey * ey, cp = fx * fx + fy * fy;
-    // A near-cocircular quad is a legal Delaunay tie, but roundoff can flag both an edge and its
-    // flip as illegal, cascading into an endless flip loop (#205) — so treat a determinant within
-    // a small margin of zero as a tie. The determinant's worst-case roundoff error is provably
-    // below 9e-16·(ap + bp + cp)² (Shewchuk-style bound), so the margin guarantees every executed
-    // flip is illegal in exact arithmetic, and Lawson flipping always terminates.
-    const s = ap + bp + cp;
-    return dx * (ey * cp - bp * fy) - dy * (ex * cp - bp * fx) + ap * (ex * fy - ey * fx) <= 1e-13 * s * s;
-}
-
-/** @param {number} e */
-function nextHE(e) { // next half-edge within the same triangle
-    return e - e % 3 + (e + 1) % 3;
-}
-
-// Grow the scratch arrays on demand (like earcut's z-order arrays). Allocating lazily here rather
-// than at module load lets the whole refine() block tree-shake away for callers who don't use it.
-/** @param {number} n */
-function ensureScratch(n) {
-    // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap —
-    // sizing it up front lets the cascade push without a bounds/grow check.
-    if (!edgeStack || edgeStack.length < n) edgeStack = new Int32Array(n);
-    if (!he || he.length < n) he = new Int32Array(n);
-    if (!edgeStamp || edgeStamp.length < n) edgeStamp = new Uint8Array(n);
-    let size = 1;
-    while (size < n * 4) size <<= 1; // power-of-two table, load factor <= 0.25
-    if (!hTable || hTable.length < size) { hTable = new Int32Array(size); hStamp = new Uint32Array(size); }
-    hMask = size - 1;
-}
-
-/* Cached triangulation of a ring at a LOD level.
-
-   The clip is the expensive part of a globe build (measured on the 50m layer:
-   1.7 s of clipping at LOD 8 against 16 ms of Lawson refinement), and the
-   result depends on nothing but (ring, level) - so cache it on the ring. A
-   rebuild, a layer switch, or a re-pick after zooming then pays the 16 ms
-   refine, never the 1.7 s clip. ring.levels[] already holds one index list per
-   level, so tris[] runs parallel to it. */
-function ringTris(ring, t) {
-  if (!ring.tris) ring.tris = [];
-  var hit = ring.tris[t];
-  if (hit) return hit;
-  var lla = ringLLAtLevel(ring, t);
-  var out = [];
-  if (lla && lla.length >= 6) {
-    /* refineTri mutates its triangle array in place and returns nothing (as in
-       the vendored source), so keep the clip's array, do not chain the calls */
-    out = triangulateRing(lla);
-    refineTri(out, lla);
-  }
-  ring.tris[t] = out;
-  return out;
-}
-
-/* ---------- the GLOBE's own LOD ladder: sewn, decimation only on the outside ----------
-   The 2D ladder above decimates every ring INDEPENDENTLY, which is fine on a flat
-   map (a hairline of background between two countries reads as a border stroke)
-   but NOT on the globe, where the land is a crust over an ocean sphere: a border
-   kept on one side and dropped on the other opens a crack down to the sea.
-   Measured on the 2D ladder, share of drawn border edges used by only one side:
-     110m  lvl0 84.7%  lvl1 67.1%  lvl2 24.1%  lvl4 0.3%   50m  lvl0 93.4% lvl1 80.9%
-   So at the coarse levels the globe was actually drawing about HALF of the national
-   borders (the country outlines were still closed loops, so land stayed solid - but
-   the shared edge was gone, and the interior border stroke was missing).
-
-   Fix: a vertex of a ring whose FINE edge is shared with another ring is a BORDER
-   vertex, and it must be kept at EVERY level - then both sides of a shared border
-   agree on where it runs, and the decimation only happens on the OUTSIDE (which
-   must stay exact anyway, it is the silhouette against the sea). One shared-edge
-   pass over the finest level, then the same distance ladder with those vertices
-   forced. Measured (viewer/sewvar.js): unmatched border edges go to 0.0% at every
-   level, and the vertex cost is x2.9 at LOD 0 (25.7k for 110m, 52.5k for 50m)
-   against x1.0 at LOD 3+ - the borders are simply denser than the coasts, which
-   is what the globe's own LOD level (see app.js) then keeps hidden.
-   The 2D ladder is left untouched: it is what hover/pick and the flat map run on,
-   and changing it would change the screen-px error budget that was tuned there. */
-function sewGlobeLadder(feats) {
-  var vk = function (x, y) { return Math.round(x * 1e6) + ',' + Math.round(y * 1e6); };
-  var shared = {}, ends = [];
-  for (var i = 0; i < feats.length; i++) for (var r = 0; r < feats[i].rings.length; r++) {
-    var rg = feats[i].rings[r], ll = rg.ll, n = ll.length / 2;
-    if (!ll) continue;
-    for (var e = 0; e < n; e++) {
-      var a = vk(ll[e * 2], ll[e * 2 + 1]), b = vk(ll[((e + 1) % n) * 2], ll[((e + 1) % n) * 2 + 1]);
-      if (a === b) continue;
-      var k = a < b ? a + '|' + b : b + '|' + a;
-      shared[k] = (shared[k] || 0) + 1;
-      if (shared[k] === 1) ends.push(a, b);
-    }
-  }
-  var forced = {};
-  for (var q = 0; q < ends.length; q += 2) {
-    var a2 = ends[q], b2 = ends[q + 1];
-    var k2 = a2 < b2 ? a2 + '|' + b2 : b2 + '|' + a2;
-    /* the map is only needed to count, the endpoints were pushed for the same
-       edges, so re-reading the count here is O(1) and avoids a second pass */
-    if (shared[k2] > 1) { forced[a2] = 1; forced[b2] = 1; }
-  }
-  for (var t = 0; t < LOD_U.length; t++) {
-    var u = LOD_U[t];
-    for (var i2 = 0; i2 < feats.length; i2++) for (var r2 = 0; r2 < feats[i2].rings.length; r2++) {
-      var rg2 = feats[i2].rings[r2], ll2 = rg2.ll, pts = rg2.pts, nF = ll2.length / 2;
-      if (!ll2) continue;
-      var idx = [], last = -1;
-      if (u === 0) {
-        for (var j2 = 0; j2 < nF; j2++) idx.push(j2);
-      } else {
-        for (var j = 0; j < nF; j++) {
-          var keep = last < 0;
-          if (!keep) {
-            var dx = pts[j * 2] - pts[last * 2], dy = pts[j * 2 + 1] - pts[last * 2 + 1];
-            if (dx * dx + dy * dy >= u * u) keep = true;
-          }
-          if (!keep && forced[vk(ll2[j * 2], ll2[j * 2 + 1])] === 1) keep = true;
-          if (keep) { idx.push(j); last = j; }
-        }
-      }
-      if (idx.length < 3) { idx = []; for (var z = 0; z < nF && idx.length < 3; z++) idx.push(z); }
-      if (!rg2.gl) rg2.gl = [];
-      rg2.gl[t] = idx;
-      rg2.gtris = [];
-    }
-  }
-  return forced;
-}
-
-/* the globe reads its OWN ladder (rg.gl) and its own tri cache (rg.gtris): the
-   2D ladder and the 2D tri cache stay what the flat map was tuned on, and a
-   level switch never invalidates the other view's work */
-function ringGlobeLLAtLevel(ring, t) {
-  var idx = ring.gl[t], ll = ring.ll;
-  if (idx.length === ll.length / 2) return ll;
-  var out = new Array(cnt * 2);
-  for (var a = 0; a < cnt; a++) {
-    var i = idx[a];
-    out[a * 2] = ll[i * 2]; out[a * 2 + 1] = ll[i * 2 + 1];
-  }
-  return out;
-}
-
-function ringGlobeTris(ring, t) {
-  if (!ring.gtris) ring.gtris = [];
-  var hit = ring.gtris[t];
-  if (hit) return hit;
-  var lla = ringGlobeLLAtLevel(ring, t);
-  var out = [];
-  if (lla && lla.length >= 6) {
-    out = triangulateRing(lla);
-    refineTri(out, lla);   /* mutates in place, returns nothing: keep the clip's array */
-  }
-  ring.gtris[t] = out;
-  return out;
-}
-
-function triangulateRing(poly) {
-  /* flat [x,y,...] ring -> flat list of triangle vertex INDICES into poly
-     (so callers can map the same vertices to lon/lat and onto a sphere).
-     Ear clipping with: collinear removal, convexity, diagonal-vs-edge
-     intersection and a reflex-vertex containment test. Densified borders are
-     full of nearly-collinear vertices, so all three tests are needed. */
-  var n0 = poly.length / 2;
-  if (n0 < 3) return [];
-  var p = [], src = [];
-  for (var i = 0; i < n0; i++) {
-    var x = poly[i * 2], y = poly[i * 2 + 1];
-    var m = p.length / 2;
-    if (m > 0 && x === p[(m - 1) * 2] && y === p[(m - 1) * 2 + 1]) continue;
-    p.push(x, y); src.push(i);
-  }
-  if (p.length >= 2 && p[0] === p[p.length - 2] && p[1] === p[p.length - 1]) {
-    p = p.slice(0, p.length - 2); src = src.slice(0, src.length - 1);
-  }
-  var n = p.length / 2;
-  if (n < 3) return [];
-
-  var A = 0;
-  for (var i2 = 0; i2 < n; i2++) { var j = (i2 + 1) % n; A += p[i2 * 2] * p[j * 2 + 1] - p[j * 2] * p[i2 * 2 + 1]; }
-  if (A === 0) return [];
-  if (A < 0) { var q = [], qs = []; for (var k = n - 1; k >= 0; k--) { q.push(p[k * 2], p[k * 2 + 1]); qs.push(src[k]); } p = q; src = qs; }
-
-  var ex = 0, ey = 0;
-  for (var c2 = 0; c2 < n; c2++) { ex += p[c2 * 2]; ey += p[c2 * 2 + 1]; }
-  var mx = 1;
-  for (var c3 = 0; c3 < n; c3++) {
-    var dxx = p[c3 * 2] - ex / n, dyy = p[c3 * 2 + 1] - ey / n;
-    var d2 = dxx * dxx + dyy * dyy;
-    if (d2 > mx) mx = d2;
-  }
-  /* cross() is in SQUARE units (it is a 2x-area determinant), so the tolerance
-     must be a squared length: 1e-11 * mx (max distance from the centroid)
-     SQUARED, i.e. a relative cross-product cutoff. Written as mx*mx below. */
-  var eps = 1e-11 * mx * mx;
-
-  function cross(a, b, c) {
-    return (p[b * 2] - p[a * 2]) * (p[c * 2 + 1] - p[a * 2 + 1]) -
-           (p[b * 2 + 1] - p[a * 2 + 1]) * (p[c * 2] - p[a * 2]);
-  }
-
-  var alive = new Uint8Array(n); alive.fill(1);
-  var prev = new Int32Array(n), next = new Int32Array(n);
-  for (var v = 0; v < n; v++) { prev[v] = (v - 1 + n) % n; next[v] = (v + 1) % n; }
-
-  /* pass 1: drop collinear vertices (keeps the area exact) */
-  var left = n, pass = 0, removed = 0;
-  while (pass < 6 && left > 3) {
-    var changed = false;
-    for (var v2 = 0; v2 < n; v2++) {
-      if (!alive[v2]) continue;
-      if (Math.abs(cross(prev[v2], v2, next[v2])) <= eps) {
-        next[prev[v2]] = next[v2]; prev[next[v2]] = prev[v2];
-        alive[v2] = 0; left--; removed++; changed = true;
-      }
-    }
-    if (!changed) break;
-    pass++;
-  }
-  if (left < 3 || removed === n) return [];
-
-  var reflex = new Uint8Array(n);
-  for (var v3 = 0; v3 < n; v3++) if (alive[v3]) reflex[v3] = cross(prev[v3], v3, next[v3]) < 0 ? 1 : 0;
-
-  function inside(q, a, b, c) {
-    var qx = p[q * 2], qy = p[q * 2 + 1];
-    var d1 = (p[c * 2] - qx) * (p[b * 2 + 1] - qy) - (p[c * 2 + 1] - qy) * (p[b * 2] - qx);
-    var d2 = (p[a * 2] - qx) * (p[c * 2 + 1] - qy) - (p[a * 2 + 1] - qy) * (p[c * 2] - qx);
-    var d3 = (p[b * 2] - qx) * (p[c * 2 + 1] - qy) - (p[b * 2 + 1] - qy) * (p[c * 2] - qx);
-    return (d1 > 0 && d2 > 0 && d3 > 0) || (d1 < 0 && d2 < 0 && d3 < 0);
-  }
-  function segProper(i, j, k, l) {
-    var x1 = p[i * 2], y1 = p[i * 2 + 1], x2 = p[j * 2], y2 = p[j * 2 + 1];
-    var x3 = p[k * 2], y3 = p[k * 2 + 1], x4 = p[l * 2], y4 = p[l * 2 + 1];
-    var d1 = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
-    var d2 = (x2 - x1) * (y4 - y1) - (y2 - y1) * (x4 - x1);
-    var d3 = (x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3);
-    var d4 = (x4 - x3) * (y2 - y3) - (y4 - y3) * (x2 - x3);
-    return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
-  }
-  function diagOK(a, c) {
-    for (var e1 = 0; e1 < n; e1++) {
-      if (!alive[e1]) continue;
-      var e2 = next[e1];
-      if (e1 === a || e2 === a || e1 === c || e2 === c) continue;
-      if (segProper(a, c, e1, e2)) return false;
-    }
-    return true;
-  }
-  function isEar(v) {
-    if (reflex[v] || !alive[v]) return false;
-    var a = prev[v], b = v, c = next[v];
-    if (cross(a, b, c) <= eps) return false;
-    if (!diagOK(a, c)) return false;
-    for (var q2 = 0; q2 < n; q2++) {
-      if (!alive[q2] || !reflex[q2] || q2 === a || q2 === b || q2 === c) continue;
-      if (inside(q2, a, b, c)) return false;
-    }
-    return true;
-  }
-
-  var queue = [];
-  for (var v4 = 0; v4 < n; v4++) if (alive[v4] && isEar(v4)) queue.push(v4);
-  var out = [], guard = 0;
-
-  function cut(v5) {
-    var a1 = prev[v5], c1 = next[v5];
-    var cr = cross(a1, v5, c1);
-    if (cr > eps) out.push(src[a1], src[v5], src[c1]);
-    alive[v5] = 0; left--;
-    next[a1] = c1; prev[c1] = a1;
-    reflex[a1] = cross(prev[a1], a1, next[a1]) < 0 ? 1 : 0;
-    reflex[c1] = cross(prev[c1], c1, next[c1]) < 0 ? 1 : 0;
-    if (alive[a1] && isEar(a1)) queue.push(a1);
-    if (alive[c1] && isEar(c1)) queue.push(c1);
-  }
-
-  while (left > 3) {
-    var pick = -1;
-    while (queue.length) {
-      var cand = queue.pop();
-      if (alive[cand] && isEar(cand)) { pick = cand; break; }
-    }
-    if (pick < 0) {
-      var bestV = -1, bestC = eps;
-      for (var fv = 0; fv < n; fv++) {
-        if (!alive[fv]) continue;
-        var cr2 = cross(prev[fv], fv, next[fv]);
-        if (cr2 > bestC) { bestC = cr2; bestV = fv; }
-      }
-      if (bestV < 0) break;
-      pick = bestV;
-      if (++guard > 3 * n) break;
-    } else guard = 0;
-    cut(pick);
-  }
-  var rem = [];
-  for (var r = 0; r < n; r++) if (alive[r]) rem.push(r);
-  if (rem.length === 3 && cross(rem[0], rem[1], rem[2]) > eps) out.push(src[rem[0]], src[rem[1]], src[rem[2]]);
   return out;
 }
 
@@ -1983,6 +1570,106 @@ function projectRotLL(lonDeg, latDeg, m, proj, out) {
   var phi2 = Math.asin(Math.max(-1, Math.min(1, Y)));
   var lam2 = Math.atan2(-Z, X);
   proj.fwd(lam2, phi2, out);
+  return out;
+}
+
+/* projectRotLL + the visibility test of visibleAt, in ONE pass: one rotation and
+   one fwd() per point instead of two.
+   This is the hot path of the city layer (7 342 points, tested every frame), so it
+   also avoids the plain projectRotLL's trap: on a cone-clipped projection the
+   hidden cap maps ONTO the visible disc, so a point behind the world projects to a
+   perfectly plausible screen position. The X' >= clipCos test is what tells them
+   apart. Returns true when the point is drawn, and `out` holds the plane point
+   either way. */
+function projectRotLLVis(lonDeg, latDeg, m, proj, out) {
+  var phi = latDeg * DEG, lam = lonDeg * DEG;
+  var s = Math.sin(phi), c = Math.cos(phi);
+  var x = c * Math.cos(lam), y = s, z = -c * Math.sin(lam);
+  var X = m[0] * x + m[1] * y + m[2] * z,
+      Y = m[3] * x + m[4] * y + m[5] * z,
+      Z = m[6] * x + m[7] * y + m[8] * z;
+  /* EPS at the limb: a point EXACTLY on the rim (cos of the angular distance = 0,
+     e.g. the South Pole station seen from a centre on the equator) computes X as
+     -6e-17, i.e. a hair on the hidden side. It belongs to the drawn rim, not the
+     hidden cap, so the test is given the same 1e-12 slack the geometry has. */
+  var vis = !(proj.clip === 'cone' && X < (proj.clipCos || 0) - 1e-12);
+  if (proj.fwdVec && proj.clip === 'cone') proj.fwdVec(X, Y, Z, out);
+  else proj.fwd(Math.atan2(-Z, X), Math.asin(Math.max(-1, Math.min(1, Y))), out);
+  return vis;
+}
+
+/* PLANE EXTENT of one feature in a given frame, without touching the view.
+   Used to answer "how far must I zoom so that this country's bounding box fits?":
+   the app flies to a country and needs the destination zoom BEFORE it starts moving.
+
+   Why it does not just read feat.bbox: those are the boxes of the CURRENT centre's
+   re-projected pieces, and the destination is a different centre - the extent of a
+   country in the plane changes with the frame (a rotation shears it, and near a
+   pole it can double). So the ring's lon/lat twin (rg.ll) is rotated by `m` and
+   projected, exactly as the draw path would.
+
+   Two things this has to get right:
+   * a cone projection draws only the visible cap, so a point on the far side is
+     skipped (fwdVec + the X' >= clipCos test, the same pair projectRotLLVis uses);
+   * a SEAM projection renders lon' = +-180 on both sides of the frame, so a country
+     that straddles the seam would otherwise report a width of the whole world. The
+     fix is geometric and exact for that family (x is 360-periodic in lon'): if the
+     raw lon' span exceeds 180, the negatives are shifted by +360, which places the
+     two halves contiguously instead of on opposite edges. Both placements are
+     mirror images of the same size, so "smaller box" is the honest one.
+   Rings are sampled at a cap of ~2000 points each: the extent is a fit, not a
+   measurement, and a country's bbox does not move by a pixel for that. */
+var FE_LL = new Float64Array(4096), FE_LO = new Float64Array(4096);
+function featureExtent(f, m, proj, out) {
+  out = out || [0, 0, 0, 0];
+  var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  var o = [0, 0];
+  for (var r = 0; r < f.rings.length; r++) {
+    var ll = f.rings[r].ll;
+    if (!ll || ll.length < 6) continue;
+    var np = ll.length / 2;
+    var stride = Math.max(1, Math.ceil(np / 2000));
+    var m2 = 0, i, lo, la;
+    /* first pass: rotated position per sampled point */
+    for (i = 0; i < np; i += stride) {
+      var phi = ll[i * 2 + 1] * DEG, lam = ll[i * 2] * DEG;
+      var cp = Math.cos(phi);
+      var x = cp * Math.cos(lam), y = Math.sin(phi), z = -cp * Math.sin(lam);
+      var X = m[0] * x + m[1] * y + m[2] * z,
+          Y = m[3] * x + m[4] * y + m[5] * z,
+          Z = m[6] * x + m[7] * y + m[8] * z;
+      if (proj.clip === 'cone' && X < (proj.clipCos || 0)) continue;
+      FE_LL[m2 * 3] = X; FE_LL[m2 * 3 + 1] = Y; FE_LL[m2 * 3 + 2] = Z;
+      FE_LO[m2] = Math.atan2(-Z, X) / DEG;
+      m2++;
+      if (m2 >= 1365) break;                 /* FE_LL holds 4096/3 */
+    }
+    if (m2 < 3) continue;
+    var shift = 0;
+    if (proj.clip !== 'cone') {
+      var mn = Infinity, mx = -Infinity;
+      for (i = 0; i < m2; i++) { if (FE_LO[i] < mn) mn = FE_LO[i]; if (FE_LO[i] > mx) mx = FE_LO[i]; }
+      if (mx - mn > 180) shift = 360;        /* it straddles the seam */
+    }
+    for (i = 0; i < m2; i++) {
+      var X2 = FE_LL[i * 3], Y2 = FE_LL[i * 3 + 1], Z2 = FE_LL[i * 3 + 2];
+      if (proj.fwdVec && proj.clip === 'cone') {
+        proj.fwdVec(X2, Y2, Z2, o);
+      } else {
+        lo = FE_LO[i];
+        if (shift && lo < 0) lo += shift;
+        la = Math.asin(Math.max(-1, Math.min(1, Y2))) / DEG;
+        proj.fwd(lo * DEG, la * DEG, o);
+      }
+      if (!isFinite(o[0]) || !isFinite(o[1])) continue;
+      if (o[0] < x0) x0 = o[0];
+      if (o[0] > x1) x1 = o[0];
+      if (o[1] < y0) y0 = o[1];
+      if (o[1] > y1) y1 = o[1];
+    }
+  }
+  if (x0 === Infinity) return null;
+  out[0] = x0; out[1] = y0; out[2] = x1; out[3] = y1;
   return out;
 }
 
@@ -2252,6 +1939,17 @@ function graticuleRot(lon0, lat0, step, dlon, dlat, proj, k, m0) {
         t = target === 0 ? b : a;
         lo = rl[ia * 2] + (rl[ib * 2] - rl[ia * 2]) * t;
         la = rl[ia * 2 + 1] + (rl[ib * 2 + 1] - rl[ia * 2 + 1]) * t;
+      } else if (proj.clip === 'cone') {
+        /* NOT clamped to the lon window: for a horizon projection the frame edge is
+           the RIM, and lon' = +-180 is an ordinary meridian pointing away from the
+           viewer at plane x = 0. Clamping onto it therefore collapsed every sample
+           of a line that ran past the seam into the same two plane points and drew
+           the grid as a dashed line falling down the middle of the disc, with the
+           rest of that line missing (measured at centre 155.8, 11.5: 10 of 29 runs
+           under 40 px, 36 % of the total grid length lost). The unwrap leaves lon'
+           in an arbitrary 360-turn, and the projection is 360-periodic in it, so
+           bring it back into (-180, 180] by SUBTRACTION and keep the geometry. */
+        lo = lo - 360 * Math.round(lo / 360);
       } else {
         lo = Math.max(-180, Math.min(180, lo));
       }
@@ -2325,13 +2023,13 @@ var CORE = {
   levelForK: levelForK, prepareXYZ: prepareXYZ, visibleAt: visibleAt,
   clipLonF: clipLonF, CLIPB: CLIPB, CLIPA: CLIPA,
   pieceLevelIndex: pieceLevelIndex, hitTestPieces: hitTestPieces,
-  projectRotLL: projectRotLL, frameFor: frameFor, graticuleRot: graticuleRot,
+  projectRotLL: projectRotLL, projectRotLLVis: projectRotLLVis,
+  frameRoll: frameRoll, rollFrame: rollFrame, featureExtent: featureExtent,
+  frameFor: frameFor, graticuleRot: graticuleRot,
   buildFeatures: buildFeatures, hitTest: hitTest,
   buildFeaturesLOD: buildFeaturesLOD, hitTestLOD: hitTestLOD,
   ringFlat: ringFlat, levelIndex: levelIndex, LOD_U: LOD_U, ensureLevel: ensureLevel,
-  ringAtLevel: ringAtLevel, ringLLAtLevel: ringLLAtLevel,
-  triangulateRing: triangulateRing, refineTri: refineTri, ringTris: ringTris, densifyLonLat: densifyLonLat,
-  sewGlobeLadder: sewGlobeLadder, ringGlobeLLAtLevel: ringGlobeLLAtLevel, ringGlobeTris: ringGlobeTris,
+  densifyLonLat: densifyLonLat,
   ringAreaProjected: ringAreaProjected, SR_TO_KM2: SR_TO_KM2,
   frameOutline: frameOutline, graticule: graticule,
   K: K, S: S, TGT: TGT, DEG: DEG

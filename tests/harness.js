@@ -1,6 +1,6 @@
 /* headless run of app.js: fake DOM + canvas recorder, then simulate pointer events */
 const fs = require('fs');
-global.Path2D = function () { return { moveTo: function(){}, lineTo: function(){}, closePath: function(){} }; };
+global.Path2D = function () { return { moveTo: function(){}, lineTo: function(){}, closePath: function(){}, arc: function(){}, rect: function(){} }; };
 
 const canvasCalls = { fill: 0, stroke: 0, fillText: 0, strokeText: 0, setTransform: 0 };
 const errors = [];
@@ -111,10 +111,12 @@ global.requestAnimationFrame = function (f) { return 1; };
 global.Promise = Promise;
 const DATA = __dirname + '/../data/';
 global.fetch = function (u) {
-  /* the app asks for data/<name>.geojson: match on the basename */
+  /* the app asks for data/<name>: match on the basename and serve THAT file, so a
+     stub can never quietly answer with the wrong layer */
   const name = String(u).replace(/^.*\//, '');
-  const p = (name === 'so50.geojson') ? DATA + 'so50.geojson' : DATA + 'countries.geojson';
-  return Promise.resolve({ json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
+  const known = { 'so50.geojson': 1, 'countries.geojson': 1, 'ne10m.geojson': 1, 'places.json': 1 };
+  const p = known[name] ? DATA + name : DATA + 'countries.geojson';
+  return Promise.resolve({ ok: true, json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
 };
 
 const coreSrc = fs.readFileSync(__dirname + '/../core.js', 'utf8');
@@ -163,13 +165,12 @@ setTimeout(function () {
       dispatch('mousemove', mouse(720, 380));
       console.log('after t -> hud:  ' + hudEl.textContent);
       console.log('panel after t:  ' + panelEl.innerHTML.replace(/<\/?(div|span)[^>]*>/g, ' | ').replace(/\s+/g, ' ').trim());
-      /* switch to the globe and back: the 3D path reads rg.pts/rg.levels, which
-         the recentering must never have overwritten */
-      try { L['win:keydown']({ key: 'm' }); } catch (e) { errors.push('m(3d): ' + e.message); }
+      /* the `m` key used to toggle the globe; it is gone with the 3D view, so this
+         asserts the view SURVIVES a stray press instead of switching */
+      try { L['win:keydown']({ key: 'm' }); } catch (e) { errors.push('m: ' + e.message); }
       console.log('after m -> hud:  ' + hudEl.textContent.split('\n')[0]);
-      try { L['win:keydown']({ key: 'm' }); } catch (e) { errors.push('m(2d): ' + e.message); }
       dispatch('mousemove', mouse(700, 400));
-      console.log('back in 2d -> hud:  ' + hudEl.textContent.split('\n')[0]);
+      console.log('after m, same view -> hud:  ' + hudEl.textContent.split('\n')[0]);
       console.log('errors:  ' + (errors.length ? errors : 'none'));
       process.exit(0);
     }, 400);

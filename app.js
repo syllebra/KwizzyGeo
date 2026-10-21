@@ -6,8 +6,6 @@
 var C = window.AppCore;
 var stage = document.getElementById('stage');
 var canvas = document.getElementById('map');
-var labelsCv = document.getElementById('labels');
-var labelsCtx = labelsCv.getContext('2d');
 var panel = document.getElementById('panel');
 var hud = document.getElementById('hud');
 var helpEl = document.getElementById('help');
@@ -27,6 +25,46 @@ var feats = [], frame = null, grat = null, layout = [];
    and cx/cy are only its plane image (what sx/sy subtract), recomputed whenever
    the centre moves. k is screen px per plane unit. */
 var view = { cx: 0, cy: 0, k: 100, lon: 0, lat: 0 }, fitK = 100;
+/* THE CITY LAYER: data/places.json (Natural Earth 10m populated places, 7 342
+   points, see tools/shp2geojson_places.py). Switched on/off with `c`, the
+   burger's Overlay row, or ?cities=0|1. */
+var places = [], citiesOn = true, placeSeen = 0;
+var hoverPlace = -1, pickedPlace = -1;
+
+/* ---------- NORTH-UP TILT ----------
+   A cone projection's frame carries a ROLL on top of its centre: a diagonal drag,
+   or a drag that crosses a pole, leaves the picture turned about the view axis, so
+   north is no longer up and the map reads as "tilted". The frame is a rotation
+   matrix, so this is fixable exactly (core.frameRoll / core.rollFrame): measure the
+   roll against the canonical frame of the same centre and turn the frame back by
+   it, leaving the centre and the zoom untouched.
+   It runs only when the view is IDLE - a second after the last drag, wheel, key or
+   fly - because fighting the gesture that created the roll would feel like the map
+   is slipping away under the finger. Rate-limited as well as time-constant, so a
+   154 deg roll (measured after walking over a pole diagonally) cannot whip round
+   in one frame. `?north=0` or the burger's Overlay row turns it off. */
+var northUp = true;
+var ALIGN_TAU = 0.35;            /* s: exponential settle */
+var ALIGN_MAX_RATE = 0.80;       /* rad/s (~46 deg/s): always gentle, still finite -
+                                    a 120 deg roll (easy to build with a long diagonal
+                                    drag) settles in ~3 s, a 154 deg one after a pole
+                                    crossing in ~3.5 s, and a 5 deg one in under a
+                                    second, because the exponential does the shape and
+                                    the cap only stops it from whipping */
+var ALIGN_EPS = 0.0025;          /* rad (~0.14 deg): done */
+var ALIGN_DELAY = 0.14;          /* s of stillness before it starts */
+var ALIGN_POLE = 89.4;           /* deg: at the pole "up" is undefined (see the FRAME comment) */
+var lastMoveT = 0, alignPrev = 0;
+
+/* ---------- FLY-TO (double click) ----------
+   "Dezoom, translate, zoom": one 950 ms timeline with three overlapping phases, so
+   the target country stays in view while the world turns under it:
+     0.00-0.34  k falls to kMin (45 % of the closer of the two zooms)
+     0.16-0.86  the centre travels along the great circle to the clicked point
+     0.62-1.00  k rises to the destination
+   The phases overlap on purpose: a strict sequence reads as three separate jerks. */
+var fly = null;
+var FLY_DUR = 950;
 /* THE FRAME IN PLAY: a rotation matrix, not just the centre's lon/lat.
    WHY (measured, viewer/poletest2.js): rebuilding the CANONICAL frame
    rotMat(lon,lat) at every centre move pins the in-plane roll to the EQUATOR, so
@@ -47,8 +85,8 @@ C.rotMat(0, 0, FRAME);                  /* start canonical: identity */
 /* Key in C.PROJ. PERSPECTIVE (3 Earth radii) is the default now: the user asked
    for perspective always, and it is the same cone-clipped family as the
    orthographic - it just keeps the horizon at cos c = 1/P instead of 0, so the
-   limb has the depth cue of a globe instead of a flat disc. `ortho` is still one
-   menu row away for anyone who wants the flat hemisphere.
+   limb has the depth cue of a globe instead of a flat disc. `?proj=ortho` still
+   gives the flat hemisphere.
    Both were the two projections where arriving at a pole exposed the rotation
    problem (see the FRAME comment above); the fix is the same for both, because
    the fix is in the view's rotation, not in the projection.
@@ -57,10 +95,6 @@ var projID = 'persp';
 var menuEl = document.getElementById('menu');
 var burgerEl = document.getElementById('burger');
 var itemsEl = document.getElementById('items');
-
-/* viewing modes: '2d' = Eckert IV plate carree, '3d' = the lit 3D sphere the
-   projection's lon/lat grid wraps onto. Same data, same picking logic. */
-var mode = '2d';
 
 /* the burger menu: closed it is only the burger, whose tag names the active
    view; opening it stacks the choices in a column underneath. A chip is a PICK,
@@ -71,21 +105,42 @@ var mode = '2d';
    phone user cannot tell which of "Eckert IV" and "50m sovereignty" is a
    projection and which is a layer. The groups are built from this model, so
    adding a projection or a layer to the registries still needs no edit here. */
+/* ---------- ARCHIVED: the alternative 2D projections ----------
+   The projection registry in core.js is untouched and every entry still works
+   (`?proj=eckert4` renders exactly what it did). What changed is that the MENU no
+   longer offers them: with the perspective default the pseudocylindrical world
+   maps are a curiosity rather than a way to play, and eleven
+   rows of a sheet on a phone is a cost paid on every open for a feature nobody uses.
+
+   Kept, not deleted, for a future feature (a "compare projections" screen, a
+   printable world map, an about page). Setting ARCHIVED_PROJECTIONS = false brings
+   the whole section back with no other change - that was the point of routing the
+   menu through this flag instead of deleting the code. */
+var ARCHIVED_PROJECTIONS = true;
 function menuGroups() {
   var projs = [], i;
-  for (var key in C.PROJ) {
-    if (!C.PROJ.hasOwnProperty(key)) continue;
-    if (!C.PROJ[key].recenter) continue;         /* cannot be shown re-centered */
-    projs.push({ id: 'proj:' + key, label: '', ico: '\u25a6' });
+  if (!ARCHIVED_PROJECTIONS) {
+    for (var key in C.PROJ) {
+      if (!C.PROJ.hasOwnProperty(key)) continue;
+      if (!C.PROJ[key].recenter) continue;       /* cannot be shown re-centered */
+      projs.push({ id: 'proj:' + key, label: '', ico: '\u25a6' });
+    }
   }
   var layers = [], files = LAYERS || [];
   for (i = 0; i < files.length; i++) layers.push({ id: 'layer:' + files[i].id, label: '', ico: '\u2263' });
-  return [
-    { title: 'View', items: [{ id: '2d', label: 'Map (2D)', ico: '\u25ad' },
-                             { id: '3d', label: 'Globe', ico: '\u25ce' }] },
-    { title: 'Projection', items: projs, needs2d: true },
-    { title: 'Layer', items: layers }
-  ];
+  /* No "View" group any more: the Globe view was removed (2026-10-21, with the
+     vendored three.js bundle), so the only view is the map and a row for it would
+     be a row with one choice. */
+  var groups = [];
+  if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
+  return groups.concat([
+    { title: 'Layer', items: layers },
+    /* an overlay, not a view: the row says whether it is on, and clicking it
+       toggles - a chip that is a pick (like the projection rows) would need a
+       second row for "off" */
+    { title: 'Overlay', items: [{ id: 'cities', label: 'Cities', ico: '\u25c9' },
+                                { id: 'north', label: 'North up', ico: '\u2191' }], needs2d: true }
+  ]);
 }
 var scrimEl = document.getElementById('scrim');
 function menuOpen() { return menuEl.classList.contains('open'); }
@@ -101,20 +156,19 @@ function closeMenu() {
   if (scrimEl) scrimEl.classList.remove('on');
 }
 function menuLabel(m) {
-  if (m === '2d') return 'Map (2D)';
-  if (m === '3d') return 'Globe';
   if (m.indexOf('proj:') === 0) {
     var p = C.PROJ[m.slice(5)];
     if (p) return p.label;
   }
   if (m.indexOf('layer:') === 0) return layerLabel(m.slice(6));
+  if (m === 'cities') return 'Cities';
+  if (m === 'north') return 'North up';
   return m;
 }
-/* what the closed burger says: the projection in 2D (more informative than
-   "Map"), the mode itself in 3D */
+/* what the closed burger says: the projection in play, which is more informative
+   than "Map" */
 function burgerTag() {
-  if (mode === '3d') return 'Globe';
-  return C.CUR.label;
+  return C.CUR ? C.CUR.label : 'view';
 }
 /* the row label and the "on" state of the projection rows come from the
    registry, and only a recenterable projection is offered */
@@ -125,6 +179,8 @@ function itemLabel(it, el) {
     return p ? p.label : '?';
   }
   if (it.id.indexOf('layer:') === 0) return layerLabel(it.id.slice(6));
+  if (it.id === 'cities') return 'Cities';
+  if (it.id === 'north') return 'North up';
   return it.label;
 }
 function buildMenu() {
@@ -168,22 +224,22 @@ function refreshBurger() {
 function burgerClick() { if (menuOpen()) closeMenu(); else openMenu(); }
 function menuClick(el) {
   var id = el.dataset.id;
-  /* close FIRST, then act: closing last meant that an action which throws (a 3D
-     switch with no WebGL, a failed layer fetch) left the sheet open on top of the
-     error, and the tap looked ignored. It also just feels right: the row is a
-     choice, and the sheet should get out of the way as soon as it is made. */
+  /* close FIRST, then act: closing last meant that an action which throws (a
+     failed layer fetch) left the sheet open on top of the error, and the tap
+     looked ignored. It also just feels right: the row is a choice, and the sheet
+     should get out of the way as soon as it is made. */
   closeMenu();
   if (!id) return;
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
-  setMode(id);
+  if (id === 'cities') { toggleCities(); refreshMenu(); return; }
+  if (id === 'north') { toggleNorth(); refreshMenu(); return; }
 }
 /* pick a layer by id (menu row, ?layer=, or the t key) */
 function setLayer(id) {
   userPickedLayer = true;
   layerName = id;
   useLayer(id);
-  if (mode === '3d' && loaded[id]) setGlobeLayer(id);
   refreshMenu();
 }
 /* switching projection keeps the geographic centre, so the place you were
@@ -192,7 +248,6 @@ function setProjection(id) {
   if (!C.PROJ[id]) return;
   projID = id;
   C.setProjection(id);
-  if (mode === '3d') setMode('2d');
   fitView(worldBounds());
   reproject();
   /* the tick and the burger tag both follow the projection: without this the menu
@@ -249,30 +304,10 @@ if (scrimEl) {
   scrimEl.addEventListener('touchstart', function (e) { e.preventDefault(); closeMenu(); }, { passive: false });
 }
 
-var THREE = null;                    /* three.js namespace, set by boot.js */
-/* the IIFE's own `var THREE` shadows the global `window.THREE` that three.bundle.cjs
-   sets, so a plain read would stay null forever — grab it explicitly */
-if (window.THREE) THREE = window.THREE;
-var scene3 = null, cam3 = null, renderer3 = null, rayc = null;
-var ndc = null;                      /* reusable NDC pair for the raycaster */
-var globe = { lon: 0, lat: 0, dist: 3.05 };
-var Rg = 1;                          /* globe radius */
-var globeGroup = null;
-var globeCache = {};                 /* (layer, LOD level) -> built meshes, LRU of 2 */
-var globeClock = 0;                  /* LRU stamp */
-var globeSewn = {};                  /* layer id -> the globe ladder was sewn on it */
-var globeLvlOverride = -1;           /* ?lod=NN pins a level (inspection); -1 = auto */
-var gHover = -1, gPicked = -1;
-
 /* buildMenu() is called further down, right before loadAll(): it reads LAYERS and
    PROJ, whose initialisers run after this point in the file */
 
 function dbg() { return /[?&]dbg=1/.exec(urlSearch()) !== null; }
-function urlMode() {
-  var m = /[?&]mode=(2d|3d)/.exec(urlSearch());
-  if (m) return m[1];
-  return mode;
-}
 var hover = -1, picked = -1;
 var mouse = { x: 0, y: 0, inside: false };
 var canvasRect = { left: 0, top: 0 };
@@ -280,7 +315,24 @@ var canvasRect = { left: 0, top: 0 };
 var COL = {
   ocean: '#1e4d75', oceanDeep: '#143456',
   land: '#c9c9c7', hover: '#edf0e9', pick: '#ffffff',
-  edge: 'rgba(22,36,50,.5)', graticule: 'rgba(210,228,240,.16)', frame: 'rgba(232,242,252,.5)'
+  edge: 'rgba(22,36,50,.5)', graticule: 'rgba(210,228,240,.16)', frame: 'rgba(232,242,252,.5)',
+  /* cities: a bright dot with a dark ring, so it reads over land (light grey) and
+     over ocean (mid blue) alike; the picked one takes the accent */
+  city: 'rgba(255,255,255,.95)', cityRing: 'rgba(14,26,38,.85)',
+  cityPick: '#ffd166', cityLabel: 'rgba(255,255,255,.96)',
+  /* three label voices, so the three kinds of name are never mistaken for each
+     other: countries are quiet background (uppercase, tracked, muted), cities are
+     plain white, capitals are the accent - gold, bolder, and with a ring around
+     their dot */
+  countryLabel: 'rgba(226,238,248,.72)', countryHalo: 'rgba(12,22,32,.62)',
+  /* The capital used to be GOLD, and gold was the wrong voice: it read as a
+     warning/accent colour competing with the selection highlight, and on a map with
+     a dozen capitals on screen it turned into confetti. A capital is now simply
+     BOLDER and slightly larger - typographic emphasis, which is how an atlas does
+     it - and the accent colour is kept for ONE meaning: the capital of the country
+     you have selected. */
+  capitalLabel: 'rgba(255,255,255,.98)', capitalHalo: 'rgba(10,18,28,.9)',
+  capitalPick: '#8ed0ff', capitalPickHalo: 'rgba(4,22,38,.92)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -346,6 +398,60 @@ function pickLayerID() {
   return layerName;
 }
 
+/* ---------- the city layer ---------- */
+/* data/places.json is a point TABLE, not GeoJSON: {fields:[...], places:[[...]]}.
+   Read through the field names declared in the file, so the converter can reorder
+   or add a column without silently shifting every value into the wrong slot. */
+function buildPlaces(json) {
+  var f = json.fields || [], ix = {}, i;
+  for (i = 0; i < f.length; i++) ix[f[i]] = i;
+  var rows = json.places || [], out = [];
+  for (i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    out.push({
+      n: r[ix.n], c: r[ix.c], r: r[ix.r],
+      p: r[ix.p], z: r[ix.z], l: r[ix.l], f: r[ix.f], tz: r[ix.tz],
+      lon: r[ix.lon], lat: r[ix.lat]
+    });
+  }
+  return out;
+}
+/* THE CAPITAL OF A COUNTRY, from the place layer: the places whose ADM0NAME is that
+   country and whose class is a national capital (A0 / A0R). Natural Earth spells a
+   country the same way in both files, but not always, so the match tries the
+   sovereign name, the long name and the admin name before giving up - the entries
+   that differ are things like "United States of America" vs "United States".
+   Returns the place index (for the panel and the map highlight) or -1. */
+var capCache = null;
+function capitalOf(featureIndex) {
+  var f = feats[featureIndex];
+  if (!f || !places.length) return -1;
+  var p = f.props;
+  var names = [p.SOVEREIGNT, p.ADMIN, p.NAME_LONG, p.NAME, p.GEOUNIT];
+  if (!capCache) {
+    capCache = {};
+    for (var i = 0; i < places.length; i++) {
+      var P = places[i];
+      if (P.f !== 'A0' && P.f !== 'A0R') continue;
+      if (!capCache[P.c]) capCache[P.c] = i;
+    }
+  }
+  for (var q = 0; q < names.length; q++) {
+    if (names[q] && capCache[names[q]] !== undefined) return capCache[names[q]];
+  }
+  return -1;
+}
+
+/* population, or nothing at all when Natural Earth says -99 (unknown) */
+function popText(p) { return (p > 0) ? fmtNum(p) : ''; }
+var PLACE_FCLASS = {
+  A0: 'Capital', A0R: 'Regional capital', A1: 'Admin-1 capital',
+  A1R: 'Admin-1 region capital', P: 'City', S: 'Scientific station',
+  M: 'Meteorological station', H: 'Historic place'
+};
+/* how big the dot is: capitals read as capitals at a glance */
+function placeRadius(f) { return f === 'A0' ? 3.4 : (f === 'A0R' || f === 'A1' || f === 'A1R') ? 2.6 : 2.0; }
+
 function noteRef(geo) {          /* 110m thresholds keyed by NAME and NAME_LONG */
   for (var i = 0; i < geo.features.length; i++) {
     var p = geo.features[i].properties;
@@ -362,7 +468,10 @@ function loadAll() {
   ]).then(function (pair) {
     var g110 = pair[0], g50 = pair[1];
     noteRef(g110);
-    loaded['110m'] = C.buildFeaturesLOD(g110, 0.2, true);   /* keepLL: the 3D globe needs the lon/lat twin of each ring */
+    /* keepLL: the lon/lat twin of each ring. NOT for a globe any more - the 2D
+       re-centre needs it (core.rotateRingLL rotates rg.xyz, and featureExtent
+       reads rg.ll to measure a country's box in another frame). */
+    loaded['110m'] = C.buildFeaturesLOD(g110, 0.2, true);
     loaded['50m'] = C.buildFeaturesLOD(g50, 0.2, true);
     /* the 2D view re-projects rings around the view centre, which it does from
        the unit vectors of the fine lon/lat ring; built once per layer here */
@@ -385,8 +494,7 @@ function loadAll() {
     } else {
       useLayer(layerName);
     }
-    resize();          /* before setMode: init3D sizes the GL canvas from W,H */
-    setMode(urlMode());
+    resize();
     fitView(worldBounds());
     /* ?z=6&lon=178&lat=-18 opens at zoom 6 centred on that point, for inspection */
     var q = urlSearch();
@@ -397,13 +505,13 @@ function loadAll() {
     var mlod = /[?&]lod=(-?[0-9.]+)/.exec(q);
     if (mlod) lodBias = parseFloat(mlod[1]);
     if (mz) {
-      if (mode === '3d') globe.dist = Math.max(1.45, Math.min(9, 3.05 / Math.pow(2, parseFloat(mz[1]) - 2)));
-      else zoomBy(Math.pow(2, parseFloat(mz[1]) - 2));
+      zoomBy(Math.pow(2, parseFloat(mz[1]) - 2));
     }
     layout = buildLabels();
     hud.textContent = hudText();
     helpEl.textContent = helpText();
     loop();
+    loadPlaces();
     /* now go and get the real layer, in the background */
     if (deferLayer) {
       var want = deferLayer;
@@ -416,17 +524,48 @@ function loadAll() {
   }).catch(function (e) { fail('load: ' + (e && e.stack ? e.stack : String(e))); });
 }
 
+/* The cities arrive on their own request, after the map is already interactive:
+   they are an overlay, and a slow or missing places.json must never hold up the
+   countries. A failure is reported in the HUD and the layer is simply off. */
+function loadPlaces() {
+  var v = /[?&]cities=(0|1)/.exec(urlSearch());
+  if (v) citiesOn = (v[1] === '1');
+  var n = /[?&]north=(0|1)/.exec(urlSearch());
+  if (n) northUp = (n[1] === '1');
+  /* ?lon/&lat/&z move the centre WITHOUT a drag, so the tilt must not sit waiting
+     for a gesture that will never come */
+  lastMoveT = loopNow;
+  fetch(DATA_DIR + 'places.json').then(function (r) {
+    if (!r.ok) throw new Error('places.json ' + r.status);
+    return r.json();
+  }).then(function (json) {
+    places = buildPlaces(json);
+    capCache = null;
+    refreshHud();
+  }).catch(function (e) {
+    places = []; citiesOn = false;
+    hud.textContent = hudText() + '\ncities: ' + (e && e.message ? e.message : 'unavailable');
+  });
+}
+function toggleCities() {
+  citiesOn = !citiesOn;
+  if (!citiesOn) { hoverPlace = -1; pickedPlace = -1; }
+  refreshUI();
+}
+/* the tilt is a preference, not a gesture: it survives a layer or projection
+   change, and it is reachable from the burger as well as from ?north= */
+function toggleNorth() {
+  northUp = !northUp;
+  refreshUI();
+}
+
 function toggleLayer() {
   var i = 0;
   for (var q = 0; q < LAYERS.length; q++) if (LAYERS[q].id === layerName) i = q;
   var other = LAYERS[(i + 1) % LAYERS.length].id;      /* 50m -> 110m -> 10m -> 50m */
   layerName = other;
   useLayer(other);
-  /* the globe meshes are per-layer geometry, so switching layer without
-     rebuilding here left the 3D view drawing the OTHER layer's countries while
-     the HUD read '50m sovereignty' - and buildGlobe's key is (layer, level), so
-     a switch back is a cache hit and costs nothing. */
-  if (mode === '3d') setGlobeLayer(other);
+
 }
 
 function fetchLayer(id, done) {
@@ -454,10 +593,9 @@ function useLayer(id) {
       if (layerName === id) {
         feats = loaded[id];
         hover = -1; picked = -1;
-        globeSewn[id] = 0;
+
         recenterDirty = false;
         reproject();
-        if (mode === '3d') setGlobeLayer(id);
         refreshUI();
       }
     });
@@ -554,7 +692,7 @@ function scheduleReproject() {
 
 /* the actual rebuild, once per frame at most */
 function reproject() {
-  if (mode !== '2d' || !feats.length) return;
+  if (!feats.length) return;
   /* the ladder level drawn: LOD_U[t] * k <= maxPx. `lodBias` shifts it, which is
      how the quality/speed tradeoff is tuned and how ?lod=-1 can be used to
      inspect a coarser level. 0.7 px error is the default budget. */
@@ -575,6 +713,7 @@ function reproject() {
   lastMs = tEnd - t0;
   reprojSplit.rings = t1 - t0; reprojSplit.rest = tEnd - t1;
   hover = -1;
+  hoverPlace = -1;                 /* the points moved under the cursor too */
   /* the HUD carries the centre of projection, so it must be rewritten on every
      rebuild - otherwise a drag moves the world while the readout stays at the
      old centre (which is exactly how it looked before this line existed) */
@@ -682,7 +821,6 @@ function onScreen(f) {
 
 /* ---------- draw: blue ocean, light grey land, whiter on hover/pick ---------- */
 function draw() {
-  if (mode === '3d') { draw3D(); return; }
   segs = 0; seenPieces = 0; gratSegs = 0; skippedPieces = 0;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   var g = ctx.createLinearGradient(0, 0, 0, H);
@@ -719,7 +857,10 @@ function draw() {
     ctx.fillStyle = COL.pick; ctx.fill(feats[picked]._p);
     ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 1.6; ctx.stroke(feats[picked]._p);
   }
-  drawLabels(zoomLevel());
+  var zNow = zoomLevel();
+  /* cities sit ON the land, under the labels and under the frame edge */
+  drawCities(zNow);
+  drawLabels(zNow);
   ctx.strokeStyle = COL.frame; ctx.lineWidth = 1; ctx.stroke(framePath);
   refreshHud();
 }
@@ -736,16 +877,76 @@ function refreshHud() {
    the MIN_LABEL/MAX_LABEL scale the dataset was authored on */
 function zoomLevel() { return 2 + Math.log2(view.k / fitK); }
 
+/* ---------- label typography ----------
+   THE THREE KINDS OF NAME ARE DRAWN DIFFERENTLY, on purpose. An atlas does this and
+   it is not decoration: the reader has to tell, at a glance and without reading, a
+   country from a capital from an ordinary city, and colour alone is not enough for
+   a colour-blind reader or for a name over pale land.
+     country  UPPERCASE, letter-spaced, muted, thin halo  - background context
+     capital  Title Case, bold, gold, plus a RING around its dot (see drawCities)
+     city     Title Case, regular, white
+   The tracking is real: ctx.letterSpacing is not in every browser this runs on, so
+   drawTracked() places each character itself and the collision box is measured with
+   the same tracking (a box that ignores tracking would let labels overlap by a few
+   px per letter - measured, 18 px on a 16-character name). */
+var LABEL_STYLE = {
+  country: { font: '600 10.5px system-ui, -apple-system, sans-serif', track: 1.15, upper: true,
+             fill: 'countryLabel', halo: COL.countryHalo, haloLw: 2.6, dy: 0 },
+  /* no tracking on these two: a couple of tenths of a px per letter buys nothing the
+     weight and size already say, and drawing a name letter by letter costs one
+     fillText + one strokeText per CHARACTER (a deep zoom shows ~60 city names, i.e.
+     ~1 000 canvas calls a frame instead of ~120) */
+  capital: { font: '700 12px system-ui, -apple-system, sans-serif', track: 0, upper: false,
+             fill: 'capitalLabel', halo: COL.capitalHalo, haloLw: 3.2, dy: -10 },
+  /* the capital of the SELECTED country: same weight, but accented and set a little
+     wider, so it is found without hunting. One extra step in the hierarchy, not a
+     new colour scheme. */
+  capitalSel: { font: '800 12.5px system-ui, -apple-system, sans-serif', track: 0.4, upper: false,
+                fill: 'capitalPick', halo: COL.capitalPickHalo, haloLw: 3.4, dy: -10 },
+  city:    { font: '11px system-ui, -apple-system, sans-serif', track: 0, upper: false,
+             fill: 'cityLabel', halo: 'rgba(12,22,32,.8)', haloLw: 3, dy: -8 }
+};
+function labelStyle(kind) { return LABEL_STYLE[kind] || LABEL_STYLE.city; }
+function labelText(kind, name) { return labelStyle(kind).upper ? String(name).toUpperCase() : name; }
+/* width of a tracked string at the CURRENT ctx.font */
+function trackedWidth(txt, track) {
+  var w = ctx.measureText(txt).width;
+  return track ? w + track * Math.max(0, txt.length - 1) : w;
+}
+/* centred tracked text: ctx has no portable letter-spacing, so the characters are
+   placed one by one. Falls back to a single fillText when there is no tracking. */
+function drawTracked(txt, cx, cy, track, fill, halo, lw) {
+  if (!track) {
+    if (halo) { ctx.lineWidth = lw; ctx.strokeStyle = halo; ctx.strokeText(txt, cx, cy); }
+    ctx.fillStyle = fill; ctx.fillText(txt, cx, cy);
+    return;
+  }
+  var prevAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  var x = cx - trackedWidth(txt, track) / 2;
+  for (var i = 0; i < txt.length; i++) {
+    var ch = txt.charAt(i);
+    if (ch !== ' ') {
+      if (halo) { ctx.lineWidth = lw; ctx.strokeStyle = halo; ctx.strokeText(ch, x, cy); }
+      ctx.fillStyle = fill; ctx.fillText(ch, x, cy);
+    }
+    x += ctx.measureText(ch).width + track;
+  }
+  ctx.textAlign = prevAlign;
+}
+
 function drawLabels(z) {
-  ctx.font = '11px system-ui, -apple-system, sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.textBaseline = 'middle';
   var placed = [], shown = 0;
+  var stC = labelStyle('country');
+  ctx.font = stC.font;
   for (var i = 0; i < layout.length; i++) {
     var L = layout[i];
     if (z < L.minz - 0.2 || z > L.maxz + 0.6) continue;
     var px = sx(L.lx), py = sy(L.ly);
     if (px < 24 || py < 12 || px > W - 24 || py > H - 12) continue;
-    var w = ctx.measureText(L.name).width + 8, h = 15;
+    var cTxt = labelText('country', L.name);
+    var w = trackedWidth(cTxt, stC.track) + 8, h = 15;
     var box = [px - w / 2, py - h / 2, px + w / 2, py + h / 2];
     var ok = true;
     for (var q = 0; q < placed.length && ok; q++) {
@@ -754,11 +955,167 @@ function drawLabels(z) {
     }
     if (!ok) continue;
     placed.push(box);
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(12,22,32,.75)'; ctx.strokeText(L.name, px, py);
-    ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillText(L.name, px, py);
+    drawTracked(cTxt, px, py + stC.dy, stC.track, COL[stC.fill], stC.halo, stC.haloLw);
     if (++shown > 80) break;
   }
+  /* ---- city labels, placed after the country names and against the same boxes,
+     so a city never lands on a country name. Order is what matters when they
+     compete: LABELRANK first (Natural Earth's own priority: 0 = Paris, Tokyo),
+     then population, then the capitals. */
+  if (citiesOn && cityDots.length) {
+    var capOfPicked = (picked >= 0) ? capitalOf(picked) : -1;
+    var cand = cityDots.slice(0);
+    cand.sort(function (a, b) {
+      var pa = places[a.i], pb = places[b.i];
+      if (pa.l !== pb.l) return pa.l - pb.l;
+      return (pb.p || 0) - (pa.p || 0);
+    });
+    /* the hovered or picked city is labelled whatever its rank: it is the one the
+       user is pointing at, and the panel is showing its numbers */
+    var cap = z < 4 ? 18 : (z < 6 ? 40 : 60);
+    var done = 0;
+    for (var c2 = 0; c2 < cand.length && done < cap; c2++) {
+      var D2 = cand[c2], PP = places[D2.i];
+      var forced = (D2.i === pickedPlace || D2.i === hoverPlace);
+      /* a capital is drawn in its own voice: BOLD, slightly larger, white; and the
+         capital of the SELECTED country gets the accent so it can be found without
+         hunting for it */
+      var isCap2 = (PP.f === 'A0' || PP.f === 'A0R');
+      /* ONE accent, one meaning: the thing you selected. So the city you clicked
+         and the capital of the country you clicked are both drawn in the accent
+         voice; every other capital is bold white, every other city plain white. */
+      var selected2 = (D2.i === pickedPlace) || (isCap2 && D2.i === capOfPicked);
+      var kind = selected2 ? 'capitalSel' : (isCap2 ? 'capital' : 'city');
+      /* a coarse zoom is not the place for rank 7 towns: they would bury the
+         continent names. CAPITALS are exempt from the rank cut: a ringed dot with
+         no name reads as an unfinished label, and a capital is exactly the kind of
+         name an atlas keeps when it drops everything else (measured at z 4:
+         Copenhagen, Amsterdam and Bratislava were ringed and silent). They are
+         still subject to the collision test, so a crowded corner drops the ones
+         that do not fit rather than piling names on top of each other. */
+      if (!forced && !isCap2) {
+        if (z < 4.5 && PP.l > 3) continue;
+        if (z < 6 && PP.l > 6) continue;
+      }
+      /* NO extra rank cut for capitals at the world view either: a gold ring with
+         no name is an unfinished label (measured at z 2: Paris, Lisbon, Dodoma
+         ringed and silent). The collision test is what prunes a crowded corner, and
+         a capital is exactly the name an atlas keeps when it drops the rest. */
+
+      var st = labelStyle(kind);
+      ctx.font = st.font;
+      var lx = D2.px, ly = D2.py + st.dy;
+      var w2 = trackedWidth(PP.n, st.track) + 8, h2 = isCap2 ? 17 : 15;
+      /* ONE retry on the other side of the dot before giving up. A ring with no
+         name reads as an unfinished label (measured at z 4: 3 of 9 capitals lost
+         their name to a country name that happened to sit above them), and the
+         fix is cheap - the space below a dot is almost always free when the space
+         above is not. */
+      var box2 = null, lyTry = ly;
+      for (var side = 0; side < 2 && !box2; side++) {
+        var candY = (side === 0) ? ly : D2.py - st.dy + (isCap2 ? 12 : 10);
+        var bx = [lx - w2 / 2, candY - h2 / 2, lx + w2 / 2, candY + h2 / 2];
+        var ok2 = true;
+        for (var q2 = 0; q2 < placed.length && ok2; q2++) {
+          var b2 = placed[q2];
+          if (bx[0] < b2[2] && bx[2] > b2[0] && bx[1] < b2[3] && bx[3] > b2[1]) ok2 = false;
+        }
+        if (ok2) { box2 = bx; lyTry = candY; }
+      }
+      if (!box2) continue;
+      placed.push(box2);
+      ly = lyTry;
+      drawTracked(PP.n, lx, ly, st.track, COL[st.fill], st.halo, st.haloLw);
+      done++;
+    }
+  }
   ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+}
+
+/* ---------- cities ----------
+   Drawn from the point table, once per frame: 7 342 points, of which the zoom
+   filter keeps 26 at the fitted world view and all of them at z 9. Each one costs
+   one rotation + one fwd() (projectRotLLVis) and a screen-bounds test, so the
+   layer is ~0.2 ms at the world view and ~1 ms fully zoomed in - cheaper than the
+   graticule. Positions are collected here because the label pass and the picker
+   both need them, and recomputing them there would double the cost. */
+var cityDots = [];
+function drawCities(z) {
+  placeSeen = 0;
+  cityDots.length = 0;
+  if (!citiesOn || !places.length) return;
+  var k = view.k, ox = W * 0.5 - view.cx * k, oy = H * 0.5 + view.cy * k;
+  var o = [0, 0];
+  var small = null, capital = null, capitalRing = null;
+  for (var i = 0; i < places.length; i++) {
+    var P = places[i];
+    /* Natural Earth's own MIN_ZOOM, verbatim: it is the zoom at which that place is
+       meant to appear. 0.35 of slack so a place shows on the step before, which is
+       what makes zooming feel continuous rather than pop-in. */
+    if (P.z > z + 0.35) continue;
+    if (!C.projectRotLLVis(P.lon, P.lat, FRAME, C.CUR, o)) continue;
+    var px = o[0] * k + ox, py = oy - o[1] * k;
+    if (px < -4 || py < -4 || px > W + 4 || py > H + 4) continue;
+    var r = placeRadius(P.f);
+    cityDots.push({ px: px, py: py, i: i, r: r });
+    var isCap = (P.f === 'A0' || P.f === 'A0R');
+    var path = isCap ? (capital || (capital = new Path2D())) : (small || (small = new Path2D()));
+    path.moveTo(px + r, py);
+    path.arc(px, py, r, 0, 6.283185307179586);
+    if (isCap) {
+      /* the ring sits just outside the dot, in its own pass, so the two strokes
+         never fight over the same pixels */
+      if (!capitalRing) capitalRing = new Path2D();
+      var rr = r + 2.1;
+      capitalRing.moveTo(px + rr, py);
+      capitalRing.arc(px, py, rr, 0, 6.283185307179586);
+    }
+    placeSeen++;
+  }
+  if (!placeSeen) return;
+  /* ONE fill and ONE stroke for the whole layer (a stroke per dot would be 7 000
+     state changes at a deep zoom) */
+  if (small) {
+    ctx.fillStyle = COL.city; ctx.fill(small);
+    ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(small);
+  }
+  /* a CAPITAL is marked differently from a city, not just drawn bigger: a gold
+     ring around the dot, i.e. the same voice as its label. Two identical dots of
+     different size read as "same thing, further away" - the wrong message. */
+  if (capital) {
+    ctx.fillStyle = COL.city; ctx.fill(capital);
+    ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(capital);
+    ctx.fillStyle = COL.city; ctx.fill(capital);      /* the stroke eats into the dot */
+    if (capitalRing) {
+      ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 1.3;
+      ctx.stroke(capitalRing);
+    }
+  }
+  /* the hovered/picked city on top of the rest, so it is never hidden by a dot */
+  var sel = pickedPlace >= 0 ? pickedPlace : hoverPlace;
+  if (sel >= 0) {
+    for (var q = 0; q < cityDots.length; q++) {
+      if (cityDots[q].i !== sel) continue;
+      var d = cityDots[q], rr2 = d.r + 2;
+      ctx.beginPath(); ctx.arc(d.px, d.py, rr2, 0, 6.283185307179586);
+      ctx.fillStyle = COL.cityPick; ctx.fill();
+      ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1.5; ctx.stroke();
+      break;
+    }
+  }
+}
+/* nearest city to a screen point, within its own grab radius (a capital's dot is
+   bigger, so its grab radius is too). -1 when none: the country pick then runs. */
+function pickPlaceAt(px, py) {
+  var best = -1, bestD = Infinity;
+  for (var i = 0; i < cityDots.length; i++) {
+    var d = cityDots[i];
+    var dx = d.px - px, dy = d.py - py;
+    var dd = dx * dx + dy * dy;
+    var grab = d.r + 4;
+    if (dd <= grab * grab && dd < bestD) { bestD = dd; best = d.i; }
+  }
+  return best;
 }
 
 /* ---------- picking (same LOD traversal as drawing) ---------- */
@@ -773,607 +1130,21 @@ function pickAt(px, py) {
   return best;
 }
 function setHover(px, py) {
-  if (mode === '3d') {
-    var h3 = pick3D(px, py);
-    if (h3 !== gHover) { gHover = h3; highlight3D(); refreshUI(); }
+  /* a city beats the country under it: its dot is a 2-3 px target on purpose, so
+     reaching the country is a matter of moving a few pixels off the dot */
+  var hp = pickPlaceAt(px, py);
+  if (hp >= 0) {
+    if (hp !== hoverPlace || hover !== -1) { hoverPlace = hp; hover = -1; refreshUI(); }
     return;
   }
   var h = pickAt(px, py);
-  if (h !== hover) { hover = h; refreshUI(); }
+  if (h !== hover || hoverPlace !== -1) { hover = h; hoverPlace = -1; refreshUI(); }
 }
-function pickAtPoint(px, py) { return (mode === '3d') ? pick3D(px, py) : pickAt(px, py); }
 function doPick(px, py) {
-  var h = pickAtPoint(px, py);
-  if (mode === '3d') gPicked = h; else picked = h;
-  highlight3D();
-  refreshUI();
-}
-
-/* ---------- 3D: the same polygons wrapped onto the sphere ----------
-   A ring is stored twice: projected (for the 2D view) and lon/lat (rg.ll),
-   with IDENTICAL point order, so the same decimation level feeds both views.
-   Triangles ear-clipped in the Eckert IV plane can be mapped back onto the
-   sphere edge for edge - the projection is a bijection - and because it is
-   equal-area, land keeps its true relative size on the globe. */
-function sphToVec(lon, lat) {
-  var la = lon * C.DEG, ph = lat * C.DEG, cp = Math.cos(ph);
-  /* RIGHT-handed sphere frame: three.js is right-handed with +X right, +Y up,
-     +Z toward the viewer, and with the camera at +X looking at the origin the
-     screen's right is -Z. So east (+lon) must land on -Z, i.e. z = -cos(phi)
-     sin(lambda). The old z = +cos(phi) sin(lambda) was a LEFT-handed frame:
-     every meridian folded over the x/y plane, so the whole globe came out
-     mirrored (Africa read east of Europe, labels on the wrong side). */
-  return [Rg * cp * Math.cos(la), Rg * Math.sin(ph), -Rg * cp * Math.sin(la)];
-}
-
-function init3D() {
-  if (!THREE) { fail('no three.js'); return; }
-  renderer3 = new THREE.WebGLRenderer({ antialias: true });
-  renderer3.setPixelRatio(DPR);
-  renderer3.setSize(W, H);
-  renderer3.domElement.id = 'ggl';   /* styled position:fixed in style.css, and the CSS rule is by id */
-  stage.appendChild(renderer3.domElement);
-  rayc = new THREE.Raycaster();
-  newScene();
-}
-
-function newScene() {
-  scene3 = new THREE.Scene();
-  cam3 = new THREE.PerspectiveCamera(38, W / H, 0.001, 100);
-  scene3.add(new THREE.AmbientLight(0xffffff, 0.62));
-  var key = new THREE.DirectionalLight(0xffffff, 0.75);
-  key.position.set(1, 0.65, 1.6);
-  scene3.add(key);
-  /* ocean sphere sits a hair under the land crust */
-  var oceanR = Rg * 0.9965;
-  var mocean = /[?&]ocean=([0-9.]+)/.exec(urlSearch());   /* debug: ocean radius fraction of Rg */
-  if (mocean) oceanR = Rg * parseFloat(mocean[1]);
-  var oc = new THREE.Mesh(new THREE.SphereGeometry(oceanR, 96, 64),
-    new THREE.MeshLambertMaterial({ color: 0x1e4d75 }));
-  oc.userData.ocean = true;
-  scene3.add(oc);
-  if (/[?&]nocean=1/.exec(urlSearch())) scene3.remove(oc);   /* debug: expose geometric holes */
-  /* graticule: same 15 deg grid as the 2D view */
-  var gl = [];
-  for (var la = -180; la < 180; la += 15) {
-    for (var ph = -90; ph < 90; ph += 5) {
-      var a2 = sphToVec(la, ph), b2 = sphToVec(la, ph + 5);
-      gl.push(a2[0], a2[1], a2[2], b2[0], b2[1], b2[2]);
-    }
-  }
-  for (var ph2 = -75; ph2 <= 75; ph2 += 15) {
-    for (var lo = -180; lo < 180; lo += 5) {
-      var c2 = sphToVec(lo, ph2), d2 = sphToVec(lo + 5, ph2);
-      gl.push(c2[0], c2[1], c2[2], d2[0], d2[1], d2[2]);
-    }
-  }
-  var gg = new THREE.BufferGeometry();
-  gg.setAttribute('position', new THREE.Float32BufferAttribute(gl, 3));
-  if (!/[?&]nograticule=1/.exec(urlSearch()))   /* debug: the graticule sits at exactly Rg, same as the land crust */
-  scene3.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x8ab4d4, transparent: true, opacity: 0.2 })));
-}
-
-/* one Mesh per feature so hover/pick is a material swap and picking is a
-   raycast; geometry is built once per (layer, LOD level) and cached */
-/* the land is a crust on the sphere, but each ear triangle is FLAT: its chords
-   dip inside the sphere by 1 - cos(edgeAngle/2), which is 1.5% of R at a 10°
-   edge — and the ocean shell sits at 0.9965 R, so an un-subdivided triangle
-   punches a visible hole in the sea (the Sahara, Siberia, Brazil...). Split
-   each triangle until every edge is under SAG_MAX_DEG.
-
-   A per-triangle test is not enough: two neighbours that split a SHARED edge a
-   different number of times leave a T-junction, and the gap between them reads
-   as a hairline crack across the country. So the split count is a property of
-   the EDGE (same idiom as the LOD ladder in core.js: the coarsest thing that
-   stays under the error), then relaxed until each triangle's depth is the max
-   of its three edges - over the WHOLE LAYER, not per feature: a national border
-   is two separate rings, so its two copies sit in different features and a
-   per-feature relaxation lets them settle apart (measured at LOD 9 on the 50m
-   layer: 11.1 % of the 107 698 shared edges mismatched, i.e. a crack along
-   every border; the global fixed point leaves 1 of them, a duplicate vertex).
-   Measured cost at LOD 9: 91k base triangles -> 3.7 M with cap 3. */
-var SAG_MAX_DEG = 6;      /* caps the sag at 0.137% of R; the ocean shell is 0.35%
-    inboard, so the margin between a chord and the shell is 0.21% of R = about
-    1.3 px at the globe edge - enough that the two never z-fight. At 9 deg the
-    margin was only 0.04% (0.2 px) and the hairline cracks were that fight. */
-var DEPTH_CAP = 3;        /* the relaxation's fixed point wants depth 4 in a few
-    places; at cap 3 the worst chord is 6 deg (sag 0.15% of R, still inside the
-    0.35% ocean inset) and the layer is 3.7 M triangles at LOD 9. Cap 2 would
-    be 1.0 M but its 12.5 deg chords sag 0.60% - past the ocean shell. */
-
-function sphMid(a, b) {
-  var x = (a[0] + b[0]) * 0.5, y = (a[1] + b[1]) * 0.5, z = (a[2] + b[2]) * 0.5;
-  var L = Math.sqrt(x * x + y * y + z * z);
-  if (L < 1e-12) return [a[0], a[1], a[2]];
-  return [x / L, y / L, z / L];
-}
-
-function sphAng(a, b) {
-  var d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  return Math.acos(d < -1 ? -1 : (d > 1 ? 1 : d)) / C.DEG;
-}
-
-/* unit vector for a lon/lat pair, in the sphere's frame: x points at 0,0 and
-   z at +lon, the same convention as sphToVec in core.js */
-function uv(lon, lat) {
-  var la = lon * C.DEG, ph = lat * C.DEG, cp = Math.cos(ph);
-  return [cp * Math.cos(la), Math.sin(ph), -cp * Math.sin(la)];   /* same right-handed frame as sphToVec */
-}
-
-function sphSub(a, b, c, depth, out) {
-  if (depth <= 0) { out.push(a, b, c); return; }
-  var ab = sphMid(a, b), bc = sphMid(b, c), ca = sphMid(c, a);
-  sphSub(a, ab, ca, depth - 1, out);
-  sphSub(ab, b, bc, depth - 1, out);
-  sphSub(ca, bc, c, depth - 1, out);
-  sphSub(ab, bc, ca, depth - 1, out);
-}
-
-/* the split count an edge demands: the coarsest 2^d split that keeps every
-   sub-chord under SAG_MAX_DEG. A PURE function of the edge, so both sides of
-   a shared border compute the same value. */
-function edgeDepth(a, b) {
-  var L = sphAng(a, b);
-  if (L <= SAG_MAX_DEG) return 0;
-  return Math.ceil(Math.log(L / SAG_MAX_DEG) / Math.log(2));
-}
-function ekeyOf(a, b) {
-  var ka = Math.round(a[0] * 1e6) + ',' + Math.round(a[1] * 1e6) + ',' + Math.round(a[2] * 1e6);
-  var kb = Math.round(b[0] * 1e6) + ',' + Math.round(b[1] * 1e6) + ',' + Math.round(b[2] * 1e6);
-  return ka < kb ? ka + '|' + kb : kb + '|' + ka;
-}
-
-/* the GLOBE's own LOD level, from the true screen scale at the tangent point.
-   A perspective camera with fov f puts a world unit at the near surface (dist -
-   Rg) at (H/2)/(tan(f/2) * (dist - Rg)) px. One projected map unit is 2 PI /
-   5.3060017 rad of arc (the whole world spans 5.3060017 projected units), so
-   the budget in projected units is px * that factor. Same 0.9 px budget the 2D
-   view uses. Measured level across the zoom range: z 0.2 -> 2, z 2.0 -> 3,
-   z 2.7 -> 4, z 3.7 -> 5, z 4.8 -> 6 - the old formula stayed at 0 all the way
-   to z 7. */
-function globeLevel() {
-  if (globeLvlOverride >= 0) return globeLvlOverride;
-  var fov = 38;
-  var pxPerR = (H * 0.5) / (Math.tan(fov * 0.5 * C.DEG) * (globe.dist - Rg));
-  var ppu = pxPerR * (2 * Math.PI / 5.3060017);
-  var lvl = 0;
-  for (var t = 0; t < C.LOD_U.length - 1; t++) {
-    if (C.LOD_U[t] * ppu <= 0.9) { lvl = t; break; }
-  }
-  return lvl;
-}
-
-function buildGlobe() {
-  if (!THREE || !feats.length) return;
-  /* ---- LOD level from the TRUE screen scale at the tangent point ----
-     The old formula, min(W,H)*0.5 / (dist*2), is the scale of an ORTHOGRAPHIC
-     view of a globe that spans 2R on a min(W,H)-px screen. This camera is
-     PERSPECTIVE with fov 38 and the near surface sits at dist - Rg, so the real
-     px per world unit at the point facing the camera is
-        (H/2) / (tan(fov/2) * (dist - Rg))
-     which at H=800, dist=3.05 is 268.6 px/R against the 65.6 the old formula
-     gave: 4.1x. Projected map units are not world units either - the whole
-     world (360 deg = 2 PI rad) spans 5.3060 projected units - so one more
-     factor of 2 PI / 5.3060017. Measured: the old pick was LOD 0 at every
-     distance up to dist 0.19, i.e. the same coarsest ring was drawn at
-     z 2.0 AND at z 7, which is the "no LOD when zooming" the user sees.
-     With the correct scale the level walks 3 -> 4 -> 5 -> 6 -> 7 across the
-     zoom range (0.9 px budget, the same one the 2D view uses). */
-  var mlo = /[?&]lod=([0-9]+)/.exec(urlSearch());   /* ?lod=9 forces a level, for inspection */
-  globeLvlOverride = mlo ? Math.max(0, Math.min(C.LOD_U.length - 1, parseInt(mlo[1]))) : -1;
-  var lvl = globeLevel();
-  var ck = layerName + ':' + lvl;
-  var cached = globeCache[ck];
-  if (cached) {
-    cached.used = ++globeClock;
-    /* setMode('2d') leaves the group in scene3 (the renderer is just hidden), so
-       a second scene3.add() of the same group would double it in .children and
-       draw the layer twice: detach before attaching. */
-    if (cached.group.parent) cached.group.parent.remove(cached.group);
-    globeGroup = cached.group; scene3.add(globeGroup); return;
-  }
-  /* pass 1: every triangle of the WHOLE LAYER in one array - stride 8: the 3
-     unit-sphere vertices, the 3 edge keys, the split depth, the feature index.
-     The layer is relaxed as ONE problem because a national border is TWO rings
-     (the dataset carries no topology), so the two copies of a shared edge live
-     in different features. Measured on the 50m layer at LOD 9, over all 107 698
-     shared edges: relaxing feature by feature leaves 11.1 % of them split
-     differently on the two sides -> a hairline crack along every border. The
-     global fixed point below leaves 1 of them, and that one is a duplicated
-     ring vertex, not a real T-junction. */
-  var T = [], edgeTri = {}, t0 = Date.now();
-  /* the globe's ladder is SEWN (see core.js): the 2D ladder above is per-ring
-     and leaves 24-93 % of the drawn border edges on one side only, which on a
-     globe is a crack down to the ocean shell rather than a hairline on land.
-     Sewing costs 118 ms (110m) / 306 ms (50m) once per layer. */
-  if (!globeSewn[layerName]) { C.sewGlobeLadder(feats); globeSewn[layerName] = 1; }
-  for (var i = 0; i < feats.length; i++) {
-    var ft = feats[i];
-    for (var r = 0; r < ft.rings.length; r++) {
-      var rg = ft.rings[r];
-      if (!rg.ll) continue;
-      /* triangulate the DECIMATED lon/lat ring, not the projected one: the
-         ear-clipping tests (collinearity, convexity, diagonal-vs-edge) must run
-         in the space the vertices are actually placed in, and a geodesic edge
-         is not straight in Eckert IV. Decimating first also keeps the triangle
-         count down at low LOD, where the coarse ring is what is drawn. */
-      var lla = C.ringGlobeLLAtLevel(rg, lvl);   /* the GLOBE ladder (sewn), not the 2D one */
-      if (!lla) continue;   /* triangulateRing returns [] for a ring with < 3 points;
-         a length guard of 8 (4 points) silently drops whole small islands */
-      var tr = C.ringGlobeTris(rg, lvl);   /* cached per (ring, level) on the globe ladder:
-         the clip is 1.7 s of the 50m LOD-8 build, the Lawson refine only 16 ms of it, so a
-         rebuild or a layer switch pays the refine alone. Measured with the sewn ladder:
-         pass 1 warm is 180-330 ms on the 50m layer at LOD 3-6 */
-      for (var k = 0; k < tr.length; k += 3) {
-        var i1 = tr[k], i2 = tr[k + 1], i3 = tr[k + 2];
-        if (i1 === i2 || i2 === i3 || i3 === i1) continue;
-        var A = uv(lla[i1 * 2], lla[i1 * 2 + 1]), B = uv(lla[i2 * 2], lla[i2 * 2 + 1]),
-            Cc = uv(lla[i3 * 2], lla[i3 * 2 + 1]);
-        var e0 = ekeyOf(A, B), e1 = ekeyOf(B, Cc), e2 = ekeyOf(Cc, A);
-        var d0 = edgeDepth(A, B), d1 = edgeDepth(B, Cc), d2 = edgeDepth(Cc, A);
-        var s0 = T.length;
-        T.push(A, B, Cc, e0, e1, e2,
-          d0 > d1 ? (d0 > d2 ? d0 : d2) : (d1 > d2 ? d1 : d2), i);
-        for (var q0 = 0; q0 < 3; q0++) {
-          var ek = T[s0 + 3 + q0];
-          if (edgeTri[ek]) edgeTri[ek].push(s0); else edgeTri[ek] = [s0];
-        }
-      }
-    }
-  }
-  /* pass 2: relax to a fixed point over the LAYER. A triangle must be split at
-     least as often as the most demanding of its 3 edges, and raising that depth
-     raises the other triangles on those edges, which raises their edges... so
-     sweep the edge -> triangle adjacency until nothing moves.
-
-     The plain sweep is a measurement trap: it needs 26 passes before the cascade
-     stops moving (measured: 63-870 ms per build, and the sweep count kept hitting
-     the cap), because it propagates one hop per pass. Same fixed point, propagated
-     once: bucket the edges by the depth they demand and drain HIGH TO LOW, pushing
-     an edge back into its new bucket when raising a neighbour demands more. A
-     triangle's depth is the max over its 3 edges, so a depth can only rise - the
-     drain terminates and each edge is re-examined only when something changed.
-     Verified: 0 shared edges with two different depths on their two sides (the
-     old sweep's own "1 mismatched edge" was a duplicate ring vertex). Cost
-     measured: 9 ms (110m) / 81-108 ms (50m) instead of 63-870 ms. */
-  var edgeD = {}, maxD = 0;
-  var ekeys2 = Object.keys(edgeTri);
-  for (var ek3 = 0; ek3 < ekeys2.length; ek3++) {
-    var arr0 = edgeTri[ekeys2[ek3]], dm0 = 0;
-    for (var a4 = 0; a4 < arr0.length; a4++) if (T[arr0[a4] + 6] > dm0) dm0 = T[arr0[a4] + 6];
-    edgeD[ekeys2[ek3]] = dm0;
-    if (dm0 > maxD) maxD = dm0;
-  }
-  var bucketsD = [];
-  for (var d2 = 0; d2 <= maxD; d2++) bucketsD.push([]);
-  for (var ek4 = 0; ek4 < ekeys2.length; ek4++) if (edgeD[ekeys2[ek4]] > 0) bucketsD[edgeD[ekeys2[ek4]]].push(ekeys2[ek4]);
-  for (var d3 = maxD; d3 >= 1; d3--) {
-    var buck = bucketsD[d3];
-    for (var n2 = 0; n2 < buck.length; n2++) {   /* the same array: pushes land after n2 */
-      var ek5 = buck[n2];
-      if (edgeD[ek5] !== d3) continue;
-      var arr1 = edgeTri[ek5];
-      var dm1 = d3;
-      for (var a5 = 0; a5 < arr1.length; a5++) if (T[arr1[a5] + 6] > dm1) dm1 = T[arr1[a5] + 6];
-      if (dm1 !== d3) { if (dm1 <= maxD) bucketsD[dm1].push(ek5); edgeD[ek5] = dm1; continue; }
-      for (var a6 = 0; a6 < arr1.length; a6++) {
-        var si = arr1[a6];
-        if (T[si + 6] < d3) {
-          T[si + 6] = d3;
-          for (var q2 = 0; q2 < 3; q2++) {
-            var ek6 = T[si + 3 + q2];
-            if (edgeD[ek6] < d3) { edgeD[ek6] = d3; bucketsD[d3].push(ek6); }
-          }
-        }
-      }
-    }
-  }
-  /* pass 3: emit one mesh per feature, so picking and highlighting stay
-     per-country. Vertices are not shared any more - the subdivision points are
-     new and the ring vertices get duplicated, at most 2.4x the memory. */
-  var buckets = [];
-  for (var b = 0; b < feats.length; b++) buckets.push(null);
-  for (var t = 0; t < T.length; t += 8) {
-    var bi = T[t + 7];
-    if (!buckets[bi]) buckets[bi] = [];
-    buckets[bi].push(t);
-  }
-  var group = new THREE.Group();
-  for (var i2 = 0; i2 < buckets.length; i2++) {
-    var bt = buckets[i2];
-    if (!bt) continue;
-    var pos = [], idx = [], pOff = 0;
-    for (var b2 = 0; b2 < bt.length; b2++) {
-      var t2 = bt[b2];
-      var dep = T[t2 + 6] > DEPTH_CAP ? DEPTH_CAP : T[t2 + 6];
-      var sub = [];
-      sphSub(T[t2], T[t2 + 1], T[t2 + 2], dep, sub);
-      for (var s = 0; s < sub.length; s++) {
-        var u = sub[s];
-        pos.push(u[0] * Rg, u[1] * Rg, u[2] * Rg);
-        idx.push(pOff++);
-      }
-    }
-    if (!pos.length) continue;
-    var g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    var mat = /[?&]flat=1/.exec(urlSearch())
-      ? new THREE.MeshBasicMaterial({ color: 0xc9c9c7, side: THREE.DoubleSide })   /* debug: unlit, isolates normals/lighting from geometry */
-      : new THREE.MeshLambertMaterial({ color: 0xc9c9c7, side: THREE.DoubleSide });
-    var m = new THREE.Mesh(g, mat);
-    m.userData.tris = idx.length / 3;
-    m.userData.nan = 0;
-    for (var nn = 0; nn < pos.length; nn++) if (!(pos[nn] === pos[nn])) m.userData.nan++;
-    m.userData.i = i2;
-    group.add(m);
-  }
-  /* ---- pass 4: stroke the interior borders over the crust.
-     Each country carries its OWN copy of a shared border and the two copies
-     are decimated INDEPENDENTLY, so along a border the two sides keep
-     different vertices: measured at LOD 9, 76 815 of the 119 927 decimated
-     edges are used once, and a vertex-conform pass changes nothing (0
-     interior vertices are shared). So the gap cannot be closed by matching
-     keys or by depth relaxation - 29 hairline slivers of sea were still
-     visible inside land. 2D hides the same thing by stroking the border, so
-     do the same here: a strip on the border, floated just above the crust,
-     in a slightly darker grey. Only INTERIOR borders get a strip - decided
-     from the FINEST data, where a shared edge really is shared - so coastlines
-     keep their exact shape and the sea edge stays crisp. */
-  var FIN = C.LOD_U.length - 1;   /* the level map is built in LON/LAT at the
-     finest level - the same space the decimated rings below live in. rg.pts is
-     PROJECTED world space, a different one: mixing the two left the strip
-     empty (kids stayed 201 and no border was drawn). */
-  var vk = function (x, y) { return Math.round(x * 1e6) + ',' + Math.round(y * 1e6); };
-  var inter = {};
-  for (var fi = 0; fi < feats.length; fi++) for (var ri = 0; ri < feats[fi].rings.length; ri++) {
-    var rgf = feats[fi].rings[ri];
-    var pts = rgf.ll ? C.ringLLAtLevel(rgf, FIN) : null;
-    if (!pts || pts.length < 6) continue;
-    var nf2 = pts.length / 2;
-    for (var ei2 = 0; ei2 < nf2; ei2++) {
-      var ka = vk(pts[ei2 * 2], pts[ei2 * 2 + 1]);
-      var kb = vk(pts[((ei2 + 1) % nf2) * 2], pts[((ei2 + 1) % nf2) * 2 + 1]);
-      if (ka === kb) continue;
-      var kk = ka < kb ? ka + '|' + kb : kb + '|' + ka;
-      if (inter[kk]) inter[kk] = 2; else inter[kk] = 1;
-    }
-  }
-  /* a decimated edge is on an interior border when the FINE edge it spans is
-     shared by two features. The level lists are index subsets of the same ring,
-     so the drawn edge ia->ib covers the fine edges ia..ib: testing the fine edge
-     ia -> ia+1 in `inter` is exact, no grid and no tolerance needed. (The grid
-     version matched a LON/LAT `inter` map against PROJECTED rg.pts midpoints, so
-     it found nothing at all: the strip mesh was never built, kids stayed 201 and
-     the cracks along the borders stayed open down to the ocean shell.) */
-  var meanStep = 0, nStep = 0;
-  for (var f3 = 0; f3 < feats.length; f3++) for (var r3 = 0; r3 < feats[f3].rings.length; r3++) {
-    var rg3 = feats[f3].rings[r3];
-    if (!rg3.ll) continue;
-    var l3 = C.ringGlobeLLAtLevel(rg3, lvl);
-    if (!l3 || l3.length < 6) continue;
-    var n3 = l3.length / 2;
-    for (var e3 = 0; e3 < n3; e3++) {
-      meanStep += Math.hypot(l3[((e3 + 1) % n3) * 2] - l3[e3 * 2], l3[((e3 + 1) % n3) * 2 + 1] - l3[e3 * 2 + 1]);
-      nStep++;
-    }
-  }
-  var bandDeg = nStep ? Math.max(0.05, Math.min(2.0, 2.6 * (meanStep / nStep))) : 0.1;
-  var bp = [];
-  for (var f4 = 0; f4 < feats.length; f4++) for (var r4 = 0; r4 < feats[f4].rings.length; r4++) {
-    var rg4 = feats[f4].rings[r4];
-    var llF = rg4.ll ? C.ringLLAtLevel(rg4, FIN) : null;
-    if (!llF || llF.length < 6) continue;
-    var nF = llF.length / 2;
-    var idxs = rg4.gl[lvl];
-    var nd = idxs.length;
-    if (nd < 3) continue;
-    for (var e4 = 0; e4 < nd; e4++) {
-      var ia = idxs[e4], ib = idxs[(e4 + 1) % nd];
-      if (ia === ib) continue;
-      /* the drawn edge stands for the fine edges ia..ib; a coarse span can
-         start on a coast and end on a border, so decide by MAJORITY of the fine
-         edges it covers (sampled, at most 8) rather than the first one only */
-      var span = (ib - ia + nF) % nF;
-      if (span < 1) continue;
-      var nsamp = span < 8 ? span : 8, hit = 0;
-      for (var s4 = 0; s4 < nsamp; s4++) {
-        var fa = (ia + Math.floor(s4 * span / nsamp)) % nF;
-        var fb = (fa + 1) % nF;
-        var ka4 = vk(llF[fa * 2], llF[fa * 2 + 1]);
-        var kb4 = vk(llF[fb * 2], llF[fb * 2 + 1]);
-        if (ka4 !== kb4 && inter[ka4 < kb4 ? ka4 + '|' + kb4 : kb4 + '|' + ka4] === 2) hit++;
-      }
-      if (hit * 2 <= nsamp) continue;
-      var ax4 = llF[ia * 2], ay4 = llF[ia * 2 + 1], bx4 = llF[ib * 2], by4 = llF[ib * 2 + 1];
-      var A1 = uv(ax4, ay4), B1 = uv(bx4, by4);
-      var nx = A1[1] * B1[2] - A1[2] * B1[1], ny = A1[2] * B1[0] - A1[0] * B1[2], nz = A1[0] * B1[1] - A1[1] * B1[0];
-      var LL = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (LL < 1e-12) continue;
-      nx /= LL; ny /= LL; nz /= LL;
-      var px = ny * A1[2] - nz * A1[1], py = nz * A1[0] - nx * A1[2], pz = nx * A1[1] - ny * A1[0];
-      var PL = Math.sqrt(px * px + py * py + pz * pz);
-      if (PL < 1e-12) continue;
-      px /= PL; py /= PL; pz /= PL;
-      var s2 = bandDeg * C.DEG * 0.5;
-      var A2 = [A1[0] + s2 * px, A1[1] + s2 * py, A1[2] + s2 * pz];
-      var B2 = [B1[0] + s2 * px, B1[1] + s2 * py, B1[2] + s2 * pz];
-      var A3 = [A1[0] - s2 * px, A1[1] - s2 * py, A1[2] - s2 * pz];
-      var B3 = [B1[0] - s2 * px, B1[1] - s2 * py, B1[2] - s2 * pz];
-      var L2a = Math.sqrt(A2[0] * A2[0] + A2[1] * A2[1] + A2[2] * A2[2]);
-      var L2b = Math.sqrt(B2[0] * B2[0] + B2[1] * B2[1] + B2[2] * B2[2]);
-      var L2c = Math.sqrt(A3[0] * A3[0] + A3[1] * A3[1] + A3[2] * A3[2]);
-      var L2d = Math.sqrt(B3[0] * B3[0] + B3[1] * B3[1] + B3[2] * B3[2]);
-      var lift = 1.0018;
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              B1[0] * Rg * lift, B1[1] * Rg * lift, B1[2] * Rg * lift,
-              B2[0] / L2b * Rg * lift, B2[1] / L2b * Rg * lift, B2[2] / L2b * Rg * lift);
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              B2[0] / L2b * Rg * lift, B2[1] / L2b * Rg * lift, B2[2] / L2b * Rg * lift,
-              A2[0] / L2a * Rg * lift, A2[1] / L2a * Rg * lift, A2[2] / L2a * Rg * lift);
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              B3[0] / L2d * Rg * lift, B3[1] / L2d * Rg * lift, B3[2] / L2d * Rg * lift,
-              B1[0] * Rg * lift, B1[1] * Rg * lift, B1[2] * Rg * lift);
-      bp.push(A1[0] * Rg * lift, A1[1] * Rg * lift, A1[2] * Rg * lift,
-              A3[0] / L2c * Rg * lift, A3[1] / L2c * Rg * lift, A3[2] / L2c * Rg * lift,
-              B3[0] / L2d * Rg * lift, B3[1] / L2d * Rg * lift, B3[2] / L2d * Rg * lift);
-    }
-  }
-  if (bp.length) {
-    var bg2 = new THREE.BufferGeometry();
-    bg2.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3));
-    bg2.computeVertexNormals();
-    var bm = new THREE.Mesh(bg2, new THREE.MeshBasicMaterial({ color: 0x9a9a98, side: THREE.DoubleSide }));
-    bm.userData.i = -1;   /* not pickable: pick3D skips i < 0 */
-    group.add(bm);
-  }
-  /* one entry per (layer, LOD level). Measured per-entry size: 110m lvl 3 = 378 k
-     triangles, 50m lvl 3-6 = 0.88-1.0 M, and a THREE BufferGeometry costs 24 B
-     per vertex (position + normal) so a 50m entry is ~72 MB of GPU buffers.
-     Keeping every level of both layers would be ~600 MB, so this is an LRU of
-     2: the level in view and the one the zoom is about to cross. Evicted groups
-     are disposed, not just dropped - a dropped BufferGeometry keeps its
-     attributes alive on the GPU. */
-  var ck2 = null, old = -1;
-  for (var k2 in globeCache) {
-    var en = globeCache[k2];
-    if (en.used > old) { old = en.used; ck2 = k2; }
-  }
-  if (ck2 !== null && Object.keys(globeCache).length >= 2 && ck2 !== ck) {
-    var ev = globeCache[ck2];
-    for (var c2 = 0; c2 < ev.group.children.length; c2++) {
-      var o2 = ev.group.children[c2];
-      if (o2.geometry) o2.geometry.dispose();
-      if (o2.material) o2.material.dispose();
-    }
-    scene3.remove(ev.group);   /* Object3D.remove() with no args is a no-op: it
-       iterates its arguments. Leaving the evicted group in the scene would draw
-       it again under the new one (double geometry, z-fighting) */
-    delete globeCache[ck2];
-  }
-  globeCache[ck] = { group: group, used: ++globeClock, lvl: lvl, ms: Date.now() - t0 };
-  globeGroup = group;
-  scene3.add(group);
-}
-
-function setGlobeLayer(id) {
-  if (globeGroup) scene3.remove(globeGroup);
-  var c = globeCache[id + ':' + globeLevel()];
-  if (c) { c.used = ++globeClock; globeGroup = c.group; scene3.add(globeGroup); }
-  else { layerName = id; buildGlobe(); }
-}
-
-function placeCamera() {
-  /* setMode() can run before resize(), so the aspect from the constructor may
-     be 0/0 = NaN, which makes the whole frustum NaN and culls every mesh */
-  cam3.aspect = W / H;
-  cam3.updateProjectionMatrix();
-  var la = globe.lon * C.DEG, ph = globe.lat * C.DEG, cp = Math.cos(ph);
-  cam3.position.set(cp * Math.cos(la) * globe.dist,
-                    Math.sin(ph) * globe.dist,
-                    -cp * Math.sin(la) * globe.dist);   /* stays on sphToVec(lon,lat): the camera faces exactly that point */
-  cam3.lookAt(0, 0, 0);
-}
-
-function draw3D() {
-  if (!renderer3) return;
-  refreshGlobe();          /* the LOD level follows globe.dist: without this the
-     globe draws the same level forever, which is the "no LOD when zooming" bug */
-  placeCamera();
-  renderer3.render(scene3, cam3);   /* r170 reads camera.parent immediately: the 2nd arg is not optional */
-  drawLabels3D(zoomLevel3D());
-}
-
-function zoomLevel3D() {
-  /* dist 3.05 frames the whole globe, which we call z 2 - the same label
-     scale the dataset was authored on */
-  return 2 + Math.log2(3.05 / globe.dist) * 1.15;
-}
-
-/* labels are drawn on a transparent canvas above the WebGL one, so they stay
-   crisp and unlit; the back of the globe is culled by a dot product */
-function drawLabels3D(z) {
-  if (!labelsCtx) return;
-  labelsCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  labelsCtx.clearRect(0, 0, W, H);
-  labelsCtx.font = '11px system-ui, -apple-system, sans-serif';
-  labelsCtx.textAlign = 'center'; labelsCtx.textBaseline = 'middle';
-  var camPos = cam3.position, len = Math.hypot(camPos.x, camPos.y, camPos.z);
-  var placed = [], shown = 0;
-  for (var i = 0; i < layout.length; i++) {
-    var L = layout[i];
-    if (z < L.minz - 0.2 || z > L.maxz + 0.6) continue;
-    var v = sphToVec(L.lonDeg, L.latDeg);
-    if ((v[0] * camPos.x + v[1] * camPos.y + v[2] * camPos.z) / len < Rg * 0.16) continue;
-    var sp = new THREE.Vector3(v[0], v[1], v[2]);
-    sp.project(cam3);
-    var px = (sp.x * 0.5 + 0.5) * W, py = (0.5 - sp.y * 0.5) * H;
-    if (px < 24 || py < 12 || px > W - 24 || py > H - 12) continue;
-    var w = labelsCtx.measureText(L.name).width + 8, h = 15;
-    var box = [px - w / 2, py - h / 2, px + w / 2, py + h / 2];
-    var ok = true;
-    for (var q = 0; q < placed.length && ok; q++) {
-      var b = placed[q];
-      if (box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]) ok = false;
-    }
-    if (!ok) continue;
-    placed.push(box);
-    labelsCtx.lineWidth = 3; labelsCtx.strokeStyle = 'rgba(12,22,32,.75)'; labelsCtx.strokeText(L.name, px, py);
-    labelsCtx.fillStyle = 'rgba(255,255,255,.92)'; labelsCtx.fillText(L.name, px, py);
-    if (++shown > 70) break;
-  }
-}
-
-/* picking in 3D: three.js ray against the land crust, smallest feature wins
-   where several stack (islands over the country behind them) */
-function pick3D(px, py) {
-  if (!rayc || !globeGroup) return -1;
-  /* r170 dropped the legacy setCoords: go through setFromCamera with NDC
-     (-1..1, not the -0.5..0.5 the old call passed) */
-  if (!ndc) ndc = new THREE.Vector2(0, 0);
-  ndc.set(px / W * 2 - 1, 1 - py / H * 2);
-  rayc.setFromCamera(ndc, cam3);
-  var hits = rayc.intersectObjects(globeGroup.children, false);
-  var best = -1, bestA = 0;
-  for (var h = 0; h < hits.length; h++) {
-    var jh = hits[h].object.userData.i;
-    if (jh < 0) continue;                      /* the border strip is not pickable */
-    if (best < 0 || feats[jh].areaSr < bestA) { bestA = feats[jh].areaSr; best = jh; }
-  }
-  return best;
-}
-
-function highlight3D() {
-  if (!globeGroup) return;
-  var kids = globeGroup.children;
-  for (var i = 0; i < kids.length; i++) {
-    var o = kids[i], j = o.userData.i;
-    if (j < 0) continue;   /* the border strip keeps its own colour */
-    var col = (j === gPicked) ? 0xffffff : (j === gHover) ? 0xedf0e9 : 0xc9c9c7;
-    o.material.color.setHex(col);
-  }
-}
-
-function setMode(m) {
-  if (m === mode) return;
-  mode = m;
-  if (m === '3d') {
-    if (!renderer3) init3D();
-    if (!scene3) newScene();
-    buildGlobe();
-    canvas.style.display = 'none';
-    labelsCv.style.display = '';   /* setMode('2d') hid it inline; a later switch back would keep it hidden */
-  } else {
-    if (renderer3) renderer3.domElement.style.display = 'none';
-    canvas.style.display = 'block';
-    labelsCv.style.display = 'none';
-    /* the 2D view's geometry is centred on view.lon/lat and is rebuilt on the
-       centre; coming back from the globe, the pieces may be stale (a rebuild
-       was skipped while in 3D), so refresh them */
-    reproject();
-  }
-  refreshMenu();
+  var hp = pickPlaceAt(px, py);
+  if (hp >= 0) { pickedPlace = hp; picked = -1; hoverPlace = hp; hover = -1; refreshUI(); return; }
+  pickedPlace = -1;
+  picked = pickAt(px, py);
   refreshUI();
 }
 
@@ -1381,39 +1152,45 @@ function refreshMenu() {
   var rows = itemsEl.getElementsByClassName('menuitem');
   for (var i = 0; i < rows.length; i++) {
     var el = rows[i], id = el.dataset.id;
-    var on = (id === '2d' && mode === '2d') ||
-             (id === '3d' && mode === '3d') ||
-             (mode === '2d' && id === 'proj:' + projID) ||
-             (id === 'layer:' + layerName);
+    var on = (id === 'proj:' + projID) ||
+             (id === 'layer:' + layerName) ||
+             (id === 'cities' && citiesOn) ||
+             (id === 'north' && northUp);
     if (on) el.classList.add('on'); else el.classList.remove('on');
-  }
-  /* the projection rows cannot apply in 3D: dim that section instead of hiding
-     it, so the sheet keeps the same height and the eye keeps its place */
-  var grps = itemsEl.getElementsByClassName('mgroup');
-  for (var q = 0; q < grps.length; q++) {
-    if (grps[q].classList.contains('needs2d')) {
-      if (mode === '3d') grps[q].classList.add('dim'); else grps[q].classList.remove('dim');
-    }
   }
   refreshBurger();
 }
 
-function refreshGlobe() {
-  /* the level in view may have moved (zoom, or a resize that changes H): swap
-     the group for the one keyed to the current level. Cheap when nothing moved,
-     because the entry is already cached. */
-  if (!globeGroup) { buildGlobe(); return; }
-  var lvl = globeLevel();
-  var c = globeCache[layerName + ':' + lvl];
-  if (c && c.group === globeGroup) return;
-  scene3.remove(globeGroup);
-  if (c) { c.used = ++globeClock; globeGroup = c.group; }
-  else { globeGroup = null; buildGlobe(); return; }
-  scene3.add(globeGroup);
+/* ---------- info panel ---------- */
+/* the city panel: the same .row markup as a country, so it inherits the styling.
+   Everything shown comes from the point table; nothing is invented. */
+function showPlacePanel(i) {
+  var P = places[i];
+  var rows = [
+    ['name', P.n],
+    ['country', P.c],
+    ['region', P.r],
+    ['type', PLACE_FCLASS[P.f] || P.f],
+    ['population', popText(P.p) ? fmtNum(P.p) + ' (pop. max)' : ''],
+    ['at', Math.abs(P.lat).toFixed(3) + '° ' + (P.lat >= 0 ? 'N' : 'S') + ', ' +
+           Math.abs(P.lon).toFixed(3) + '° ' + (P.lon >= 0 ? 'E' : 'W')],
+    ['time zone', P.tz || ''],
+    ['source', 'Natural Earth 10m populated places · rank ' + P.l + ' · shows from z ' + P.z]
+  ];
+  var s = '';
+  for (var k2 = 0; k2 < rows.length; k2++) {
+    var val = rows[k2][1];
+    if (!val || val === '') continue;
+    s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
+  }
+  panel.innerHTML = s;
+  panel.classList.add('show');
+  hud.textContent = hudText();
 }
 
-/* ---------- info panel ---------- */
 function refreshUI() {
+  var pi = (pickedPlace >= 0) ? pickedPlace : hoverPlace;
+  if (pi >= 0 && places[pi]) { showPlacePanel(pi); return; }
   var idx = picked >= 0 ? picked : hover;
   var f = idx >= 0 ? feats[idx] : null;
   if (!f) {
@@ -1425,9 +1202,19 @@ function refreshUI() {
   var alt = [];
   var alts = [p.NAME_FR, p.NAME_DE, p.NAME_ES, p.NAME_IT, p.NAME_RU, p.NAME_ZH];
   for (var i = 0; i < alts.length; i++) if (alts[i]) alt.push(alts[i]);
+  /* the capital, from the place layer (see capitalOf) - with its population when
+     Natural Earth knows it, because "capital: Paris" plus a number is the single
+     most useful pair of facts on this panel */
+  var capIdx = capitalOf(idx);
+  var capTxt = '';
+  if (capIdx >= 0) {
+    var CP = places[capIdx];
+    capTxt = CP.n + (CP.p > 0 ? ' · ' + fmtNum(CP.p) : '');
+  }
   var rows = [
     ['name', p.NAME_LONG || p.NAME],
     ['also', alt.join('  ·  ')],
+    ['capital', capTxt],
     ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== (p.NAME_LONG || p.NAME) ? ' · sovereign: ' + p.SOVEREIGNT : '')],
     ['region', [p.CONTINENT, p.SUBREGION].filter(function (x) { return x; }).join(' / ')],
     ['area', fmtKm2(km2)],
@@ -1449,17 +1236,6 @@ function refreshUI() {
 }
 function hudText() {
   var nm = layerLabel(layerName);
-  if (mode === '3d') {
-    var main = 'Globe 3D · ' + nm + ' · z ' + zoomLevel3D().toFixed(1) +
-           ' · lon ' + globe.lon.toFixed(1) + '°, lat ' + globe.lat.toFixed(1) + '°';
-    /* the readout goes on a line of its own: .hud is white-space:pre and pinned
-       bottom-left, and the .help line is pinned bottom-RIGHT and long, so a
-       debug segment appended to the same line is drawn over the help text
-       (measured: both collided from x 380 on a 1280 px viewport) */
-    if (!dbg()) return main;
-    return 'lod ' + globeLevel() + ' · tri ' + renderer3.info.render.triangles +
-           ' kids ' + (globeGroup ? globeGroup.children.length : 0) + '\n' + main;
-  }
   var z = zoomLevel();
   /* the centre is the point of the SPHERE that is the centre of projection -
      read it from view, not from unprojecting a plane position */
@@ -1473,28 +1249,20 @@ function hudText() {
                 ' · segs ' + fmtNum(segs + gratSegs) +
                 ' (' + fmtNum(segs) + ' land + ' + fmtNum(gratSegs) + ' grid)' +
                 ' · ' + fmtNum(seenPieces) + ' pieces' +
-                (skippedPieces ? ' (+' + fmtNum(skippedPieces) + ' sub-pixel)' : '');
+                (skippedPieces ? ' (+' + fmtNum(skippedPieces) + ' sub-pixel)' : '') +
+                (citiesOn ? ' · ' + fmtNum(placeSeen) + ' cities' : '');
   if (!dbg()) return segLine + '\n' + main;
   return segLine + ' · reproject ' + lastMs.toFixed(1) + ' ms (rings ' + reprojSplit.rings.toFixed(1) +
          ' + ' + reprojSplit.rest.toFixed(1) + ') · path ' + drawMs.path.toFixed(1) +
          ' ms · paint ' + drawMs.paint.toFixed(1) + ' ms\n' + main;
 }
-function pieceCount() {
-  var n = 0;
-  for (var i = 0; i < feats.length; i++) {
-    for (var r = 0; r < feats[i].rings.length; r++) {
-      n += feats[i].rings[r].pieces ? feats[i].rings[r].pieces.length : 0;
-    }
-  }
-  return n;
-}
 function helpText() {
   /* two lengths: the full hint needs room the narrow layouts do not have, and it
      is the HUD (left) that must stay readable */
   if (W < 1150) {
-    return '\u2630 view \u00b7 wheel = zoom \u00b7 drag = move the centre \u00b7 dbl-click = go + zoom';
+    return '\u2630 view \u00b7 wheel = zoom \u00b7 drag = move the centre \u00b7 dbl-click = fly there \u00b7 c cities';
   }
-  return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre of projection \u00b7 dbl-click = go + zoom \u00b7 r reset';
+  return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre \u00b7 dbl-click = fly there \u00b7 r reset \u00b7 c cities';
 }
 function fmtKm2(v) {
   if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + ' million km²';
@@ -1512,7 +1280,6 @@ function resize() {
   canvas.width = Math.round(w * DPR); canvas.height = Math.round(h * DPR);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   W = w; H = h;
-  if (renderer3) renderer3.setSize(W, H);   /* the GL canvas is not the #map one, it needs its own resize */
 }
 
 var drag = null;
@@ -1523,6 +1290,8 @@ var touch = null;
    2D canvas and the WebGL canvas underneath the label overlay. */
 function bindPointer(el) {
   el.addEventListener('mousedown', function (e) {
+    fly = null;                    /* the finger takes over from any flight */
+    lastMoveT = loopNow;
     drag = { x: e.offsetX, y: e.offsetY };
     startMotion(e.offsetX, e.offsetY);
   });
@@ -1541,24 +1310,22 @@ function bindPointer(el) {
   el.addEventListener('mouseleave', function () {
     mouse.inside = false;
     if (hover !== -1) { hover = -1; refreshUI(); }
-    if (gHover !== -1) { gHover = -1; highlight3D(); refreshUI(); }
   });
   el.addEventListener('click', function (e) { doPick(e.offsetX, e.offsetY); });
   el.addEventListener('dblclick', function (e) {
     doPick(e.offsetX, e.offsetY);
-    if (mode === '3d') { zoomGlobe(1.6); refreshUI(); return; }
-    /* one gesture for "take me there": the clicked point becomes the centre of
-       projection AND the view zooms in */
-    var g = geoAt(e.offsetX, e.offsetY);
-    if (g) setCenter(g[0], g[1]);
-    zoomBy(2);
+    /* one gesture for "take me there", ANIMATED: the view pulls back (so the
+       target and its surroundings stay in view while the world turns), travels the
+       great circle, then comes in to the zoom that fits the target's own bounding
+       box. Jumping straight there lost the reader's sense of where they went. */
+    gestureGo(e.offsetX, e.offsetY);
     refreshUI();
   });
   el.addEventListener('wheel', function (e) {
     e.preventDefault();
     stopInertia();               /* a wheel step takes over from any glide */
+    fly = null;                  /* ...and from any flight */
     var f = zoomFactor(e.deltaY);
-    if (mode === '3d') { zoomGlobe(f); return; }
     /* WHEEL = ZOOM, as it always was. A previous version made the plain wheel move
        the centre of projection and required ctrl+wheel to zoom; that broke the one
        gesture everybody expects. Zoom is about the centre of projection (k only),
@@ -1583,6 +1350,7 @@ function bindPointer(el) {
    too - otherwise a deep zoom would keep drawing the coarse level (and, before
    the builtT guard in core.js, would read levels that were never built). */
 function zoomBy(f) {
+  lastMoveT = loopNow;
   var k = view.k * f;
   var kmin = fitK * 0.45, kmax = fitK * 1200;
   view.k = Math.max(kmin, Math.min(kmax, k));
@@ -1608,12 +1376,7 @@ function geoAt(px, py) {
    away from the pointer - the "inverted vertical axis" the orthographic view
    showed was this, and it affected every projection, not just that one). */
 function pan(dx, dy) {
-  if (mode === '3d') {
-    globe.lon -= dx * 0.28;
-    globe.lat += dy * 0.28;
-    globe.lat = Math.max(-89.5, Math.min(89.5, globe.lat));
-    return;
-  }
+  lastMoveT = loopNow;             /* the tilt waits for the gesture to finish */
   var g = geoAt(W * 0.5 - dx, H * 0.5 - dy);
   if (!g) {
     /* outside the map figure (the corner outside an orthographic disc): nothing
@@ -1629,12 +1392,6 @@ function pan(dx, dy) {
 function scrollCentre(dLon, dLat) {
   var degPerPx = 0.25 * (fitK / view.k);
   setCenter(view.lon + dLon * degPerPx, view.lat + dLat * degPerPx);
-}
-
-function zoomGlobe(f) {
-  globe.dist = Math.max(1.12, Math.min(9, globe.dist * f));
-  highlight3D();
-  refreshUI();
 }
 
 /* ---------- keyboard ---------- */
@@ -1719,18 +1476,258 @@ function stepInertia(now) {
   pan(inertia.vx * dt, inertia.vy * dt);
 }
 
+/* ---------- the two idle animations, stepped once per frame ---------- */
+function smoothstep(t, a, b) {
+  if (t <= a) return 0;
+  if (t >= b) return 1;
+  var x = (t - a) / (b - a);
+  return x * x * (3 - 2 * x);
+}
+function clampK(k) { return Math.max(fitK * 0.45, Math.min(fitK * 1200, k)); }
+
+/* great-circle interpolation of two geographic points; the slerp is what makes a
+   long fly-over arc across the map instead of a straight line in lon/lat (which
+   near a pole would look like the world skidding sideways) */
+function slerpLL(lon0, lat0, lon1, lat1, t) {
+  var a = lat0 * C.DEG, b = lon0 * C.DEG, c = lat1 * C.DEG, d = lon1 * C.DEG;
+  var x1 = Math.cos(a) * Math.cos(b), y1 = Math.sin(a), z1 = -Math.cos(a) * Math.sin(b);
+  var x2 = Math.cos(c) * Math.cos(d), y2 = Math.sin(c), z2 = -Math.cos(c) * Math.sin(d);
+  var dot = Math.max(-1, Math.min(1, x1 * x2 + y1 * y2 + z1 * z2));
+  var ang = Math.acos(dot);
+  if (ang < 1e-6 || Math.PI - ang < 1e-6) {        /* same point, or antipodal */
+    return [lon0 + (lon1 - lon0) * t, lat0 + (lat1 - lat0) * t];
+  }
+  var sa = Math.sin(ang);
+  var s0 = Math.sin((1 - t) * ang) / sa, s1 = Math.sin(t * ang) / sa;
+  var x = s0 * x1 + s1 * x2, y = s0 * y1 + s1 * y2, z = s0 * z1 + s1 * z2;
+  return [Math.atan2(-z, x) / C.DEG, Math.asin(Math.max(-1, Math.min(1, y))) / C.DEG];
+}
+
+/* WHERE a "take me there" gesture should end, and HOW FAR IN.
+   A fixed factor (the old zoomBy(2)) is wrong for both extremes: it leaves France
+   filling a quarter of the screen and puts Vatican City in a 3 px dot. So the
+   destination zoom is COMPUTED from the target's own bounding box: the ring's
+   lon/lat twin is rotated into the frame centred on the destination and projected
+   (core.featureExtent), and k is the one that makes that box fit the viewport with
+   a margin.
+
+   Two passes, because centring on the CLICK POINT does not centre the country: the
+   extent is measured at the clicked point first, its box centre is turned back into
+   lon/lat, and the second pass measures the extent at that centre. Only then is the
+   fit honest - a box measured off-centre is bigger than the box you get when the
+   centre is the box's own middle, and the final zoom would be slightly too wide.
+
+   No feature under the cursor (open ocean) keeps the old behaviour: zoom in by 2
+   about the clicked point. */
+var FLY_PAD = 0.06;               /* fraction of the viewport kept free on each side */
+function fitKForExtent(e, pad) {
+  var w = Math.max(1e-9, e[2] - e[0]), h = Math.max(1e-9, e[3] - e[1]);
+  var kx = W * (1 - 2 * pad) / w, ky = H * (1 - 2 * pad) / h;
+  return clampK(Math.min(kx, ky));
+}
+var CITY_ZOOM = 7;               /* z of a "stand in this city" view */
+function flyTarget(x, y) {
+  var g = geoAt(x, y);
+  if (!g) return null;
+  /* A CITY wins over the country under it, exactly as it does for picking: a dot
+     is a deliberate 2-3 px target, and flying to the whole country when the user
+     aimed at a city would answer a different question. A city has no bbox of its
+     own, so its "fit" is a fixed street-level zoom - but never a zoom OUT, so
+     double-clicking a city while already closer in does not pull back. */
+  var hp = pickPlaceAt(x, y);
+  if (hp >= 0 && places[hp]) {
+    var P = places[hp];
+    return { lon: P.lon, lat: P.lat, k: clampK(Math.max(view.k, fitK * Math.pow(2, CITY_ZOOM - 2))),
+             fit: false, place: hp };
+  }
+  var fi = pickAt(x, y);
+  if (fi < 0 || !feats[fi]) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
+  var proj = C.CUR;
+  /* MEASURE IN THE FRAME THE FLIGHT WILL ARRIVE IN, not the one it starts from.
+     The flight now untwists as it travels, so it lands north-up; a destination
+     computed from the current (possibly rolled) frame is fitted to a box that will
+     not exist on arrival. Measured for Russia from a rolled start: the box was
+     computed 88 % of the viewport and arrived at 55 % - the roll had changed the
+     shape of the axis-aligned box. Taking the roll out first makes the computation
+     match the arrival by construction. */
+  var mUp = new Float64Array(9);
+  var rollNow = C.frameRoll(FRAME);
+  if (isFinite(rollNow) && Math.abs(rollNow) > 1e-9) C.rollFrame(FRAME, -rollNow, mUp);
+  else for (var q0 = 0; q0 < 9; q0++) mUp[q0] = FRAME[q0];
+  var m1 = C.moveCentre(mUp, g[0], g[1], proj, new Float64Array(9));
+  var e1 = C.featureExtent(feats[fi], m1, proj);
+  if (!e1) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
+  /* the box centre, back to lon/lat. unproject() answers the ROTATED lon/lat (and
+     null outside a cone projection's disc), so the frame inverse turns it into a
+     geographic point; if it falls outside the disc, the clicked point stands. */
+  var cxp = (e1[0] + e1[2]) / 2, cyp = (e1[1] + e1[3]) / 2;
+  var rl = C.unproject(cxp, cyp);
+  var gc = rl ? C.unrotM(m1, rl[0] * C.DEG, rl[1] * C.DEG) : null;
+  if (!gc || !isFinite(gc[0]) || !isFinite(gc[1])) gc = g;
+  /* REFINE. Centring on the first box centre moves the box: rotating the frame
+     changes the shape of an axis-aligned bbox, so the centre of the NEW box is a
+     little off the point we just centred on. Measured for Germany (persp): 0.054
+     plane units after one pass, 3e-4 after two, 0 after three. Two extra passes cost
+     a few ms once, at the moment of the click, and buy a country that is actually
+     centred instead of 24 px off. */
+  /* NORTH-UP, EVERY TIME. moveCentre on a cone projection is parallel transport,
+     which keeps the roll it starts with - and "the roll it starts with" drifts
+     relative to the CANONICAL frame as the path bends, so transporting from a
+     north-up start does not land north-up. Measured for Russia: the transported
+     frame measured a box 1.71 plane units wide where the arrival frame (which the
+     flight untwists) measures 1.09, i.e. the fit was computed for a frame that never
+     exists. So the roll is removed after every move, which is exactly the frame the
+     flight guarantees on arrival. */
+  function upright(m) {
+    var r = C.frameRoll(m);
+    if (!isFinite(r) || Math.abs(r) < 1e-12) return m;
+    return C.rollFrame(m, -r, new Float64Array(9));
+  }
+  var e2 = null;
+  for (var it = 0; it < 3; it++) {
+    var mIt = upright(C.moveCentre(mUp, gc[0], gc[1], proj, new Float64Array(9)));
+    e2 = C.featureExtent(feats[fi], mIt, proj);
+    if (!e2) break;
+    var nx = (e2[0] + e2[2]) / 2, ny = (e2[1] + e2[3]) / 2;
+    if (Math.abs(nx) < 1e-5 && Math.abs(ny) < 1e-5) break;
+    var rl2 = C.unproject(nx, ny);
+    var g2 = rl2 ? C.unrotM(mIt, rl2[0] * C.DEG, rl2[1] * C.DEG) : null;
+    if (!g2 || !isFinite(g2[0]) || !isFinite(g2[1])) break;
+    gc = g2;
+    e2 = null;                     /* the extent just measured belongs to the OLD centre */
+  }
+  /* MEASURE ONCE MORE AT THE CENTRE BEING RETURNED. Updating `gc` at the end of the
+     loop leaves `e2` describing the centre it replaced - measured for Russia, that
+     fitted the arrival to 88 % of the viewport and delivered 55 %. (The extent is
+     not a smooth function of the centre near a pole: a 2.6 deg move took Russia's
+     box from 0.71 x 1.07 to 1.09 x 0.67 plane units, so a stale measurement is not
+     "close enough".) */
+  var eFin = C.featureExtent(feats[fi], upright(C.moveCentre(mUp, gc[0], gc[1], proj,
+                new Float64Array(9))), proj) || e2;
+  if (!eFin) return { lon: gc[0], lat: gc[1], k: clampK(view.k * 2), fit: false };
+  return { lon: gc[0], lat: gc[1], k: fitKForExtent(eFin, FLY_PAD), fit: true, fi: fi };
+}
+
+/* ONE handler for "go there and show me that", whatever produced it: a double
+   click on a desktop, a double tap on a touch screen. Having two rules meant the
+   phone got a different (and worse) behaviour from the mouse: a bare 1.7x zoom
+   instead of the fitted flight. */
+function gestureGo(x, y) {
+  var t = flyTarget(x, y);
+  if (!t) return;
+  flyTo(t.lon, t.lat, t.k);
+}
+
+/* the double-click flight. Cancelled by any new gesture (see bindPointer): a fly
+   that kept running under the user's finger would fight the drag. */
+function flyTo(lon, lat, kTo) {
+  stopInertia();
+  var k0 = view.k, k1 = clampK(kTo);
+  fly = {
+    t0: loopNow, dur: FLY_DUR, last: 0,
+    lon0: view.lon, lat0: view.lat, k0: k0,
+    lon1: lon, lat1: lat, k1: k1,
+    kMin: Math.max(fitK * 0.45, Math.min(k0, k1) * 0.45)
+  };
+}
+var FLY_ROLL_TAU = 0.13;         /* s: how fast the flight untwists the picture */
+var FLY_ROLL_RATE = 4.0;         /* rad/s cap, so a 154 deg roll does not whip */
+function stepFly(now) {
+  if (!fly) return;
+  var t = (now - fly.t0) / fly.dur;
+  if (!(t >= 0)) t = 0;
+  if (t > 1) t = 1;
+  var dt = fly.last ? Math.min(0.1, Math.max(0.004, (now - fly.last) / 1000)) : 0.016;
+  fly.last = now;
+  /* the zoom dips first, comes back last, and is the SUM of the two ramps so the
+     curve is continuous at every phase boundary */
+  var kNow = fly.kMin + (fly.k0 - fly.kMin) * (1 - smoothstep(t, 0, 0.34)) +
+             (fly.k1 - fly.kMin) * smoothstep(t, 0.62, 1);
+  view.k = clampK(kNow);
+  if (t >= 0.16) {
+    var p = smoothstep(t, 0.16, 0.86);
+    var g = slerpLL(fly.lon0, fly.lat0, fly.lon1, fly.lat1, p);
+    setCenter(g[0], g[1]);
+  }
+  /* THE TILT TRAVELS WITH THE FLIGHT. stepAlign deliberately stands down while a
+     flight is running (below), because a slow exponential drift under a moving
+     camera reads as the horizon sagging. But that left the arrival rolled: the
+     flight ends, then the tilt starts from wherever the drag had left it, so the
+     last second of the journey was the picture sliding upright AFTER the zoom had
+     settled - two movements where the user asked for one. So the flight itself
+     untwists, on the same clock, arriving north-up by construction. The time
+     constant is short enough (0.13 s) to be finished in the 950 ms flight but long
+     enough that the spin is not a snap, and the rate cap keeps a 154 deg roll (a
+     drag over a pole) from whipping. A correct roll is a no-op here, so a flight
+     that starts north-up does no extra work. */
+  if (C.CUR && !C.CUR.pseudocyl && !flyAtPole()) {
+    var roll = C.frameRoll(FRAME);
+    if (isFinite(roll) && Math.abs(roll) > 1e-5) {
+      /* A FIXED time constant is not enough: moving the centre re-rolls the frame
+         (parallel transport) by an amount that scales with how fast the world is
+         turning, so on a long diagonal flight the correction and the motion can
+         reach a balance that never reaches zero - measured, 31.9 deg of roll was
+         still -2.5 deg at arrival. So the fraction removed is the larger of "what
+         the time constant says" and "all of what is left, spread over the frames
+         that remain": the same shape early, and a guarantee that the last frame
+         lands on zero. */
+      var remain = Math.max(0.05, (1 - t) * fly.dur / 1000);
+      var flat = (t > 0.82);        /* final stretch: remove whatever is left */
+      var d = flat ? -roll : -roll * Math.min(1, Math.max(dt / FLY_ROLL_TAU, dt / remain));
+      if (!flat) {
+        var rcap = FLY_ROLL_RATE * dt;
+        if (d > rcap) d = rcap; else if (d < -rcap) d = -rcap;
+      }
+      C.rollFrame(FRAME, d, FRAME2);
+      for (var i = 0; i < 9; i++) FRAME[i] = FRAME2[i];
+    }
+  }
+  scheduleReproject();                 /* k changed: the LOD level may have too */
+  if (t >= 1) { fly = null; lastMoveT = now; alignPrev = now; }
+}
+/* at the pole "up" has no direction on screen and the canonical frame is an
+   arbitrary choice of longitude, so aligning there would spin the map - the same
+   guard stepAlign uses, in one place so the two can never disagree */
+function flyAtPole() {
+  var c = C.frameCentre(FRAME, FCEN);
+  return Math.abs(c[1]) > ALIGN_POLE;
+}
+
+/* the gentle tilt back to north-up (see the NORTH-UP comment above) */
+function stepAlign(now) {
+  if (!northUp || fly || inertia.on || drag || touch) { alignPrev = now; return; }
+  if (!C.CUR || C.CUR.pseudocyl) { alignPrev = now; return; }
+  var dt = (alignPrev && now > alignPrev) ? Math.min(0.1, (now - alignPrev) / 1000) : 0.016;
+  alignPrev = now;
+  if (now - lastMoveT < ALIGN_DELAY * 1000) return;
+  /* at the pole "north" has no direction on screen and the canonical frame there
+     is an arbitrary choice of longitude: aligning would spin the map, which is the
+     very bug the frame-carrying view was introduced to fix. Leave it be. */
+  if (flyAtPole()) return;
+  var roll = C.frameRoll(FRAME);
+  if (!isFinite(roll) || Math.abs(roll) < ALIGN_EPS) return;
+  var d = -roll * Math.min(1, dt / ALIGN_TAU);
+  var cap = ALIGN_MAX_RATE * dt;
+  if (d > cap) d = cap; else if (d < -cap) d = -cap;
+  C.rollFrame(FRAME, d, FRAME2);
+  for (var i = 0; i < 9; i++) FRAME[i] = FRAME2[i];
+  scheduleReproject();
+}
+
 var keys = {};
 window.addEventListener('keydown', function (e) {
   keys[e.key] = true;
   stopInertia();
-  if (e.key === 'Enter') { picked = (mode === '3d') ? gHover : hover; if (mode === '3d') gPicked = gHover; refreshUI(); }
+  if (e.key === 'Enter') {
+    if (hoverPlace >= 0) { pickedPlace = hoverPlace; picked = -1; refreshUI(); return; }
+    picked = hover; pickedPlace = -1; refreshUI();
+  }
   if (e.key === 'r' || e.key === 'R') {
-    if (mode === '3d') { globe.lon = 0; globe.lat = 0; globe.dist = 3.05; }
-    else { setCenterFresh(0, 0); fitView(worldBounds()); }
+    setCenterFresh(0, 0); fitView(worldBounds());
     refreshUI();
   }
-  if (e.key === 'm' || e.key === 'M') { setMode(mode === '3d' ? '2d' : '3d'); closeMenu(); }
-  if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; gPicked = -1; highlight3D(); refreshUI(); } }
+  if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; pickedPlace = -1; hoverPlace = -1; refreshUI(); } }
+  if (e.key === 'c' || e.key === 'C') toggleCities();
   if (e.key === 't' || e.key === 'T') toggleLayer();
 });
 window.addEventListener('keyup', function (e) { keys[e.key] = false; });
@@ -1744,10 +1741,7 @@ function keyStep() {
   if (keys.a || keys.A) zf *= 1.07;
   if (keys.d || keys.D) zf /= 1.07;
   if (dx || dy) pan(dx, dy);
-  if (zf !== 1) {
-    if (mode === '3d') zoomGlobe(zf);
-    else zoomBy(zf);
-  }
+  if (zf !== 1) zoomBy(zf);
 }
 
 /* ---------- touch ----------
@@ -1801,7 +1795,7 @@ function touchHandler(e, start) {
   }
   if (touch.d) {
     var f = d / touch.d;
-    if (mode === '3d') zoomGlobe(f); else zoomBy(f);
+    zoomBy(f);
     pan(mx - touch.x, my - touch.y);
     touch.d = d; touch.x = mx; touch.y = my;
   }
@@ -1828,14 +1822,14 @@ function touchEnd(e) {
       var isDouble = (now - lastTap.t < TAP_MS) &&
                      Math.hypot(x - lastTap.x, y - lastTap.y) < TAP_DIST;
       if (isDouble) {
+        /* THE SAME gesture as a double click. It used to be a bare 1.7x zoom plus a
+           recentre, so a touch screen got a different, worse answer to the same
+           question ("show me that country") than a mouse did - no flight, no
+           fitted zoom, and it threw away the selection. */
         lastTap.t = 0;
-        if (mode === '3d') { zoomGlobe(1.7); }
-        else {
-          var g = geoAt(x, y);
-          if (g) setCenter(g[0], g[1]);
-          zoomBy(1.7);
-        }
-        picked = -1; hover = -1;
+        doPick(x, y);
+        setHover(x, y);
+        gestureGo(x, y);
         refreshUI();
       } else {
         lastTap.t = now; lastTap.x = x; lastTap.y = y;
@@ -1886,6 +1880,8 @@ function loop(now) {
   canvasRect = canvas.getBoundingClientRect();
   stepFps(now);
   stepInertia(now);
+  stepFly(now);
+  stepAlign(now);
   keyStep();
   draw();
   requestAnimationFrame(loop);
@@ -1895,5 +1891,38 @@ window.addEventListener('resize', function () {
   helpEl.textContent = helpText();      /* the hint has a narrow-screen variant */
   hudShown = null;                      /* the HUD wraps differently now */
 });
+
+/* Read-only introspection: the two animations above are timed, and a test that can
+   only see the canvas cannot tell "the tilt finished" from "the tilt never ran".
+   Nothing here writes to the view. */
+window.ViewState = {
+  rollDeg: function () { return C.frameRoll(FRAME) * 180 / Math.PI; },
+  centre: function () { return [view.lon, view.lat]; },
+  k: function () { return view.k; },
+  fitK: function () { return fitK; },
+  geoAt: function (px, py) { return geoAt(px, py); },
+  /* a geographic point -> a screen pixel, for tests that must aim at a place */
+  project: function (lon, lat) {
+    var o = [0, 0];
+    if (!C.projectRotLLVis(lon, lat, FRAME, C.CUR, o)) return null;
+    return [o[0] * view.k + (W * 0.5 - view.cx * view.k),
+            (H * 0.5 + view.cy * view.k) - o[1] * view.k];
+  },
+  pickedFeat: function () { return picked; },
+  pickedPlace: function () { return pickedPlace; },
+  pickAt: function (px, py) { return pickAt(px, py); },
+  pickPlaceAt: function (px, py) { return pickPlaceAt(px, py); },
+  /* the screen box of a feature as it is drawn NOW: what "the target fits" means */
+  screenBox: function (i) {
+    var f = feats[i];
+    if (!f) return null;
+    var b = f.bbox;
+    return [sx(b[0]), sy(b[3]), sx(b[2]), sy(b[1])];
+  },
+  viewSize: function () { return [W, H]; },
+  flying: function () { return !!fly; },
+  northUp: function () { return northUp; },
+  tilted: function () { return Math.abs(C.frameRoll(FRAME)) > 1e-9; }
+};
 
 })();

@@ -13,6 +13,7 @@ loaded at startup and **50m sovereignty is the default**:
 | **`data/so50.geojson`** (default) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
 | `data/countries.geojson` (alternative) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
 | `data/ne10m.geojson` (lazy) | `ne_10m_admin_0_map_units` v5.1.1 | 298 | 552,828 raw |
+| `data/places.json` (overlay) | `ne_10m_populated_places` v5.1.2 | 7,342 points | — |
 
 Open it at **http://localhost:8123/** (server: `python3 -m http.server 8123 --directory .`
 from the repository root — the page fetches `data/*.geojson`, so serving `data/`
@@ -27,21 +28,23 @@ Three folders, one job each: the code a player loads at the root, the data in
 `data/`, the node scripts in `tests/`.
 
 ```
-index.html  style.css  core.js  app.js  three.bundle.cjs   <- the app
-data/   so50.geojson  countries.geojson  ne10m.geojson    <- the layers
+index.html  style.css  core.js  app.js                   <- the app
+data/   so50.geojson  countries.geojson  ne10m.geojson  places.json
 tests/  test_core.js  gesture_test.js  pole_test.js  ...   <- node only
+tools/  shp2geojson_places.py                              <- data prep, no runtime
 ```
 
 | file | role |
 |---|---|
-| `index.html` | canvas + three overlay divs (panel, hud, help) |
+| `index.html` | the map canvas + the overlay divs (panel, hud, help, menu) |
 | `style.css` | fullscreen layout, panel styling, touch/mobile tweaks |
 | `core.js` | projection registry + geometry + re-centring, pure functions (unit-tested by `tests/test_core.js`) |
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
-| `three.bundle.cjs` | three.js, vendored for the 3D globe |
 | `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
+| `data/places.json` | Natural Earth **10m populated places**: 7,342 cities as a point table, 0.59 MB |
+| `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json`) |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
@@ -53,16 +56,15 @@ var DATA_DIR = 'data/';
 ```
 
 Move the data or rename that folder — one string, no other path in the app
-hardcodes a `.geojson` name. The server test suite reads the same files from
+hardcodes a layer name. The server test suite reads the same files from
 `tests/../data/`.
 
 ### Deploying
 
-Upload the five app files at the root and `data/` beside them; `tests/`, the
-README and the licence are never fetched, so leave them out if the host serves
-only the game. `index.html` needs `style.css`, `three.bundle.cjs`, `core.js` and
-`app.js` next to it; the layers must keep the `data/` prefix, or `DATA_DIR` must
-be changed to match.
+Upload the four app files at the root and `data/` beside them; `tests/`, `tools/`,
+the README and the licence are never fetched, so leave them out if the host serves
+only the game. `index.html` needs `style.css`, `core.js` and `app.js` next to it;
+the layers must keep the `data/` prefix, or `DATA_DIR` must be changed to match.
 
 ## Projection
 
@@ -207,39 +209,236 @@ in the three pseudocylindrical ones, `moveCentre` returns the canonical frame to
 **0**, and the rotated frame's equator draws horizontal and its meridian vertical
 (undistorted).
 
+## Cities
+
+`data/places.json` is Natural Earth's **10m populated places** (v5.1.2, 7,342
+points), drawn as an overlay on top of the countries: a dot per place, a label for
+the ones worth naming, and a panel with country, admin-1 region, population,
+coordinates and time zone when you click one. `c` or the burger's **Overlay** row
+turns the layer on and off; `?cities=0` starts with it off.
+
+It is a **point table, not GeoJSON**:
+
+```json
+{ "fields": ["n","c","r","p","z","l","f","tz","lon","lat"], "places": [["Paris", …]] }
+```
+
+A GeoJSON Feature costs ~110 bytes of boilerplate ("type", "geometry",
+"coordinates", "properties") before any value, so 7,342 points come out at 1.35 MB
+instead of 0.59 MB — and there is no geometry in a point table to justify it. The
+field names are declared once, in the file, and the app reads them through that
+list rather than by position, so the converter can reorder or add a column without
+silently shifting every value into the wrong slot.
+
+**Which places are drawn** is Natural Earth's own `MIN_ZOOM`, verbatim plus 0.35 of
+slack so a place appears on the step before and zooming feels continuous: 26
+places at the fitted world view (z 2), 743 at z 5, all 7,342 at z 9. `LABELRANK`
+decides who gets a *name* when several dots compete (rank 0 = Paris, Tokyo): no
+label above rank 3 below z 4.5, none above rank 6 below z 6, and the hovered or
+picked city is always labelled whatever its rank. City labels are placed against
+the **same collision boxes** as the country labels, so a city never lands on a
+country name; country names go first.
+
+**Why the dots need the visibility test.** On a cone-clipped projection the hidden
+cap projects *onto* the visible disc, so a city on the far side of the world lands
+on a perfectly plausible screen position — a dot in the middle of the ocean. Every
+point therefore goes through `projectRotLLVis` (`core.js`), which does the rotation
+and the `X' >= clipCos` test in **one pass**: one rotation and one `fwd()` per point
+instead of two, which matters because the layer is tested every frame. The whole
+7,342-point pass costs **0.36 ms**; the drawn dot count is in the HUD (`· 42
+cities`). On a seam projection (Eckert IV, equirect, cylindrical) nothing is
+hidden and all 7,342 are candidates.
+
+Dots are drawn two `Path2D`s — one for capitals, one for everything else — and
+filled/stroked once each, so a deep zoom is two fills rather than 7,000 state
+changes.
+
+`tools/shp2geojson_places.py` rebuilds the table from the shapefile:
+
+    curl -O https://naciscdn.org/naturalearth/10m/cultural/ne_10m_populated_places.zip
+    unzip ne_10m_populated_places.zip && python3 tools/shp2geojson_places.py \
+        ne_10m_populated_places.shp data/places.json
+
+## Labels: three voices
+
+An atlas distinguishes its label kinds and this one does too, because the reader has
+to tell a country from a capital from an ordinary city without reading the name —
+and colour alone fails for a colour-blind reader, or for a name over pale land. All
+three are drawn through one table, `LABEL_STYLE`:
+
+| kind | case | weight / size | colour | marker |
+|---|---|---|---|---|
+| **country** | UPPERCASE, letter-spaced | 600 / 10.5 px | muted `rgba(226,238,248,.72)`, thin halo | — |
+| **capital** (`A0`, `A0R`) | Title Case | **700 / 12 px** | white `.98` | dot **plus a white ring** |
+| **city** | Title Case | 400 / 11 px | white `.96` | plain dot |
+| **the selected country's capital** | Title Case | 800 / 12.5 px, tracked | accent `#8ed0ff` | — |
+
+The capital used to be **gold**, which was the wrong voice: gold read as a
+warning/accent colour competing with the selection highlight, and a map with a
+dozen capitals on screen turned into confetti. A capital is now emphasis by
+**weight** — how an atlas does it — and the accent colour has exactly **one**
+meaning: the thing you selected. So the capital of the selected country is drawn in
+`#8ed0ff`, and so is the city you clicked.
+
+Tracking is real for the country labels (`ctx.letterSpacing` is not available
+everywhere, so `drawTracked()` places each character and the collision box is
+measured **with** the tracking — a box that ignores it lets labels overlap by a few
+px per letter). The two city voices have no tracking: a couple of tenths of a px per
+letter buys nothing that weight and size do not already say, and it would cost one
+`fillText` + one `strokeText` per *character* — a deep zoom shows ~60 city names,
+i.e. ~1 000 canvas calls a frame instead of ~150 (measured).
+
+A capital's dot is also ringed, not merely bigger: two identical dots of different
+size read as "same thing, further away", which is the wrong message. And a **ringed
+capital is never left nameless** while the space for its name is free — measured at
+z 4, three of nine capitals were ringed and silent because a country name happened to
+sit above them. Two fixes: capitals are exempt from the `LABELRANK` cut that prunes
+ordinary towns at a coarse zoom (they are still subject to the collision test, so a
+crowded corner drops what does not fit), and a city label that collides above its dot
+tries once **below** it before giving up. City labels are placed after country labels
+against the same boxes, so a city never lands on a country name.
+
+## Glass
+
+Every floating surface — HUD, help line, info panel, menu sheet, scrim — is the same
+material, defined once as CSS custom properties (`--glass-tint`, `--glass-blur`,
+`--glass-border`, `--glass-shadow`) so the pieces cannot drift apart: they used to
+have four slightly different alphas, which read as "unstyled" next to each other.
+A translucent dark tint, a real `backdrop-filter` that frosts whatever is under it, a
+hairline light border and a soft shadow.
+
+Two decisions worth knowing:
+
+* the tint stays at **.55–.72 alpha**, not .25: `backdrop-filter` is still missing on
+  some builds, and where it is the tint alone has to keep pale text legible over pale
+  land.
+* the blur radius stays at **14 px**. A larger radius on a full-screen surface costs a
+  lot of fill rate on a phone GPU for a difference nobody can see over a map.
+
+## Two idle animations
+
+### North up
+
+A cone projection's frame is a **rotation matrix**, and a drag that is not a pure
+great-circle move leaves it rolled about the view axis — the picture is TURNED, so
+north is no longer up and the map reads as tilted. That roll is measurable exactly
+(`core.frameRoll`: the angle between the frame's up row and the up row of the
+canonical frame of the same centre, signed by the frame's own east row) and
+removable exactly (`core.rollFrame`: mix rows 1 and 2, leave row 0 — the centre —
+untouched). So the app tilts the picture back, and the centre and the zoom never
+move.
+
+It is deliberately timid: it waits **0.14 s of stillness** (it must not fight the
+gesture that made the roll — a map that untwists under your finger feels like it is
+slipping away), it is an **exponential settle** (τ = 0.35 s) with a **rate cap of
+0.8 rad/s ≈ 46°/s** so a 120° roll takes ~3 s and a 5° one under a second. Measured
+rolls: a diagonal drag leaves 1–10°, a straight drag across a pole **154°**. It is
+off at |lat| > 89.4° (at the pole "up" has no direction and the canonical frame is an
+arbitrary choice of longitude, so aligning would spin the map — the very bug the
+matrix-carrying frame was introduced to fix), and off for the pseudocylindrical
+projections (there the frame's axes ARE the map's up and right, so
+a roll is not cosmetic). `?north=0`, or the burger's **Overlay → North up** row
+turns it off.
+
+### Fly-to on double click / double tap
+
+One gesture, two triggers: a **double click** on a desktop and a **double tap** on a
+touch screen run the same handler (`gestureGo`). They used to be two different rules
+— the click flew, the tap did a bare 1.7× zoom plus a recentre — so a phone got a
+different, worse answer to the same question and threw away the selection. The old
+double-tap behaviour is gone.
+
+**Where it lands.** The destination zoom is *computed from the target's own bounding
+box*, not a fixed factor: `core.featureExtent` rotates the country's lon/lat ring into
+the frame centred on the destination and projects it (skipping the hidden cap on a
+cone projection, and placing the two halves contiguously on a seam projection so a
+country straddling the antimeridian does not report a box the width of the world).
+`k` is then the one that fits that box to the viewport with 6 % of margin per side.
+Measured: z 3 → **4.7 for Italy** (box uses 88 % of the screen), and a fixed 2× would
+have left France at a quarter of the screen and Vatican City as a dot.
+
+Two refinements that matter in practice:
+
+* **it re-centres on the box, not on the click.** Centring on the click leaves the
+  country off-centre by however far the click was from its middle; the box centre is
+  turned back into lon/lat (frame inverse) and measured again. Rotating the frame
+  changes the *shape* of an axis-aligned box, so this is iterated — measured for
+  Germany: 0.054 plane units off after one pass, 3e-4 after two, 0 after three. Three
+  passes at click time, a few ms, for a country that is actually centred.
+* **a city beats the country under it**, exactly as it does for picking. A city has no
+  box, so its destination is a fixed street-level zoom (z 7) — but **never a zoom
+  out**, so double-clicking a city while already closer in does not pull back. Open
+  ocean (no feature at all) keeps the old behaviour: zoom in 2× about the point.
+
+Then the animation itself: one 950 ms timeline with three **overlapping** phases (a
+strict sequence reads as three separate jerks):
+
+```
+0.00–0.34   k falls to 45 % of the closer of the two zooms   (dezoom)
+0.16–0.86   the centre travels the great circle to the click  (translate)
+0.62–1.00   k rises to the destination zoom                  (zoom)
+```
+
+**The tilt travels with the flight.** The north-up animation deliberately stands down
+while a flight is running (a slow drift under a moving camera reads as the horizon
+sagging), which used to mean the journey ended with the zoom settling and *then* the
+picture sliding upright — two movements where the user asked for one. The flight now
+untwists on its own clock and is guaranteed north-up on the last frame. Two things had
+to be true for that:
+
+* the destination zoom is computed **in the frame the flight will arrive in**, not the
+  one it starts from (a rolled frame measures a different axis-aligned box: Russia
+  fitted to 88 % of the viewport from a rolled start and arrived at 55 %);
+* `moveCentre` on a cone projection is parallel transport, which keeps the roll it
+  starts with — and that drifts relative to the canonical frame as the path bends, so
+  transporting from a north-up start does **not** land north-up. The measurement frame
+  is therefore straightened after every move.
+
+The centre path is a **slerp of the two unit vectors**, not an interpolation of
+lon/lat: a linear interpolation near a pole looks like the world skidding sideways,
+and it would not follow the shortest route. The zoom is the *sum* of two smoothstep
+ramps, so k is continuous at every phase boundary. Any new gesture — mousedown,
+wheel, a second double click — cancels the flight: an animation that keeps running
+under the user's finger is a bug, not a feature. `window.ViewState` exposes
+`rollDeg()`, `centre()`, `k()`, `flying()` so the tests can assert on the animations
+rather than on pixels.
+
 ## Interaction
 
 * **mouse** — wheel = zoom, drag = move the centre of projection (the world turns
   under the pointer, both axes), shift+wheel / horizontal trackpad = move the
-  centre, double-click = go there + zoom, move = hover, click = pick
+  centre, double-click = fly there at the zoom that fits it (see below), move =
+  hover, click = pick
 * **keyboard** — arrows = move the centre, `a`/`d` = zoom, `t` = switch layer,
-  `Enter` = pick hovered country, `Esc` = clear, `r` = reset to whole world
-* **touch** — 1 finger drag = move the centre, 2 fingers = pinch zoom; a tap picks
+  `c` = cities on/off, `Enter` = pick the hovered city or country, `Esc` = clear,
+  `r` = reset to whole world
+* **touch** — 1 finger drag = move the centre, 2 fingers = pinch zoom, a tap picks,
+  a double tap flies to the place (the same flight as a double click, and the same
+  fitted destination zoom)
 * **URL params** (debugging): `?z=6` zoom level (z 2 = fitted world),
   `&lon=178&lat=-18` centre of projection, `?layer=110m|10m` layer,
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Eight node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Eleven node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All eight exit 0: the five asserting ones end in
-`ALL PASS`, `harness.js` ends with its expected headless `no three.js` line, and
-`polarchk.js` / `visible_check.js <proj>` print per-centre tables to read.
+directory does not matter). All eleven exit 0: the nine asserting ones end in
+`ALL PASS` (`harness.js` only prints and asserts nothing), and `polarchk.js` /
+`visible_check.js <proj>` print per-centre tables to read.
 
 | script | what it checks |
 |---|---|
 | `test_core.js` | 46 unit checks on `core.js`: projection maths, inverse round trip, equal-area, picking, LOD, orthographic back-face audit |
-| `gesture_test.js` | 20 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim |
+| `gesture_test.js` | 57 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim, the **north-up tilt** (a diagonal drag rolls the frame, the tilt waits for the gesture to end, settles to 0, does not move the centre, obeys its toggle) and the **fly-to** (pulls back before it comes in, is cancelled by a press, **arrives already north-up** (the tilt travels with the flight), lands the target's box centred and filling 75-90 % of the viewport for France/Vatican/Russia, and a **double tap reaches the same place at the same zoom as a double click**) |
 | `pole_test.js` | the centre of projection turns the frame by exactly the angle travelled, and the frame never drifts across a pole |
 | `pole_sim.js` | the same on the app's own chain (pan → `geoAt` → `moveCentre` → reproject), per re-centring projection |
 | `artifact_test.js` | no stray geometry after a wheel zoom between two reprojections, a drag and a layer switch |
 | `polarchk.js` | audit table: how far the drawn picture diverges from the true visible land, per centre (cone projections) |
 | `harness.js` | headless app run: draw, hover, pick, layer switch, HUD |
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
-
-`harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
-null (reading 'Scene')` in a headless run — that is expected, not a failure
-(there is no WebGL context in node).
+| `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
+| `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
+| `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
 
 The measurement probes quoted in this document (`recenter_cost.js`,
 `poletest2.js`, `rollpc2.js`, the `shp2geojson*.py` converters) are deliberately
@@ -248,7 +447,8 @@ recorded here instead.
 
 Colours as requested: blue ocean (vertical gradient), light grey countries,
 white on hover/pick. The panel shows name, localised names, type/sovereign,
-region, area, population, GDP, economy, ISO codes and geometry stats.
+region, area, **capital** (with its population, from the place layer), population, GDP,
+economy, ISO codes and geometry stats.
 
 Labels use the dataset's own `MIN_LABEL`/`MAX_LABEL` thresholds with screen-space
 collision detection, so big countries appear first. The 50m sovereignty layer parks
@@ -287,11 +487,11 @@ off the bottom of a phone screen. On a coarse pointer the rows become 44 px tall
 14 px type, the sheet scrolls internally with a dark thin scrollbar, and a scrim
 behind it closes it on any tap outside (phones have no Esc). One activation path for
 every input: `pointerdown` records where the press started and `click` acts — a press
-that travelled more than 12 px is a scroll, not a choice. The projection rows dim in
-3D rather than disappearing, so the sheet keeps its height.
+that travelled more than 12 px is a scroll, not a choice.
 
 **Touch gestures.** A tap picks; a drag of more than 8 px pans and flings; a second
-tap within 320 ms and 40 px zooms in on that point; two fingers pinch. Previously a
+tap within 320 ms and 40 px runs the **same fly-to as a double click**; two fingers
+pinch. Previously a
 single tap picked on *touchstart*, so starting a drag showed a pick panel for whatever
 was under the finger.
 
@@ -393,6 +593,25 @@ layer is picked (`layer` key cycles 50m → 110m → 10m, or the menu row, or
 `?layer=10m`). Measured: 148 ms parse + 213 ms build + 40 ms vectors, 564 320
 densified points, 10.6 MB of ladder indices.
 
+### The other 2D projections are archived
+
+`core.js` still carries the whole registry — Eckert IV, equirectangular, cylindrical
+equal-area, azimuthal equal-area — and every one of them still renders exactly what it
+did (`?proj=eckert4` works today). What changed is that the **menu no longer offers
+them**: with the perspective default the pseudocylindrical world maps are a
+curiosity rather than a way to play, and eleven rows in a sheet that a phone user
+opens on every session is a real cost.
+
+The switch is one flag in `app.js`, and it was written as a flag rather than a
+deletion precisely so the feature can come back:
+
+```js
+var ARCHIVED_PROJECTIONS = true;   // false brings the whole section back
+```
+
+Kept for a future feature — a "compare projections" screen, a printable world map, an
+about page.
+
 ## Projection registry (`core.js` → `PROJ`)
 
 A projection is one entry: `fwd(lam, phi, out)` in radians → plane, `inv(x, y)`
@@ -434,26 +653,14 @@ Adding a projection = one `PROJ` entry (the menu rows and `?proj=` read the tabl
 plus the round-trip test in `test_core.js` for its inverse.
 
 ## Burger menu
-Top-left `≡` picks the view: **Map (2D)**, **Globe**, or one of the projections
-above (the 2D map is re-projected on the fly, keeping the geographic centre). The
-**Globe** is the lit 3D sphere those same lon/lat rings wrap onto
-(the lit 3D sphere those same lon/lat rings wrap onto). Closed, the burger carries a
-tag naming the active view, so the current mode is readable at a glance; tapping it
-opens the column of choices, tapping a chip switches and closes. A chip is a pick,
-not a toggle — clicking the active one only re-opens. `m` still toggles directly.
-`?mode=2d|3d` forces the initial view. The menu sits outside `#stage` and owns the
-pointer events, so clicking it can never pan or hover the map underneath.
+Top-left `≡` opens a sheet grouped **Layer** and **Overlay** — three data layers and
+two toggles (Cities, North up). Closed, the burger carries a tag naming the active
+projection, so what you are looking at is readable at a glance; tapping a row
+applies it and closes the sheet. The menu sits outside `#stage` and owns the pointer
+events, so clicking it can never pan or hover the map underneath.
 
-## Globe geometry
-The lon/lat -> xyz frame is right-handed (`z = -cos(lat) sin(lon)`), which is what
-puts the camera-facing hemisphere in the usual orientation; `sphToVec`, `uv` and
-`placeCamera` must all agree or the globe mirrors.
-
-The ear clipper (`core.js triangulateRing`) is good on COVERAGE but bad on SHAPE:
-densification inserts nearly-collinear vertices, so 24-48 % of the triangles have
-a minimum angle under 2 degrees. `refineTri` (Lawson flips, vendored verbatim from
-earcut v3.2.4) legalizes the interior edges and drops that to 1.2-4.9 %, keeping
-the triangle count and the covered area identical. It mutates in place and returns
-nothing. Triangulations are cached per (ring, LOD level) in `ring.tris[]`, so a
-zoom that crosses an LOD threshold swaps cached meshes instead of re-clipping
-(measured: 2.9 s first build, 1 ms rebuild).
+There is no "View" group any more: **the globe view was removed on 2026-10-21**, with
+its vendored three.js bundle (`three.bundle.cjs`, 1.3 MB), the GL renderer, the
+ear-clipper / Lawson-refinement triangulation it needed, the globe LOD "sewing" pass
+and the `#ggl` canvas. The map is the app. The alternative 2D projections remain in
+`core.js` behind `ARCHIVED_PROJECTIONS`.

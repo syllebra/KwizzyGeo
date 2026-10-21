@@ -9,12 +9,15 @@
      6. the menu opens on the burger, closes on the scrim, and an item activates
    Run: node gesture_test.js (from the folder holding core.js) */
 const fs = require('fs');
-global.Path2D = function () { return { moveTo() {}, lineTo() {}, closePath() {} }; };
+/* arc() is needed now that the city layer draws its dots through a Path2D: without
+   it the fake path threw 'path.arc is not a function' and the whole app died on
+   the first frame, which is how this stub gap was found */
+global.Path2D = function () { return { moveTo() {}, lineTo() {}, closePath() {}, arc() {}, rect() {} }; };
 const L = {};
 function ctxStub() {
   return { setTransform() {}, createLinearGradient() { return { addColorStop() {} }; },
     fillRect() {}, fill() {}, stroke() {}, beginPath() {}, rect() {}, closePath() {},
-    moveTo() {}, lineTo() {}, fillText() {}, strokeText() {},
+    moveTo() {}, lineTo() {}, arc() {}, fillText() {}, strokeText() {},
     measureText(t) { return { width: String(t).length * 6.2 }; }, save() {}, restore() {}, clip() {} };
 }
 function el(extra) {
@@ -49,9 +52,9 @@ global.window = { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 1, locat
     createElement() { return el(); }, addEventListener() {} } };
 global.document = global.window.document;
 global.requestAnimationFrame = global.window.requestAnimationFrame;
-const files = { 'so50.geojson': __dirname + '/../data/so50.geojson', 'countries.geojson': __dirname + '/../data/countries.geojson', 'ne10m.geojson': __dirname + '/../data/ne10m.geojson' };
-/* keyed on the basename: the app fetches data/<name>.geojson */
-global.fetch = (u) => Promise.resolve({ json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '')] || files['countries.geojson'], 'utf8')) });
+const files = { 'so50.geojson': __dirname + '/../data/so50.geojson', 'countries.geojson': __dirname + '/../data/countries.geojson', 'ne10m.geojson': __dirname + '/../data/ne10m.geojson', 'places.json': __dirname + '/../data/places.json' };
+/* keyed on the basename: the app fetches data/<name> */
+global.fetch = (u) => Promise.resolve({ ok: true, json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '')] || files['countries.geojson'], 'utf8')) });
 
 new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8')).call();
 new Function(fs.readFileSync(__dirname + '/../app.js', 'utf8')).call();
@@ -186,14 +189,42 @@ setTimeout(function () {
   /* a row: pick a PROJECTION row (the 3D row needs WebGL, which the harness has
      no business providing) and check it both closes the sheet and takes effect */
   const rows = items.getElementsByClassName('menuitem');
-  check('menu has rows', rows.length >= 8, rows.length + ' rows');
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3);
-  const perspRow = rows.find(r => r.dataset.id === 'proj:persp');
+  /* 3 layers + 2 overlays. The Globe row is gone with the 3D view, and the
+     projection group is archived, so there is no "View" group left to have one
+     choice in. */
+  check('menu has rows', rows.length === 5, rows.length + ' rows');
+  /* View / Projection / Layer / Overlay: the groups are the sheet's structure, so
+     the count is asserted - a group that silently stops being rendered is a
+     section the user can no longer reach */
+  /* Layer / Overlay, and no View group: the globe view was removed and the
+     PROJECTION group is archived (ARCHIVED_PROJECTIONS in app.js). The registry
+     still works via ?proj=. */
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 2,
+        items.getElementsByClassName('mgroup').length + ' groups');
+  check('the projection rows are archived, not rendered',
+        !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
+  const perspRow = rows.find(r => r.dataset.id === 'layer:50m');
   L['menu:click']({ target: perspRow, clientX: 10, clientY: 10 });
   check('clicking a row closes the menu', !menu.classList.contains('open'));
   check('scrim hidden again', !scrim.classList.contains('on'));
-  check('the row took effect (projection switched)', /Perspective/.test(hud.textContent), hud.textContent.split('\n').pop());
+  check('the row took effect (layer switched)', /50m sovereignty/.test(hud.textContent), hud.textContent.split('\n').pop());
   check('the row is marked active', perspRow.classList.contains('on'));
+
+  /* the CITY overlay row: a toggle, and the HUD must say which state it is in */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  const cityRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities');
+  check('the cities row exists', !!cityRow);
+  check('the cities row starts on', cityRow.classList.contains('on'));
+  L['menu:click']({ target: cityRow, clientX: 10, clientY: 10 });
+  check('clicking the cities row turns the overlay off', !/ cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities'), clientX: 10, clientY: 10 });
+  check('clicking it again turns the overlay back on', / cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
+  /* the `c` key is the shortcut for the same toggle */
+  L['win:keydown']({ key: 'c', preventDefault() {} });
+  check('the c key toggles the overlay', !/ cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
+  L['win:keydown']({ key: 'c', preventDefault() {} });
+  check('and toggles it back', / cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
 
   /* reopen and close via the scrim */
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
@@ -206,6 +237,196 @@ setTimeout(function () {
   L['menu:pointerdown']({ clientX: 10, clientY: 10 });
   L['menu:click']({ target: layerRow, clientX: 10, clientY: 90 });
   check('a scrolled press does not activate a row', menu.classList.contains('open'));
+
+  /* ---------- 7. the north-up tilt ----------
+     A straight drag in SCREEN space is not a great circle, so parallel transport
+     leaves the frame turned about the view axis: that is the "tilted" picture this
+     animation corrects. */
+  const VS = global.window.ViewState;
+  check('the app exposes its view state', !!VS && typeof VS.rollDeg === 'function');
+  const tilt = { k0: VS.k() };
+  fire('mousedown', ev(300, 300));
+  let dxs = 300, dys = 300;
+  for (let i = 0; i < 10; i++) { fakeNow += 16; dxs += 16; dys += 24; fire('mousemove', ev(dxs, dys)); frame(fakeNow); }
+  const rolled = VS.rollDeg();
+  check('a diagonal drag tilts the picture', Math.abs(rolled) > 0.5, rolled.toFixed(3) + ' deg');
+  /* the tilt must NOT run under the finger: a map that untwists while you drag
+     feels like it is slipping out of your hand */
+  for (let i = 0; i < 30; i++) { fakeNow += 16; frame(fakeNow); }
+  check('the tilt does not fight a held drag', Math.abs(VS.rollDeg() - rolled) < 1e-9,
+        rolled.toFixed(3) + ' -> ' + VS.rollDeg().toFixed(3) + ' deg');
+  fire('mouseup', ev(dxs, dys));
+  /* the glide must finish first (it keeps panning), then the tilt settles */
+  for (let i = 0; i < 260; i++) { fakeNow += 16; frame(fakeNow); }
+  const settledRoll = VS.rollDeg(), settledCentre = VS.centre();
+  for (let i = 0; i < 260; i++) { fakeNow += 16; frame(fakeNow); }
+  check('the view tilts back to north-up', Math.abs(VS.rollDeg()) < 0.2,
+        settledRoll.toFixed(3) + ' -> ' + VS.rollDeg().toFixed(3) + ' deg');
+  check('the centre does not drift while tilting',
+        Math.abs(VS.centre()[0] - settledCentre[0]) < 1e-6 && Math.abs(VS.centre()[1] - settledCentre[1]) < 1e-6,
+        settledCentre.join(',') + ' -> ' + VS.centre().join(','));
+
+  /* the Overlay row turns it off, and then the roll is left alone */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'north'), clientX: 10, clientY: 10 });
+  check('the North up row is in the sheet', !VS.northUp());
+  fire('mousedown', ev(400, 400));
+  dxs = 400; dys = 400;
+  for (let i = 0; i < 10; i++) { fakeNow += 16; dxs += 14; dys += 22; fire('mousemove', ev(dxs, dys)); frame(fakeNow); }
+  fire('mouseup', ev(dxs, dys));
+  for (let i = 0; i < 400; i++) { fakeNow += 16; frame(fakeNow); }
+  check('with North up off the roll is kept', Math.abs(VS.rollDeg()) > 0.5, VS.rollDeg().toFixed(3) + ' deg');
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'north'), clientX: 10, clientY: 10 });
+  check('and it can be turned back on', VS.northUp());
+  const rollBeforeTilt = VS.rollDeg();
+  for (let i = 0; i < 400; i++) { fakeNow += 16; frame(fakeNow); }
+  check('and then the tilt runs again', Math.abs(VS.rollDeg()) < 0.2,
+        rollBeforeTilt.toFixed(1) + ' -> ' + VS.rollDeg().toFixed(3) + ' deg');
+
+  /* ---------- 8a. double TAP must do exactly what a double click does ----------
+     It used to be a bare 1.7x zoom: a touch screen got a different, worse answer to
+     the same question. So both are driven from the same state and their results are
+     compared - not just "a flight happened", but "the phone and the mouse land in
+     the same place at the same zoom". */
+  function resetView() { L['win:keydown']({ key: 'r', preventDefault() {} }); fakeNow += 16; frame(fakeNow); }
+  function settleFly() {
+    let n = 0;
+    while (VS.flying() && n < 300) { fakeNow += 16; frame(fakeNow); n++; }
+    /* the reprojection of the final centre is SCHEDULED, not applied: the app
+       coalesces it to the next animation frame, and feature bboxes (what the
+       screen-box assertions read) are computed by that pass. Two more frames, or
+       the test measures the box of the previous centre - which is what made
+       Russia look 55 % fitted when it was 88 %. */
+    for (let i = 0; i < 3; i++) { fakeNow += 16; frame(fakeNow); }
+    return n;
+  }
+  function touchEv(x, y, changed) {
+    const t = [{ clientX: x, clientY: y, identifier: 1 }];
+    return { preventDefault() {}, touches: changed ? [] : t, changedTouches: changed ? t : [] };
+  }
+  resetView();
+  fire('dblclick', ev(500, 300));
+  const mouseSteps = settleFly();
+  const mouseEnd = { c: VS.centre(), k: VS.k(), fi: VS.pickedFeat() };
+
+  resetView();
+  /* two taps 150 ms apart at the same spot (TAP_MS is 320) */
+  L['stage:touchstart'](touchEv(500, 300, false));
+  L['stage:touchend'](touchEv(500, 300, true));
+  fakeNow += 150;
+  const firstTapOnly = VS.flying();
+  L['stage:touchstart'](touchEv(500, 300, false));
+  L['stage:touchend'](touchEv(500, 300, true));
+  check('a double tap starts a flight', VS.flying(), 'flying=' + VS.flying());
+  check('a single tap does NOT (it only picks)', !firstTapOnly);
+  const tapSteps = settleFly();
+  const tapEnd = { c: VS.centre(), k: VS.k(), fi: VS.pickedFeat() };
+  check('the double tap lands where the double click did',
+        Math.abs(tapEnd.c[0] - mouseEnd.c[0]) < 0.01 && Math.abs(tapEnd.c[1] - mouseEnd.c[1]) < 0.01,
+        JSON.stringify(tapEnd.c.map(v => +v.toFixed(3))) + ' vs ' + JSON.stringify(mouseEnd.c.map(v => +v.toFixed(3))));
+  check('and at the same zoom', Math.abs(tapEnd.k / mouseEnd.k - 1) < 1e-6,
+        tapEnd.k.toFixed(1) + ' vs ' + mouseEnd.k.toFixed(1));
+  check('and selects the same country', tapEnd.fi === mouseEnd.fi, tapEnd.fi + ' vs ' + mouseEnd.fi);
+  /* the old behaviour: a bare 1.7x about the tapped point */
+  check('the old double-tap zoom (a flat 1.7x) is gone',
+        Math.abs(tapEnd.k / VS.fitK() - 1.7) > 0.3 || tapEnd.fi < 0,
+        (tapEnd.k / VS.fitK()).toFixed(2) + 'x of the fitted world view');
+  const tapBox = VS.screenBox(tapEnd.fi), [VW2, VH2] = VS.viewSize();
+  if (tapBox) {
+    check('the double tap also fits the target box',
+          tapBox[0] >= 0 && tapBox[1] >= 0 && tapBox[2] <= VW2 && tapBox[3] <= VH2 &&
+          Math.max((tapBox[2] - tapBox[0]) / VW2, (tapBox[3] - tapBox[1]) / VH2) > 0.75,
+          tapBox.map(v => v.toFixed(0)).join(','));
+  }
+
+  /* ---------- 8a-bis. the flight arrives NORTH-UP ----------
+     The tilt used to stand down during a flight and start afterwards, so the
+     journey ended with the zoom settling and then the picture sliding upright:
+     two movements where the user asked for one. */
+  resetView();
+  /* roll the frame with a diagonal drag, then fly somewhere */
+  fire('mousedown', ev(350, 350));
+  let rx = 350, ry = 350;
+  for (let i = 0; i < 9; i++) { fakeNow += 16; rx += 15; ry += 25; fire('mousemove', ev(rx, ry)); frame(fakeNow); }
+  fire('mouseup', ev(rx, ry));
+  for (let i = 0; i < 120; i++) { fakeNow += 16; frame(fakeNow); }   /* let the glide end */
+  const rollBeforeFly = VS.rollDeg();
+  const aim2 = VS.project(20, 45);
+  fire('dblclick', ev(Math.round(aim2[0]), Math.round(aim2[1])));
+  let rollAtArrival = null;
+  while (VS.flying()) { fakeNow += 16; frame(fakeNow); rollAtArrival = VS.rollDeg(); }
+  check('the flight starts from a rolled picture', Math.abs(rollBeforeFly) > 0.3,
+        rollBeforeFly.toFixed(2) + ' deg');
+  check('it arrives already north-up (no slide afterwards)',
+        Math.abs(VS.rollDeg()) < 0.4,
+        rollBeforeFly.toFixed(1) + ' -> ' + VS.rollDeg().toFixed(2) + ' deg at arrival');
+  /* and the tilt must not keep turning after arrival: the centre is settled */
+  const rollNow = VS.rollDeg();
+  for (let i = 0; i < 40; i++) { fakeNow += 16; frame(fakeNow); }
+  check('nothing slides upright after the arrival', Math.abs(VS.rollDeg() - rollNow) < 0.35,
+        rollNow.toFixed(2) + ' -> ' + VS.rollDeg().toFixed(2) + ' deg');
+
+  /* ---------- 8b. the fitted destination zoom ----------
+     A fixed factor was wrong at both ends: France filled a quarter of the screen and
+     Vatican City was a dot. The zoom must come from the target's own bounding box. */
+  /* city dots off for this loop: a dot near the aim point would win the pick (by
+     design) and the assertion is about the COUNTRY's box */
+  L['win:keydown']({ key: 'c', preventDefault() {} });
+  for (const [lonC, latC, name] of [[2.35, 48.5, 'France'], [12.45, 41.9, 'Vatican'], [40, 60, 'Russia']]) {
+    resetView();
+    /* aim at a pixel that is inside that country, by projecting its centre */
+    const px = VS.project(lonC, latC);
+    if (!px) { check(name + ': the aim point is on screen', false); continue; }
+    fire('dblclick', ev(Math.round(px[0]), Math.round(px[1])));
+    settleFly();
+    const fi2 = VS.pickedFeat();
+    const b2 = VS.screenBox(fi2);
+    if (!b2) { check('flew somewhere for ' + name, false); continue; }
+    const fits = b2[0] >= -1 && b2[1] >= -1 && b2[2] <= VW2 + 1 && b2[3] <= VH2 + 1;
+    const use = Math.max((b2[2] - b2[0]) / VW2, (b2[3] - b2[1]) / VH2);
+    check(name + ': fits the viewport at the fitted zoom', fits && use > 0.75 && use <= 0.9,
+          (use * 100).toFixed(0) + ' % used, box ' + b2.map(v => v.toFixed(0)).join(','));
+  }
+
+  /* ---------- 8. double click = dezoom, translate, zoom ---------- */
+  resetView();
+  const kBefore = VS.k();
+  const aim = VS.project(10.5, 51.0);              /* central Germany */
+  const target = VS.geoAt(Math.round(aim[0]), Math.round(aim[1]));
+  fire('dblclick', ev(Math.round(aim[0]), Math.round(aim[1])));
+  check('a double click starts a flight', VS.flying());
+  let kMinSeen = Infinity, steps = 0;
+  for (let i = 0; i < 200 && VS.flying(); i++) { fakeNow += 16; frame(fakeNow); steps++; kMinSeen = Math.min(kMinSeen, VS.k()); }
+  const kAfter = VS.k();
+  check('the flight ends on its own', !VS.flying(), steps + ' frames');
+  check('it pulls BACK first (dezoom)', kMinSeen < Math.min(kBefore, kAfter) * 0.75,
+        'min ' + kMinSeen.toFixed(0) + ' vs ' + kBefore.toFixed(0) + ' -> ' + kAfter.toFixed(0));
+  /* THE DESTINATION ZOOM IS FITTED TO THE TARGET'S BOX, not a fixed factor: the
+     country must end up inside the viewport AND use most of it (a fixed 2x left
+     France at a quarter of the screen and Vatican City as a dot). */
+  const fi = VS.pickedFeat();
+  check('the double click selected a country', fi >= 0, 'picked ' + fi);
+  const box = VS.screenBox(fi), [VW, VH] = VS.viewSize();
+  if (box) {
+    const inside = box[0] >= 0 && box[1] >= 0 && box[2] <= VW && box[3] <= VH;
+    check('the target is entirely on screen after the flight', inside,
+          box.map(v => v.toFixed(0)).join(',') + ' in ' + VW + 'x' + VH);
+    const bw = box[2] - box[0], bh = box[3] - box[1];
+    const fillFrac = Math.max(bw / VW, bh / VH);
+    check('the target fills the viewport, not a corner of it', fillFrac > 0.75 && fillFrac <= 0.9,
+          (fillFrac * 100).toFixed(0) + ' % of ' + VW + 'x' + VH);
+    check('and it is centred', Math.abs((box[0] + box[2]) / 2 - VW / 2) < 3 &&
+                               Math.abs((box[1] + box[3]) / 2 - VH / 2) < 3,
+          'centre ' + ((box[0] + box[2]) / 2).toFixed(0) + ',' + ((box[1] + box[3]) / 2).toFixed(0));
+  }
+  /* the gesture must win over the animation */
+  fire('dblclick', ev(480, 320));
+  check('a second double click re-aims the flight', VS.flying());
+  fire('mousedown', ev(480, 320));
+  check('a press cancels the flight', !VS.flying());
+  fire('mouseup', ev(480, 320));
+  for (let i = 0; i < 60; i++) { fakeNow += 16; frame(fakeNow); }
 
   console.log(fails === 0 ? '\nALL PASS' : '\n' + fails + ' FAILURE(S)');
   process.exit(fails ? 1 : 0);
