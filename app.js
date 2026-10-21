@@ -134,6 +134,9 @@ function menuGroups() {
   var groups = [];
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
+    /* the way back to the quiz once you have gone exploring: the start page is
+       otherwise only reachable by reloading the page */
+    { title: 'Game', items: [{ id: 'quiz', label: 'Play the quiz', ico: '\u25C8' }] },
     { title: 'Layer', items: layers },
     /* one chip per language, in a wrapping row: 18 rows of a full-width menu item
        would be 800 px of sheet on a phone for something most sessions never touch */
@@ -165,6 +168,7 @@ function menuLabel(m) {
     if (p) return p.label;
   }
   if (m.indexOf('layer:') === 0) return layerLabel(m.slice(6));
+  if (m === 'quiz') return 'Play the quiz';
   if (m === 'cities') return 'Cities';
   if (m === 'north') return 'North up';
   return m;
@@ -183,6 +187,7 @@ function itemLabel(it, el) {
     return p ? p.label : '?';
   }
   if (it.id.indexOf('layer:') === 0) return layerLabel(it.id.slice(6));
+  if (it.id === 'quiz') return 'Play the quiz';
   if (it.id === 'cities') return 'Cities';
   if (it.id === 'north') return 'North up';
   return it.label;
@@ -260,6 +265,7 @@ function menuClick(el) {
      should get out of the way as soon as it is made. */
   closeMenu();
   if (!id) return;
+  if (id === 'quiz') { if (window.Quizzy) window.Quizzy.open(); return; }
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
@@ -340,6 +346,13 @@ if (scrimEl) {
 
 function dbg() { return /[?&]dbg=1/.exec(urlSearch()) !== null; }
 var hover = -1, picked = -1;
+/* THE QUIZ OWNS THE MAP. While a quiz question is on screen the map is a picture of
+   the question: no country labels (they would spell out the answer), no city dots or
+   capital names (they would spell out a capital), no info panel, no hover, no
+   picking, and no keyboard shortcuts that change the layer (the quiz's items are
+   keyed to the layer that was pinned when the session started). Panning and zooming
+   stay live - looking at the neighbours is part of answering. */
+var quizOn = false;
 var mouse = { x: 0, y: 0, inside: false };
 var canvasRect = { left: 0, top: 0 };
 
@@ -385,7 +398,7 @@ var DATA_DIR = 'data/';
    simply stayed English - no error, just stale data). GitHub Pages also caches
    through its CDN, so this is not only a local-dev concern.
    BUMP THIS whenever a file in data/ changes. */
-var DATA_V = 2;
+var DATA_V = 3;
 function dataURL(name) { return DATA_DIR + name + '?v=' + DATA_V; }
 var LAYERS = [
   { id: '50m',  name: 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
@@ -1359,6 +1372,9 @@ function drawTracked(txt, cx, cy, track, fill, halo, lw) {
 }
 
 function drawLabels(z) {
+  /* during a quiz this also drops the CITY labels, which are drawn further down in
+     this same function: a capital's name next to its dot is the answer */
+  if (quizOn) return;
   ctx.textBaseline = 'middle';
   var placed = [], shown = 0;
   var stC = labelStyle('country');
@@ -1465,6 +1481,7 @@ function drawLabels(z) {
    both need them, and recomputing them there would double the cost. */
 var cityDots = [];
 function drawCities(z) {
+  if (quizOn) return;
   placeSeen = 0;
   cityDots.length = 0;
   if (!citiesOn || !places.length) return;
@@ -1554,6 +1571,7 @@ function pickAt(px, py) {
   return best;
 }
 function setHover(px, py) {
+  if (quizOn) return;
   /* a city beats the country under it: its dot is a 2-3 px target on purpose, so
      reaching the country is a matter of moving a few pixels off the dot */
   var hp = pickPlaceAt(px, py);
@@ -1565,6 +1583,7 @@ function setHover(px, py) {
   if (h !== hover || hoverPlace !== -1) { hover = h; hoverPlace = -1; refreshUI(); }
 }
 function doPick(px, py) {
+  if (quizOn) return;
   var hp = pickPlaceAt(px, py);
   if (hp >= 0) { pickedPlace = hp; picked = -1; hoverPlace = hp; hover = -1; refreshUI(); return; }
   pickedPlace = -1;
@@ -1631,6 +1650,7 @@ function showPlacePanel(i) {
 }
 
 function refreshUI() {
+  if (quizOn) { panel.classList.remove('show'); hudShown = null; return; }
   var pi = (pickedPlace >= 0) ? pickedPlace : hoverPlace;
   if (pi >= 0 && places[pi]) { showPlacePanel(pi); return; }
   var idx = picked >= 0 ? picked : hover;
@@ -2012,22 +2032,30 @@ function fitKForExtent(e, pad) {
   return clampK(Math.min(kx, ky));
 }
 var CITY_ZOOM = 7;               /* z of a "stand in this city" view */
-function flyTarget(x, y) {
-  var g = geoAt(x, y);
-  if (!g) return null;
-  /* A CITY wins over the country under it, exactly as it does for picking: a dot
-     is a deliberate 2-3 px target, and flying to the whole country when the user
-     aimed at a city would answer a different question. A city has no bbox of its
-     own, so its "fit" is a fixed street-level zoom - but never a zoom OUT, so
-     double-clicking a city while already closer in does not pull back. */
-  var hp = pickPlaceAt(x, y);
-  if (hp >= 0 && places[hp]) {
-    var P = places[hp];
-    return { lon: P.lon, lat: P.lat, k: clampK(Math.max(view.k, fitK * Math.pow(2, CITY_ZOOM - 2))),
-             fit: false, place: hp };
+
+/* THE FITTED DESTINATION OF ONE FEATURE, as {lon, lat, k} - the whole computation
+   flyTarget used to do inline, lifted out so the QUIZ can aim at a country it knows
+   by index instead of by the pixel under the mouse.
+
+   fi    the feature in `feats`
+   g0    the geographic point to start from (the click, or the country's own LABEL
+         point - the anchor Natural Earth uses for it on a map)
+   pad   fraction of the viewport kept free on each side (FLY_PAD by default)
+   fobj  what to measure: the feature itself, or a SUBSET of its rings (the quiz
+         passes the country's core rings, so France is fitted to metropolitan France
+         and not to a box spanning the Atlantic and the Indian Ocean)
+
+   The four comments below (arrive north-up, refine the centre, measure once more at
+   the centre being returned) are the traps this cost: all four are load-bearing. */
+function fitTargetForFeature(fi, g0, pad, fobj) {
+  var f = fobj || feats[fi];
+  if (!f) return null;
+  var g = g0;
+  if (!g) {
+    var pr = f.props || {};
+    g = [pr.LABEL_X != null ? pr.LABEL_X : view.lon, pr.LABEL_Y != null ? pr.LABEL_Y : view.lat];
   }
-  var fi = pickAt(x, y);
-  if (fi < 0 || !feats[fi]) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
+  if (pad == null) pad = FLY_PAD;
   var proj = C.CUR;
   /* MEASURE IN THE FRAME THE FLIGHT WILL ARRIVE IN, not the one it starts from.
      The flight now untwists as it travels, so it lands north-up; a destination
@@ -2041,7 +2069,7 @@ function flyTarget(x, y) {
   if (isFinite(rollNow) && Math.abs(rollNow) > 1e-9) C.rollFrame(FRAME, -rollNow, mUp);
   else for (var q0 = 0; q0 < 9; q0++) mUp[q0] = FRAME[q0];
   var m1 = C.moveCentre(mUp, g[0], g[1], proj, new Float64Array(9));
-  var e1 = C.featureExtent(feats[fi], m1, proj);
+  var e1 = C.featureExtent(f, m1, proj);
   if (!e1) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
   /* the box centre, back to lon/lat. unproject() answers the ROTATED lon/lat (and
      null outside a cone projection's disc), so the frame inverse turns it into a
@@ -2072,7 +2100,7 @@ function flyTarget(x, y) {
   var e2 = null;
   for (var it = 0; it < 3; it++) {
     var mIt = upright(C.moveCentre(mUp, gc[0], gc[1], proj, new Float64Array(9)));
-    e2 = C.featureExtent(feats[fi], mIt, proj);
+    e2 = C.featureExtent(f, mIt, proj);
     if (!e2) break;
     var nx = (e2[0] + e2[2]) / 2, ny = (e2[1] + e2[3]) / 2;
     if (Math.abs(nx) < 1e-5 && Math.abs(ny) < 1e-5) break;
@@ -2088,10 +2116,32 @@ function flyTarget(x, y) {
      not a smooth function of the centre near a pole: a 2.6 deg move took Russia's
      box from 0.71 x 1.07 to 1.09 x 0.67 plane units, so a stale measurement is not
      "close enough".) */
-  var eFin = C.featureExtent(feats[fi], upright(C.moveCentre(mUp, gc[0], gc[1], proj,
+  var eFin = C.featureExtent(f, upright(C.moveCentre(mUp, gc[0], gc[1], proj,
                 new Float64Array(9))), proj) || e2;
   if (!eFin) return { lon: gc[0], lat: gc[1], k: clampK(view.k * 2), fit: false };
-  return { lon: gc[0], lat: gc[1], k: fitKForExtent(eFin, FLY_PAD), fit: true, fi: fi };
+  /* `e` is the box the zoom was computed from, in plane units at that centre: the
+     only way to check the fit from outside is to multiply it by the k returned. */
+  return { lon: gc[0], lat: gc[1], k: fitKForExtent(eFin, pad), fit: true, fi: fi, e: eFin };
+}
+
+function flyTarget(x, y) {
+  var g = geoAt(x, y);
+  if (!g) return null;
+  /* A CITY wins over the country under it, exactly as it does for picking: a dot
+     is a deliberate 2-3 px target, and flying to the whole country when the user
+     aimed at a city would answer a different question. A city has no bbox of its
+     own, so its "fit" is a fixed street-level zoom - but never a zoom OUT, so
+     double-clicking a city while already closer in does not pull back. */
+  var hp = pickPlaceAt(x, y);
+  if (hp >= 0 && places[hp]) {
+    var P = places[hp];
+    return { lon: P.lon, lat: P.lat, k: clampK(Math.max(view.k, fitK * Math.pow(2, CITY_ZOOM - 2))),
+             fit: false, place: hp };
+  }
+  var fi = pickAt(x, y);
+  if (fi < 0 || !feats[fi]) return { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
+  var t = fitTargetForFeature(fi, g, FLY_PAD);
+  return t || { lon: g[0], lat: g[1], k: clampK(view.k * 2), fit: false };
 }
 
 /* ONE handler for "go there and show me that", whatever produced it: a double
@@ -2204,6 +2254,11 @@ var keys = {};
 window.addEventListener('keydown', function (e) {
   keys[e.key] = true;
   stopInertia();
+  /* ARROWS still pan and a/d still zoom during a quiz - looking around is part of
+     answering. What is off is everything that changes what the map MEANS: the layer
+     (the quiz's items are keyed to it), the cities (a capital's dot and its name are
+     the answer), the reset, and Enter/Escape (the quiz reads those itself). */
+  if (quizOn) return;
   if (e.key === 'Enter') {
     if (hoverPlace >= 0) { pickedPlace = hoverPlace; picked = -1; refreshUI(); return; }
     picked = hover; pickedPlace = -1; refreshUI();
@@ -2436,6 +2491,200 @@ window.ViewState = {
   flying: function () { return !!fly; },
   northUp: function () { return northUp; },
   tilted: function () { return Math.abs(C.frameRoll(FRAME)) > 1e-9; }
+};
+
+/* ---------- HOST API FOR THE QUIZ (quiz.js) ----------
+   The game needs five things from this file and no more: the country list in the
+   language in play, one country lit up and fitted to the viewport, a neutral world
+   view, the map handed over / handed back, and a layer that cannot move under it.
+   The questions themselves belong to quizcore.js. Everything below is read-mostly
+   glue, so the viewer keeps working exactly as before when no quiz is running. */
+var QUIZ_TYPES = { 'Sovereign country': 1, 'Sovereignty': 1, 'Country': 1, 'Breakaway': 1 };
+/* Breakaway is in the list for one feature - Georgia, which the 50m sovereignty
+   layer tags that way because of Abkhazia and South Ossetia. Its NAME_EN used to
+   read "Abkhazia" (a Natural Earth leftover in that unit: WIKIDATAID and ABBREV were
+   Abkhazia's too, while the geometry is the whole country, 40-46.7 E) - corrected in
+   data/so50.geojson, which also fixes the map's own label for it. Natural Earth's
+   other disputed units (Kosovo, W. Sahara, Somaliland, N. Cyprus, Siachen) are kept
+   out by the flag test below, which is the honest line: no flag, no question. */
+
+/* THE NAME ON THE ANSWER BUTTON is the country's English name, because that is what
+   the map labels say - with five exceptions where the English name is either a
+   mouthful or would sit next to another option that reads almost the same. It is a
+   display table, not data: nothing else in the app reads it. */
+var QUIZ_SHORT = {
+  'Federated States of Micronesia': 'Micronesia',
+  "People's Republic of China": 'China',
+  'Democratic Republic of the Congo': 'DR Congo',
+  'Republic of the Congo': 'Congo',
+  'United States of America': 'United States'
+};
+
+/* The countries a question may be about: a real country in the layer AND a flag the
+   vendored flag set knows. The flag test is what drops Somaliland, N. Cyprus,
+   Siachen and Antarctica - Natural Earth files some of them as "Sovereign country",
+   but with no flag they could never be offered in flag mode, and as an ANSWER they
+   would be unfair in the other two. (France, the UK, the USA, China, Australia,
+   Norway and Denmark carry ISO_A2 -99 in this layer; flagCodeOf resolves them
+   through NE_ISO2, so they stay.) */
+function buildQuizItems() {
+  var out = [], i;
+  for (i = 0; i < feats.length; i++) {
+    var f = feats[i], p = f.props || {};
+    if (!QUIZ_TYPES[p.TYPE]) continue;
+    var flag = flagCodeOf(p);
+    if (!flag) continue;
+    var nm = countryName(p);
+    if (LANG === 'en' && QUIZ_SHORT[nm]) nm = QUIZ_SHORT[nm];
+    if (!nm) continue;
+    var ci = capitalOf(i);
+    var CP = ci >= 0 ? places[ci] : null;
+    out.push({
+      id: (p.NE_ID != null) ? 'ne' + p.NE_ID : 'nm' + nm,
+      idx: i, name: nm, nameEn: countryNameEn(p),
+      cont: p.CONTINENT || '', sub: p.SUBREGION || '',
+      lat: p.LABEL_Y, lon: p.LABEL_X,
+      cap: CP ? cityName(ci) : '',
+      capLat: CP ? CP.lat : null, capLon: CP ? CP.lon : null,
+      flag: flag
+    });
+  }
+  return out;
+}
+
+/* WHICH PART OF A COUNTRY THE QUESTION SHOWS.
+   Measuring the whole feature is right for a country that is one landmass and wrong
+   for a sovereignty: France's rings include French Guiana, Réunion and Mayotte, so
+   the box spans the Atlantic and the Indian Ocean and the "fit" is the whole world
+   with four specks in it - the same trap Russia's 180 degrees of longitude sets.
+   So: keep the LARGEST ring (the mainland) and every ring whose centre lies within
+   QUIZ_CORE_DEG of the country's Natural Earth label point. Metropolitan France
+   keeps Corsica and drops the overseas departments; the USA keeps the lower 48 and
+   drops Alaska and Hawaii; Indonesia, the Philippines and Japan keep their islands
+   because they are close together. */
+var QUIZ_CORE_DEG = 28;
+var KM_PER_DEG = 111.32;
+function coreFeature(f) {
+  var p = f.props || {}, lon0 = p.LABEL_X, lat0 = p.LABEL_Y;
+  if (!f.rings || f.rings.length < 2 || lon0 == null || lat0 == null) return f;
+  var areas = [], centres = [], best = -1, bestA = 0, r, i;
+  for (r = 0; r < f.rings.length; r++) {
+    var ll = f.rings[r].ll;
+    if (!ll || ll.length < 6) { areas.push(0); centres.push(null); continue; }
+    var np = ll.length / 2, a = 0, mx = 0, my = 0;
+    for (i = 0; i < np; i++) {
+      var x = ll[i * 2], y = ll[i * 2 + 1];
+      var j = (i + 1) % np;
+      a += x * ll[j * 2 + 1] - ll[j * 2] * y;
+      mx += x; my += y;
+    }
+    a = Math.abs(a / 2);
+    areas.push(a);
+    centres.push([mx / np, my / np]);
+    if (a > bestA) { bestA = a; best = r; }
+  }
+  if (best < 0) return f;
+  var keep = [];
+  for (r = 0; r < f.rings.length; r++) {
+    if (r === best) { keep.push(f.rings[r]); continue; }
+    var c = centres[r];
+    if (!c) continue;
+    /* DEGREES, not kilometres: QUIZ_CORE_DEG * KM_PER_DEG is ~3100 km. (This
+       comparison was written against quizKm's output first, i.e. 28 KILOMETRES, and
+       it quietly threw away every part of every country except the mainland -
+       Corsica was dropped from France, the whole Indonesian archipelago from
+       Indonesia. The fit still looked plausible, which is why the probe below
+       counts the rings.) */
+    if (quizKm(lon0, lat0, c[0], c[1]) <= QUIZ_CORE_DEG * KM_PER_DEG) keep.push(f.rings[r]);
+  }
+  if (keep.length === f.rings.length) return f;
+  return { props: p, rings: keep };
+}
+function quizKm(lon0, lat0, lon1, lat1) {
+  var dLat = (lat1 - lat0) * C.DEG, dLon = (lon1 - lon0) * C.DEG;
+  var la0 = lat0 * C.DEG, la1 = lat1 * C.DEG;
+  var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(la0) * Math.cos(la1) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+/* how much of the viewport the country's box may fill: a fit at 6 % pad (the
+   double-click default) fills the screen with one shape, which kills the
+   neighbours' context - and on a quiz the neighbours ARE the clue. 15 % a side
+   leaves the country at 70 % of one axis and a ring of ocean and neighbours. */
+var QUIZ_FIT_PAD = 0.15;
+var quizSavedLayer = null;
+
+function quizIndexOf(key) {
+  for (var i = 0; i < feats.length; i++) {
+    var p = feats[i].props || {};
+    var k = (p.NE_ID != null) ? 'ne' + p.NE_ID : 'nm' + countryName(p);
+    if (k === key) return i;
+  }
+  return -1;
+}
+
+window.MapApp = {
+  ready: function () { return feats.length > 0; },
+  placesReady: function () { return places.length > 0; },
+  layer: function () { return layerName; },
+  quizOn: function () { return quizOn; },
+  items: function () { return buildQuizItems(); },
+  /* Hand the map to the quiz. The layer is pinned to 50m - 2.5 MB, loaded with the
+     first paint, 201 features - because the items the session holds are keyed to
+     Natural Earth's NE_ID but drawn by INDEX in `feats`, and the deferred 10m swap
+     would replace the whole array mid-question. */
+  enter: function () {
+    if (!feats.length || !loaded['50m']) return false;
+    if (quizSavedLayer === null) quizSavedLayer = layerName;
+    userPickedLayer = true;
+    deferLayer = null;
+    if (layerName !== '50m') setLayer('50m');
+    quizOn = true;
+    hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
+    refreshUI();
+    return true;
+  },
+  /* Hand it back: the same layer as before, the panel live again. */
+  exit: function () {
+    quizOn = false;
+    hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
+    var back = quizSavedLayer;
+    quizSavedLayer = null;
+    if (back && back !== layerName && loaded[back]) setLayer(back);
+    refreshUI();
+    return true;
+  },
+  /* Light one country up and fly to it. The flight is the double-click one, made
+     shorter: a quiz does not wait a second for its picture. */
+  show: function (key) {
+    var i = quizIndexOf(key);
+    if (i < 0) return false;
+    picked = i;
+    hover = -1; hoverPlace = -1; pickedPlace = -1;
+    var t = fitTargetForFeature(i, null, QUIZ_FIT_PAD, coreFeature(feats[i]));
+    if (t) { flyTo(t.lon, t.lat, t.k); if (fly) fly.dur = 520; }
+    return true;
+  },
+  /* the destination show() flies to, without flying: {lon, lat, k, e} */
+  fitTarget: function (key) {
+    var i = quizIndexOf(key);
+    if (i < 0) return null;
+    return fitTargetForFeature(i, null, QUIZ_FIT_PAD, coreFeature(feats[i]));
+  },
+  pickedFeature: function () { return picked; },
+  clear: function () { picked = -1; },
+  /* the neutral view a flag question sits on: the whole world, north-up, centred */
+  world: function () {
+    setCenterFresh(0, 0);
+    view.k = fitK;
+    fly = null;
+    picked = -1;
+  },
+  coreRings: function (key) {
+    var i = quizIndexOf(key);
+    if (i < 0) return 0;
+    return coreFeature(feats[i]).rings.length;
+  }
 };
 
 })();

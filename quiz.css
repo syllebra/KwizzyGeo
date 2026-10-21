@@ -1,0 +1,287 @@
+/* KwizzyGeo quiz: the three screens.
+   Same glass material as the rest of the app (the custom properties come from
+   style.css), one accent per meaning and nothing else:
+     blue  #8ed0ff  the selection / the primary action (as in the viewer)
+     green #46d18e  a right answer
+     red   #ff6f6f  the wrong one that was picked
+   The map stays the background of every screen, so the panels are built to leave
+   the middle of the screen free: prompt at the top, answers at the bottom, and no
+   full-width surface in between. */
+
+/* border-box everywhere in here: the card's width is `calc(100vw - 28px)` and its
+   padding is 15-22px a side, which as content-box overflowed a 390 px phone by 6 px
+   and gave the whole game a horizontal scrollbar */
+#quiz, #quiz * { box-sizing: border-box; }
+#quiz { position: fixed; inset: 0; z-index: 18; display: none; pointer-events: none; }
+#quiz.qz-on { display: block; }
+#quiz.qz-start, #quiz.qz-end { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* while a question is on screen the viewer's chrome is gone: the burger, the HUD
+   and the help line all sit where the quiz needs its own surfaces */
+body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: none; }
+
+/* ---------- the dimmed backdrop of the start and end screens ---------- */
+.qz-scrim {
+  position: absolute; inset: 0; pointer-events: auto;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(24, 46, 70, .55), rgba(5, 11, 19, .82) 70%),
+    rgba(5, 11, 19, .35);
+  -webkit-backdrop-filter: blur(7px) saturate(1.1);
+  backdrop-filter: blur(7px) saturate(1.1);
+}
+
+.qz-card {
+  position: relative; pointer-events: auto;
+  width: min(760px, calc(100vw - 28px));
+  margin: 56px auto 40px;
+  padding: 22px 22px 18px;
+  border-radius: 18px;
+  background: rgba(11, 20, 32, .78);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+  font: 13px/18px system-ui, sans-serif;
+}
+
+/* ---------- brand ---------- */
+.qz-brand h1 {
+  margin: 0 0 2px; font: 600 30px/34px system-ui, sans-serif;
+  letter-spacing: -.02em; color: #f2f8fd;
+}
+.qz-brand h1 span { color: #8ed0ff; }
+.qz-brand p { margin: 0 0 18px; color: var(--ink-dim); font-size: 13px; }
+
+/* ---------- section headings ---------- */
+.qz-h {
+  font: 9px/12px system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .11em; color: rgba(140, 162, 182, .8);
+  margin: 16px 2px 7px;
+}
+.qz-card .qz-h:first-child { margin-top: 0; }
+
+/* ---------- the three modes ---------- */
+.qz-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.qz-mode {
+  pointer-events: auto; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 11px 12px 12px; min-height: 76px;
+  border-radius: 12px; border: 1px solid rgba(180, 205, 225, .16);
+  background: rgba(38, 60, 84, .34); color: rgba(205, 222, 238, .82);
+  font: inherit; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s linear, border-color .12s linear;
+}
+.qz-mode .ico { font-size: 17px; line-height: 20px; color: rgba(150, 200, 240, .85); }
+.qz-mode .t { font: 600 14px/18px system-ui, sans-serif; color: #e9f2fa; }
+.qz-mode .s { font: 11px/14px system-ui, sans-serif; color: rgba(160, 182, 202, .9); }
+.qz-mode:hover { background: rgba(56, 88, 120, .5); }
+.qz-mode.on {
+  background: rgba(96, 150, 196, .4); border-color: rgba(190, 215, 235, .55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset, 0 0 0 1px rgba(140, 200, 255, .1);
+}
+.qz-mode.on .ico { color: #8ed0ff; }
+.qz-mode.wait { opacity: .65; }
+
+/* ---------- zone and difficulty chips (reusing .chip / .chip.on) ---------- */
+.qz-row { gap: 7px; }
+.qz-card .chip { pointer-events: auto; }
+
+.qz-note {
+  margin: 7px 2px 0; font: 11px/15px system-ui, sans-serif;
+  color: rgba(150, 172, 192, .85); min-height: 15px;
+}
+.qz-info:empty { display: none; }
+
+/* ---------- play ---------- */
+.qz-actions { display: flex; gap: 9px; margin-top: 18px; flex-wrap: wrap; }
+.qz-play, .qz-ghost, .qz-next {
+  pointer-events: auto; cursor: pointer;
+  font: 600 14px/18px system-ui, sans-serif; letter-spacing: .01em;
+  padding: 12px 22px; min-height: 46px; border-radius: 12px;
+  border: 1px solid rgba(190, 215, 235, .5);
+  background: rgba(96, 150, 196, .55); color: #f6fafd;
+  touch-action: manipulation;
+  transition: background .12s linear, opacity .12s linear;
+}
+.qz-play:hover { background: rgba(112, 170, 216, .7); }
+.qz-play:disabled { opacity: .45; cursor: default; }
+.qz-ghost {
+  background: rgba(38, 60, 84, .34); color: rgba(205, 222, 238, .9);
+  border-color: rgba(180, 205, 225, .18);
+}
+.qz-ghost:hover { background: rgba(56, 88, 120, .55); }
+
+.qz-foot {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid rgba(180, 205, 225, .12);
+  font: 11px/15px system-ui, sans-serif; color: rgba(150, 172, 192, .85);
+}
+.qz-link { pointer-events: auto; cursor: pointer; color: rgba(150, 210, 255, .95); text-decoration: none; }
+.qz-link:hover { text-decoration: underline; }
+
+/* ---------- the question screen ---------- */
+.qz-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  pointer-events: none;
+}
+.qz-x {
+  pointer-events: auto; cursor: pointer;
+  width: 38px; height: 38px; flex: 0 0 auto;
+  border-radius: 11px; border: 1px solid var(--glass-border);
+  background: var(--glass-tint-strong); color: rgba(225, 240, 252, .9);
+  font: 15px/36px system-ui, sans-serif; text-align: center;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+/* the progress and the score sit over the map, which at a country's zoom is light
+   grey land: a text shadow alone lost them completely (measured over Thailand), so
+   each gets a small glass pill of its own */
+.qz-mid {
+  flex: 0 1 auto; margin: 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 13px; border-radius: 11px;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  pointer-events: none;
+}
+.qz-prog {
+  text-align: center;
+  font: 11px/15px system-ui, sans-serif; letter-spacing: .08em;
+  text-transform: uppercase; color: rgba(222, 236, 248, .92);
+  white-space: nowrap;
+}
+.qz-score {
+  flex: 0 0 auto; text-align: center; white-space: nowrap;
+  font: 600 12px/15px system-ui, sans-serif; color: #8ed0ff;
+  padding-left: 9px; border-left: 1px solid rgba(180, 205, 225, .25);
+}
+
+.qz-ask {
+  position: absolute; top: 58px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 24px));
+  padding: 13px 18px 14px; border-radius: 15px; text-align: center;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  pointer-events: auto;
+}
+.qz-q { font: 600 19px/25px system-ui, sans-serif; color: #f4f9fd; letter-spacing: -.01em; }
+.qz-q b { color: #8ed0ff; font-weight: 600; }
+.qz-sub {
+  margin-top: 4px; font: 10px/14px system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .1em; color: rgba(150, 172, 192, .9);
+}
+
+/* the flag is the question: a card of its own, big enough to read the charges */
+.qz-flagwrap { margin-top: 10px; line-height: 0; }
+.qz-bigflag {
+  font-size: 104px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .3), 0 6px 18px rgba(0, 0, 0, .45);
+  background-color: rgba(255, 255, 255, .06);
+}
+
+/* ---------- answers ---------- */
+.qz-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none;
+}
+.qz-answers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.qz-ans {
+  pointer-events: auto; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  min-height: 52px; padding: 8px 12px;
+  border-radius: 12px; border: 1px solid var(--glass-border);
+  background: var(--glass-tint-strong); color: #eef6fd;
+  font: 500 14px/18px system-ui, sans-serif;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: background .1s linear, border-color .1s linear, opacity .15s linear;
+}
+.qz-ans .n {
+  flex: 0 0 auto; width: 18px; text-align: center;
+  font: 11px/18px ui-monospace, Menlo, monospace; color: rgba(140, 175, 205, .9);
+}
+.qz-ans .v { flex: 1 1 auto; }
+.qz-ans:hover { background: rgba(56, 88, 120, .62); }
+.qz-ans:active { background: rgba(80, 124, 164, .75); }
+.qz-ans.ok {
+  background: rgba(40, 150, 100, .72); border-color: rgba(120, 240, 190, .75);
+  color: #ffffff;
+}
+.qz-ans.bad {
+  background: rgba(160, 56, 56, .72); border-color: rgba(255, 150, 150, .7);
+  color: #ffffff;
+}
+.qz-ans.off { opacity: .45; }
+.qz-ans:disabled { cursor: default; }
+
+/* ---------- the verdict ---------- */
+.qz-reveal {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 13px; border-radius: 13px;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  animation: qz-in .16s ease-out;
+}
+@keyframes qz-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.qz-verdict { font: 600 13px/18px system-ui, sans-serif; }
+.qz-verdict.good { color: #46d18e; }
+.qz-verdict.bad { color: #ff8f8f; }
+.qz-facts { flex: 1 1 200px; font: 12px/17px system-ui, sans-serif; color: rgba(226, 238, 248, .92); }
+.qz-facts .fi { vertical-align: -3px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .25); }
+.qz-dim { color: rgba(160, 182, 202, .95); }
+.qz-next { padding: 9px 18px; min-height: 38px; font-size: 13px; border-radius: 10px; }
+
+/* ---------- the score screen ---------- */
+.qz-endcard { text-align: center; width: min(460px, calc(100vw - 28px)); }
+.qz-endh { font: 600 54px/60px system-ui, sans-serif; letter-spacing: -.03em; color: #f4f9fd; }
+.qz-endh span { font-size: 22px; color: rgba(160, 182, 202, .9); letter-spacing: 0; }
+.qz-dots { display: flex; gap: 5px; justify-content: center; margin: 12px 0 2px; flex-wrap: wrap; }
+.qz-dot { width: 11px; height: 11px; border-radius: 50%; display: block; }
+.qz-dot.good { background: #46d18e; }
+.qz-dot.bad { background: #ff6f6f; opacity: .8; }
+.qz-endmsg { margin-top: 10px; font: 15px/21px system-ui, sans-serif; color: #e8f1f9; }
+.qz-endcard .qz-actions { justify-content: center; }
+
+/* ---------- small screens ---------- */
+@media (max-width: 700px) {
+  /* the burger floats above this card (it is the language selector), so the card
+     starts below it rather than under it */
+  .qz-card { margin-top: 62px; padding: 18px 15px 15px; border-radius: 15px; }
+  .qz-brand h1 { font-size: 25px; line-height: 29px; }
+  .qz-brand p { margin-bottom: 12px; }
+  .qz-modes { grid-template-columns: 1fr; gap: 6px; }
+  .qz-mode { min-height: 0; flex-direction: row; align-items: baseline; gap: 8px; padding: 10px 12px; }
+  .qz-mode .ico { font-size: 15px; }
+  .qz-mode .s { display: none; }
+  .qz-h { margin-top: 13px; }
+  .qz-ask { top: 54px; padding: 11px 13px 12px; }
+  .qz-q { font-size: 16px; line-height: 21px; }
+  .qz-bigflag { font-size: 76px; }
+  .qz-ans { min-height: 46px; padding: 7px 10px; font-size: 13px; }
+  .qz-ans .n { display: none; }        /* no keyboard on a phone */
+  .qz-endh { font-size: 44px; line-height: 50px; }
+  .qz-foot { flex-direction: column; gap: 4px; }
+}
+@media (max-height: 560px) {
+  /* landscape phone: the flag card and the prompt must leave the answers visible */
+  .qz-ask { top: 50px; }
+  .qz-bigflag { font-size: 62px; }
+  .qz-q { font-size: 15px; line-height: 20px; }
+  .qz-ans { min-height: 40px; }
+}
+@media (pointer: coarse) {
+  .qz-ans { min-height: 50px; }
+  .chip { min-height: 36px; }
+}

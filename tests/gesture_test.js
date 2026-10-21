@@ -189,18 +189,19 @@ setTimeout(function () {
   /* a row: pick a PROJECTION row (the 3D row needs WebGL, which the harness has
      no business providing) and check it both closes the sheet and takes effect */
   const rows = items.getElementsByClassName('menuitem');
-  /* 3 layers + 2 overlays. The Globe row is gone with the 3D view, and the
-     projection group is archived, so there is no "View" group left to have one
-     choice in. */
-  check('menu has rows', rows.length === 5, rows.length + ' rows');
-  /* View / Projection / Layer / Overlay: the groups are the sheet's structure, so
+  /* 3 layers + 2 overlays + the quiz row. The Globe row is gone with the 3D view,
+     and the projection group is archived, so there is no "View" group left to have
+     one choice in. */
+  check('menu has rows', rows.length === 6, rows.length + ' rows');
+  /* Layer / Overlay / Language / Game: the groups are the sheet's structure, so
      the count is asserted - a group that silently stops being rendered is a
      section the user can no longer reach */
-  /* Layer / Overlay, and no View group: the globe view was removed and the
-     PROJECTION group is archived (ARCHIVED_PROJECTIONS in app.js). The registry
-     still works via ?proj=. */
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3,
-        items.getElementsByClassName('mgroup').length + ' groups (Layer, Overlay, Language)');
+  /* The quiz row exists because the start page is only otherwise reachable by
+     reloading: after "explore the map instead" it is the way back in. */
+  const quizRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'quiz'; })[0];
+  check('the quiz row is in the sheet', !!quizRow);
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
+        items.getElementsByClassName('mgroup').length + ' groups (Game, Layer, Overlay, Language)');
   check('the projection rows are archived, not rendered',
         !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
   const perspRow = rows.find(r => r.dataset.id === 'layer:50m');

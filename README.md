@@ -1,8 +1,11 @@
 # KwizzyGeo
 
-Geographical Quiz Game — the map half: a pure HTML/CSS/JS view of Natural Earth
-admin-0 country polygons, no libraries and no map tiles, drawn on one fullscreen
-`<canvas>` in the **Eckert IV** equal-area pseudocylindrical projection.
+Geographical Quiz Game — a quiz in which a country is lit up on the map and you
+name it, or you name its capital, or you name the owner of a flag. Always six
+answers. Ten questions a round. The map underneath is a pure HTML/CSS/JS view of
+Natural Earth admin-0 country polygons, no libraries and no map tiles, drawn on one
+fullscreen `<canvas>` with a re-centring projection (perspective by default, Eckert
+IV equal-area available).
 
 **Data: [Natural Earth](https://www.naturalearthdata.com/), public domain** — the
 50m sovereignty, 110m countries, 10m map units and 10m populated-places layers, at
@@ -41,10 +44,13 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 
 | file | role |
 |---|---|
-| `index.html` | the map canvas + the overlay divs (panel, hud, help, menu) |
+| `index.html` | the map canvas + the overlay divs (panel, hud, help, menu) + `#quiz` |
 | `style.css` | fullscreen layout, panel styling, touch/mobile tweaks |
+| `quiz.css` | the quiz's three screens (start / question / score) |
 | `core.js` | projection registry + geometry + re-centring, pure functions (unit-tested by `tests/test_core.js`) |
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
+| `quizcore.js` | **the game's rules**: modes, zones, difficulty, the six options — pure functions, no DOM (unit-tested by `tests/quizcore_test.js`) |
+| `quiz.js` | **the game's screens**: the three pages, the keyboard, and the hand-over of the map |
 | `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
@@ -71,10 +77,111 @@ hardcodes a layer name. The server test suite reads the same files from
 
 ### Deploying
 
-Upload the four app files at the root and `data/` beside them; `tests/`, `tools/`,
+Upload the six app files at the root and `data/` beside them; `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
-only the game. `index.html` needs `style.css`, `core.js` and `app.js` next to it;
-the layers must keep the `data/` prefix, or `DATA_DIR` must be changed to match.
+only the game. `index.html` needs `style.css`, `quiz.css`, `flags.css`, `core.js`,
+`app.js`, `quizcore.js` and `quiz.js` next to it; the layers must keep the `data/`
+prefix, or `DATA_DIR` must be changed to match.
+
+## The game
+
+`index.html` opens on the **start page**: three modes, seven zones, three
+difficulties, Play — and the map blurred behind it. The settings survive a reload
+(`localStorage`), the best score per mode + zone + difficulty with them.
+
+| mode | the question is | the six answers are |
+|---|---|---|
+| **Find the country** | one country lit up white on the map | country names |
+| **Find the capital** | the country is named (and lit up) | capital city names |
+| **Find the flag** | a flag, shown large, over the whole world | country names |
+
+**Always six options, always ten questions**, one answer per question, and a
+country is never asked twice in a round (the used-set resets when a pool runs out).
+
+### Zones
+
+World by default, or one continent: Africa, Asia, Europe, North America, South
+America, Oceania. A zone is Natural Earth's `CONTINENT` — except that the three
+countries it files under *"Seven seas (open ocean)"* (Seychelles, Mauritius,
+Maldives) fall back to their `SUBREGION`, so they are reachable at all. Antarctica
+belongs to no zone: it can turn up in World and nowhere else.
+
+### Difficulty is DISTANCE
+
+The wrong answers are picked by their **distance from the right one**, measured
+between the two places the options themselves name: the Natural Earth `LABEL` point
+of each country, or — in capital mode — the **capital's own coordinates**, because
+two capitals 200 km apart (Lomé, Cotonou) are what a player confuses, not two
+country centroids.
+
+| | band the five wrong answers come from |
+|---|---|
+| **Easy** | the farthest 35 % of the pool |
+| **Normal** | anywhere |
+| **Hard** | the nearest 12 % — the neighbours, the shapes and flags that actually get mixed up |
+
+`quizcore.js` sorts the pool by distance once per question and takes a slice of that
+order, so the band is a hard bound and not an average: an easy question can only
+offer far countries, a hard one only near ones. A narrow zone that cannot fill a
+band (Oceania at Hard) tops up from the rest, nearest first, so the question is still
+six options. Two options are never the same *answer*: same name, same capital name
+or the same flag is excluded, so no question has two right answers on it.
+
+### What the map is allowed to do during a quiz
+
+The map is borrowed, not owned (`window.MapApp` in `app.js`; `quiz.js` calls it):
+
+* `enter()` pins the layer to **50m** — the session's questions are keyed by Natural
+  Earth's `NE_ID` but drawn by index in `feats`, and the deferred 10m swap would
+  replace that array mid-question;
+* country labels, city dots, city names, the info panel, hover and picking are all
+  **off**: any of them can spell out the answer;
+* arrows / `a` / `d` still pan and zoom, so the neighbours can be inspected;
+* `show(id)` lights the country and flies to it with the double-click's own fitted
+  flight, at 520 ms instead of 950 and with a **15 % pad** instead of 6 % — a
+  country filling the whole screen has lost the neighbours that are the clue;
+* `exit()` gives the layer and every overlay back, and the burger's **Play the quiz**
+  row reopens the start page (the start page is otherwise only reachable by a reload).
+
+**Which part of a country is measured.** A sovereignty's own outline includes its
+overseas parts: France's rings run from metropolitan France to French Guiana,
+Réunion and Clipperton, so a fit to the whole feature would zoom out to the Pacific.
+`coreFeature()` keeps the **largest ring** plus every ring whose centre is within
+28° (~3,100 km) of the country's `LABEL` point — metropolitan France keeps Corsica
+and loses the DOM-TOMs, the USA keeps the lower 48 and loses Alaska and Hawaii,
+Indonesia and the Philippines keep their islands because they are close together.
+Kiribati (4,000 km of Pacific) and the Netherlands (Caribbean municipalities) end up
+fitted to a span rather than to their capital's island; that is the honest limit of
+a box fit and it is visible on screen.
+
+**The country list.** A question may be about a feature that is a `Sovereign
+country`, a `Sovereignty`, a `Country` or a `Breakaway` **and carries a flag**
+(`flagCodeOf`). 195 of the 201 features qualify; the six that do not are W. Sahara,
+Kosovo, Somaliland, N. Cyprus, Siachen and Antarctica — a line that is easy to
+defend: no flag, no question. The answer buttons use the English name, with five
+shortened where the English name is a mouthful or too close to another option
+(`People's Republic of China` → China, `Federated States of Micronesia` → Micronesia,
+the two Congos → DR Congo / Congo).
+
+### Fixing the data, not the code
+
+One feature in `data/so50.geojson` was wrong: the unit whose `NAME` is **Georgia**
+carried `NAME_EN: "Abkhazia"` (with Abkhazia's `WIKIDATAID` and `ABBREV`) on the
+geometry of the whole country, 40–46.7 E. The quiz showed it as "Abkhazia" and so
+would the map's own label. `NAME_EN` is now `Georgia` in that file, and `DATA_V` in
+`app.js` is **3** — bump it again whenever anything in `data/` changes, or the
+browser (and GitHub Pages' CDN) keeps serving the old file.
+
+### Testing the game
+
+| script | what it pins |
+|---|---|
+| `tests/quizcore_test.js` | 40 checks on a synthetic lattice: zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool |
+| `tests/quiz_test.js` | 79 checks headless over the **real data**: the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and flag modes, the keyboard, and the map handed back on quit |
+| `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
+
+Both new scripts run in node with a fake DOM, no browser and no network:
+`node tests/quiz_test.js`.
 
 ## Projection
 

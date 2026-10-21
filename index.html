@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0e141b">
-<title>Map viewer — Natural Earth admin-0</title>
+<title>KwizzyGeo — the geographical quiz</title>
 <link rel="stylesheet" href="flags.css?v=1">
 <link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="quiz.css?v=3">
 </head>
 <body>
 <div id="stage"><canvas id="map"></canvas></div>
@@ -19,7 +20,12 @@
 <div id="spot" class="spot"></div>
 <div id="hud" class="hud"></div>
 <div id="help" class="help"></div>
+<!-- the quiz's three screens (start / question / score) are rendered into this one
+     container by quiz.js: the markup lives there, in one place, next to the flow -->
+<div id="quiz"></div>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=76"></script>
+<script src="app.js?v=78"></script>
+<script src="quizcore.js?v=1"></script>
+<script src="quiz.js?v=2"></script>
 </body>
 </html>
