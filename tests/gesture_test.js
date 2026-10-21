@@ -9,7 +9,10 @@
      6. the menu opens on the burger, closes on the scrim, and an item activates
    Run: node gesture_test.js (from the folder holding core.js) */
 const fs = require('fs');
-global.Path2D = function () { return { moveTo() {}, lineTo() {}, closePath() {} }; };
+/* arc() is needed now that the city layer draws its dots through a Path2D: without
+   it the fake path threw 'path.arc is not a function' and the whole app died on
+   the first frame, which is how this stub gap was found */
+global.Path2D = function () { return { moveTo() {}, lineTo() {}, closePath() {}, arc() {}, rect() {} }; };
 const L = {};
 function ctxStub() {
   return { setTransform() {}, createLinearGradient() { return { addColorStop() {} }; },
@@ -49,9 +52,9 @@ global.window = { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 1, locat
     createElement() { return el(); }, addEventListener() {} } };
 global.document = global.window.document;
 global.requestAnimationFrame = global.window.requestAnimationFrame;
-const files = { 'so50.geojson': __dirname + '/../data/so50.geojson', 'countries.geojson': __dirname + '/../data/countries.geojson', 'ne10m.geojson': __dirname + '/../data/ne10m.geojson' };
-/* keyed on the basename: the app fetches data/<name>.geojson */
-global.fetch = (u) => Promise.resolve({ json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '')] || files['countries.geojson'], 'utf8')) });
+const files = { 'so50.geojson': __dirname + '/../data/so50.geojson', 'countries.geojson': __dirname + '/../data/countries.geojson', 'ne10m.geojson': __dirname + '/../data/ne10m.geojson', 'places.json': __dirname + '/../data/places.json' };
+/* keyed on the basename: the app fetches data/<name> */
+global.fetch = (u) => Promise.resolve({ ok: true, json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '')] || files['countries.geojson'], 'utf8')) });
 
 new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8')).call();
 new Function(fs.readFileSync(__dirname + '/../app.js', 'utf8')).call();
@@ -187,13 +190,33 @@ setTimeout(function () {
      no business providing) and check it both closes the sheet and takes effect */
   const rows = items.getElementsByClassName('menuitem');
   check('menu has rows', rows.length >= 8, rows.length + ' rows');
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3);
+  /* View / Projection / Layer / Overlay: the groups are the sheet's structure, so
+     the count is asserted - a group that silently stops being rendered is a
+     section the user can no longer reach */
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
+        items.getElementsByClassName('mgroup').length + ' groups');
   const perspRow = rows.find(r => r.dataset.id === 'proj:persp');
   L['menu:click']({ target: perspRow, clientX: 10, clientY: 10 });
   check('clicking a row closes the menu', !menu.classList.contains('open'));
   check('scrim hidden again', !scrim.classList.contains('on'));
   check('the row took effect (projection switched)', /Perspective/.test(hud.textContent), hud.textContent.split('\n').pop());
   check('the row is marked active', perspRow.classList.contains('on'));
+
+  /* the CITY overlay row: a toggle, and the HUD must say which state it is in */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  const cityRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities');
+  check('the cities row exists', !!cityRow);
+  check('the cities row starts on', cityRow.classList.contains('on'));
+  L['menu:click']({ target: cityRow, clientX: 10, clientY: 10 });
+  check('clicking the cities row turns the overlay off', !/ cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities'), clientX: 10, clientY: 10 });
+  check('clicking it again turns the overlay back on', / cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
+  /* the `c` key is the shortcut for the same toggle */
+  L['win:keydown']({ key: 'c', preventDefault() {} });
+  check('the c key toggles the overlay', !/ cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
+  L['win:keydown']({ key: 'c', preventDefault() {} });
+  check('and toggles it back', / cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
 
   /* reopen and close via the scrim */
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });

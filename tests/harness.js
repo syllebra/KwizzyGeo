@@ -1,6 +1,6 @@
 /* headless run of app.js: fake DOM + canvas recorder, then simulate pointer events */
 const fs = require('fs');
-global.Path2D = function () { return { moveTo: function(){}, lineTo: function(){}, closePath: function(){} }; };
+global.Path2D = function () { return { moveTo: function(){}, lineTo: function(){}, closePath: function(){}, arc: function(){}, rect: function(){} }; };
 
 const canvasCalls = { fill: 0, stroke: 0, fillText: 0, strokeText: 0, setTransform: 0 };
 const errors = [];
@@ -111,10 +111,12 @@ global.requestAnimationFrame = function (f) { return 1; };
 global.Promise = Promise;
 const DATA = __dirname + '/../data/';
 global.fetch = function (u) {
-  /* the app asks for data/<name>.geojson: match on the basename */
+  /* the app asks for data/<name>: match on the basename and serve THAT file, so a
+     stub can never quietly answer with the wrong layer */
   const name = String(u).replace(/^.*\//, '');
-  const p = (name === 'so50.geojson') ? DATA + 'so50.geojson' : DATA + 'countries.geojson';
-  return Promise.resolve({ json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
+  const known = { 'so50.geojson': 1, 'countries.geojson': 1, 'ne10m.geojson': 1, 'places.json': 1 };
+  const p = known[name] ? DATA + name : DATA + 'countries.geojson';
+  return Promise.resolve({ ok: true, json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
 };
 
 const coreSrc = fs.readFileSync(__dirname + '/../core.js', 'utf8');

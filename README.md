@@ -13,6 +13,7 @@ loaded at startup and **50m sovereignty is the default**:
 | **`data/so50.geojson`** (default) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
 | `data/countries.geojson` (alternative) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
 | `data/ne10m.geojson` (lazy) | `ne_10m_admin_0_map_units` v5.1.1 | 298 | 552,828 raw |
+| `data/places.json` (overlay) | `ne_10m_populated_places` v5.1.2 | 7,342 points | — |
 
 Open it at **http://localhost:8123/** (server: `python3 -m http.server 8123 --directory .`
 from the repository root — the page fetches `data/*.geojson`, so serving `data/`
@@ -28,8 +29,9 @@ Three folders, one job each: the code a player loads at the root, the data in
 
 ```
 index.html  style.css  core.js  app.js  three.bundle.cjs   <- the app
-data/   so50.geojson  countries.geojson  ne10m.geojson    <- the layers
+data/   so50.geojson  countries.geojson  ne10m.geojson  places.json
 tests/  test_core.js  gesture_test.js  pole_test.js  ...   <- node only
+tools/  shp2geojson_places.py                              <- data prep, no runtime
 ```
 
 | file | role |
@@ -42,6 +44,8 @@ tests/  test_core.js  gesture_test.js  pole_test.js  ...   <- node only
 | `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
+| `data/places.json` | Natural Earth **10m populated places**: 7,342 cities as a point table, 0.59 MB |
+| `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json`) |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
@@ -53,13 +57,13 @@ var DATA_DIR = 'data/';
 ```
 
 Move the data or rename that folder — one string, no other path in the app
-hardcodes a `.geojson` name. The server test suite reads the same files from
+hardcodes a layer name. The server test suite reads the same files from
 `tests/../data/`.
 
 ### Deploying
 
-Upload the five app files at the root and `data/` beside them; `tests/`, the
-README and the licence are never fetched, so leave them out if the host serves
+Upload the five app files at the root and `data/` beside them; `tests/`, `tools/`,
+the README and the licence are never fetched, so leave them out if the host serves
 only the game. `index.html` needs `style.css`, `three.bundle.cjs`, `core.js` and
 `app.js` next to it; the layers must keep the `data/` prefix, or `DATA_DIR` must
 be changed to match.
@@ -207,22 +211,73 @@ in the three pseudocylindrical ones, `moveCentre` returns the canonical frame to
 **0**, and the rotated frame's equator draws horizontal and its meridian vertical
 (undistorted).
 
+## Cities
+
+`data/places.json` is Natural Earth's **10m populated places** (v5.1.2, 7,342
+points), drawn as an overlay on top of the countries: a dot per place, a label for
+the ones worth naming, and a panel with country, admin-1 region, population,
+coordinates and time zone when you click one. `c` or the burger's **Overlay** row
+turns the layer on and off; `?cities=0` starts with it off.
+
+It is a **point table, not GeoJSON**:
+
+```json
+{ "fields": ["n","c","r","p","z","l","f","tz","lon","lat"], "places": [["Paris", …]] }
+```
+
+A GeoJSON Feature costs ~110 bytes of boilerplate ("type", "geometry",
+"coordinates", "properties") before any value, so 7,342 points come out at 1.35 MB
+instead of 0.59 MB — and there is no geometry in a point table to justify it. The
+field names are declared once, in the file, and the app reads them through that
+list rather than by position, so the converter can reorder or add a column without
+silently shifting every value into the wrong slot.
+
+**Which places are drawn** is Natural Earth's own `MIN_ZOOM`, verbatim plus 0.35 of
+slack so a place appears on the step before and zooming feels continuous: 26
+places at the fitted world view (z 2), 743 at z 5, all 7,342 at z 9. `LABELRANK`
+decides who gets a *name* when several dots compete (rank 0 = Paris, Tokyo): no
+label above rank 3 below z 4.5, none above rank 6 below z 6, and the hovered or
+picked city is always labelled whatever its rank. City labels are placed against
+the **same collision boxes** as the country labels, so a city never lands on a
+country name; country names go first.
+
+**Why the dots need the visibility test.** On a cone-clipped projection the hidden
+cap projects *onto* the visible disc, so a city on the far side of the world lands
+on a perfectly plausible screen position — a dot in the middle of the ocean. Every
+point therefore goes through `projectRotLLVis` (`core.js`), which does the rotation
+and the `X' >= clipCos` test in **one pass**: one rotation and one `fwd()` per point
+instead of two, which matters because the layer is tested every frame. The whole
+7,342-point pass costs **0.36 ms**; the drawn dot count is in the HUD (`· 42
+cities`). On a seam projection (Eckert IV, equirect, cylindrical) nothing is
+hidden and all 7,342 are candidates.
+
+Dots are drawn two `Path2D`s — one for capitals, one for everything else — and
+filled/stroked once each, so a deep zoom is two fills rather than 7,000 state
+changes. The layer is 2D only: the 3D globe draws no markers.
+
+`tools/shp2geojson_places.py` rebuilds the table from the shapefile:
+
+    curl -O https://naciscdn.org/naturalearth/10m/cultural/ne_10m_populated_places.zip
+    unzip ne_10m_populated_places.zip && python3 tools/shp2geojson_places.py \
+        ne_10m_populated_places.shp data/places.json
+
 ## Interaction
 
 * **mouse** — wheel = zoom, drag = move the centre of projection (the world turns
   under the pointer, both axes), shift+wheel / horizontal trackpad = move the
   centre, double-click = go there + zoom, move = hover, click = pick
 * **keyboard** — arrows = move the centre, `a`/`d` = zoom, `t` = switch layer,
-  `Enter` = pick hovered country, `Esc` = clear, `r` = reset to whole world
+  `c` = cities on/off, `Enter` = pick the hovered city or country, `Esc` = clear,
+  `r` = reset to whole world
 * **touch** — 1 finger drag = move the centre, 2 fingers = pinch zoom; a tap picks
 * **URL params** (debugging): `?z=6` zoom level (z 2 = fitted world),
   `&lon=178&lat=-18` centre of projection, `?layer=110m|10m` layer,
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Nine node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Ten node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All nine exit 0: the seven asserting ones end in
+directory does not matter). All ten exit 0: the eight asserting ones end in
 `ALL PASS`, `harness.js` ends with its expected headless `no three.js` line, and
 `polarchk.js` / `visible_check.js <proj>` print per-centre tables to read.
 
@@ -237,6 +292,7 @@ directory does not matter). All nine exit 0: the seven asserting ones end in
 | `harness.js` | headless app run: draw, hover, pick, layer switch, HUD |
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
+| `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
 
 `harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
 null (reading 'Scene')` in a headless run — that is expected, not a failure

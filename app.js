@@ -27,6 +27,12 @@ var feats = [], frame = null, grat = null, layout = [];
    and cx/cy are only its plane image (what sx/sy subtract), recomputed whenever
    the centre moves. k is screen px per plane unit. */
 var view = { cx: 0, cy: 0, k: 100, lon: 0, lat: 0 }, fitK = 100;
+/* THE CITY LAYER: data/places.json (Natural Earth 10m populated places, 7 342
+   points, see tools/shp2geojson_places.py). Drawn only in 2D - the 3D globe has
+   no marker shader and the points would need billboards - and switched on/off
+   with `c` or ?cities=0|1. */
+var places = [], citiesOn = true, placeSeen = 0;
+var hoverPlace = -1, pickedPlace = -1;
 /* THE FRAME IN PLAY: a rotation matrix, not just the centre's lon/lat.
    WHY (measured, viewer/poletest2.js): rebuilding the CANONICAL frame
    rotMat(lon,lat) at every centre move pins the in-plane roll to the EQUATOR, so
@@ -84,7 +90,11 @@ function menuGroups() {
     { title: 'View', items: [{ id: '2d', label: 'Map (2D)', ico: '\u25ad' },
                              { id: '3d', label: 'Globe', ico: '\u25ce' }] },
     { title: 'Projection', items: projs, needs2d: true },
-    { title: 'Layer', items: layers }
+    { title: 'Layer', items: layers },
+    /* an overlay, not a view: the row says whether it is on, and clicking it
+       toggles - a chip that is a pick (like the projection rows) would need a
+       second row for "off" */
+    { title: 'Overlay', items: [{ id: 'cities', label: 'Cities', ico: '\u25c9' }], needs2d: true }
   ];
 }
 var scrimEl = document.getElementById('scrim');
@@ -108,6 +118,7 @@ function menuLabel(m) {
     if (p) return p.label;
   }
   if (m.indexOf('layer:') === 0) return layerLabel(m.slice(6));
+  if (m === 'cities') return 'Cities';
   return m;
 }
 /* what the closed burger says: the projection in 2D (more informative than
@@ -125,6 +136,7 @@ function itemLabel(it, el) {
     return p ? p.label : '?';
   }
   if (it.id.indexOf('layer:') === 0) return layerLabel(it.id.slice(6));
+  if (it.id === 'cities') return 'Cities';
   return it.label;
 }
 function buildMenu() {
@@ -176,6 +188,7 @@ function menuClick(el) {
   if (!id) return;
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
+  if (id === 'cities') { toggleCities(); refreshMenu(); return; }
   setMode(id);
 }
 /* pick a layer by id (menu row, ?layer=, or the t key) */
@@ -280,7 +293,11 @@ var canvasRect = { left: 0, top: 0 };
 var COL = {
   ocean: '#1e4d75', oceanDeep: '#143456',
   land: '#c9c9c7', hover: '#edf0e9', pick: '#ffffff',
-  edge: 'rgba(22,36,50,.5)', graticule: 'rgba(210,228,240,.16)', frame: 'rgba(232,242,252,.5)'
+  edge: 'rgba(22,36,50,.5)', graticule: 'rgba(210,228,240,.16)', frame: 'rgba(232,242,252,.5)',
+  /* cities: a bright dot with a dark ring, so it reads over land (light grey) and
+     over ocean (mid blue) alike; the picked one takes the accent */
+  city: 'rgba(255,255,255,.95)', cityRing: 'rgba(14,26,38,.85)',
+  cityPick: '#ffd166', cityLabel: 'rgba(255,255,255,.96)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -346,6 +363,34 @@ function pickLayerID() {
   return layerName;
 }
 
+/* ---------- the city layer ---------- */
+/* data/places.json is a point TABLE, not GeoJSON: {fields:[...], places:[[...]]}.
+   Read through the field names declared in the file, so the converter can reorder
+   or add a column without silently shifting every value into the wrong slot. */
+function buildPlaces(json) {
+  var f = json.fields || [], ix = {}, i;
+  for (i = 0; i < f.length; i++) ix[f[i]] = i;
+  var rows = json.places || [], out = [];
+  for (i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    out.push({
+      n: r[ix.n], c: r[ix.c], r: r[ix.r],
+      p: r[ix.p], z: r[ix.z], l: r[ix.l], f: r[ix.f], tz: r[ix.tz],
+      lon: r[ix.lon], lat: r[ix.lat]
+    });
+  }
+  return out;
+}
+/* population, or nothing at all when Natural Earth says -99 (unknown) */
+function popText(p) { return (p > 0) ? fmtNum(p) : ''; }
+var PLACE_FCLASS = {
+  A0: 'Capital', A0R: 'Regional capital', A1: 'Admin-1 capital',
+  A1R: 'Admin-1 region capital', P: 'City', S: 'Scientific station',
+  M: 'Meteorological station', H: 'Historic place'
+};
+/* how big the dot is: capitals read as capitals at a glance */
+function placeRadius(f) { return f === 'A0' ? 3.4 : (f === 'A0R' || f === 'A1' || f === 'A1R') ? 2.6 : 2.0; }
+
 function noteRef(geo) {          /* 110m thresholds keyed by NAME and NAME_LONG */
   for (var i = 0; i < geo.features.length; i++) {
     var p = geo.features[i].properties;
@@ -404,6 +449,7 @@ function loadAll() {
     hud.textContent = hudText();
     helpEl.textContent = helpText();
     loop();
+    loadPlaces();
     /* now go and get the real layer, in the background */
     if (deferLayer) {
       var want = deferLayer;
@@ -414,6 +460,29 @@ function loadAll() {
       });
     }
   }).catch(function (e) { fail('load: ' + (e && e.stack ? e.stack : String(e))); });
+}
+
+/* The cities arrive on their own request, after the map is already interactive:
+   they are an overlay, and a slow or missing places.json must never hold up the
+   countries. A failure is reported in the HUD and the layer is simply off. */
+function loadPlaces() {
+  var v = /[?&]cities=(0|1)/.exec(urlSearch());
+  if (v) citiesOn = (v[1] === '1');
+  fetch(DATA_DIR + 'places.json').then(function (r) {
+    if (!r.ok) throw new Error('places.json ' + r.status);
+    return r.json();
+  }).then(function (json) {
+    places = buildPlaces(json);
+    refreshHud();
+  }).catch(function (e) {
+    places = []; citiesOn = false;
+    hud.textContent = hudText() + '\ncities: ' + (e && e.message ? e.message : 'unavailable');
+  });
+}
+function toggleCities() {
+  citiesOn = !citiesOn;
+  if (!citiesOn) { hoverPlace = -1; pickedPlace = -1; }
+  refreshUI();
 }
 
 function toggleLayer() {
@@ -575,6 +644,7 @@ function reproject() {
   lastMs = tEnd - t0;
   reprojSplit.rings = t1 - t0; reprojSplit.rest = tEnd - t1;
   hover = -1;
+  hoverPlace = -1;                 /* the points moved under the cursor too */
   /* the HUD carries the centre of projection, so it must be rewritten on every
      rebuild - otherwise a drag moves the world while the readout stays at the
      old centre (which is exactly how it looked before this line existed) */
@@ -719,7 +789,10 @@ function draw() {
     ctx.fillStyle = COL.pick; ctx.fill(feats[picked]._p);
     ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 1.6; ctx.stroke(feats[picked]._p);
   }
-  drawLabels(zoomLevel());
+  var zNow = zoomLevel();
+  /* cities sit ON the land, under the labels and under the frame edge */
+  drawCities(zNow);
+  drawLabels(zNow);
   ctx.strokeStyle = COL.frame; ctx.lineWidth = 1; ctx.stroke(framePath);
   refreshHud();
 }
@@ -758,7 +831,119 @@ function drawLabels(z) {
     ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillText(L.name, px, py);
     if (++shown > 80) break;
   }
+  /* ---- city labels, placed after the country names and against the same boxes,
+     so a city never lands on a country name. Order is what matters when they
+     compete: LABELRANK first (Natural Earth's own priority: 0 = Paris, Tokyo),
+     then population, then the capitals. */
+  if (citiesOn && cityDots.length) {
+    var cand = cityDots.slice(0);
+    cand.sort(function (a, b) {
+      var pa = places[a.i], pb = places[b.i];
+      if (pa.l !== pb.l) return pa.l - pb.l;
+      return (pb.p || 0) - (pa.p || 0);
+    });
+    /* the hovered or picked city is labelled whatever its rank: it is the one the
+       user is pointing at, and the panel is showing its numbers */
+    var cap = z < 4 ? 18 : (z < 6 ? 40 : 60);
+    var done = 0;
+    for (var c2 = 0; c2 < cand.length && done < cap; c2++) {
+      var D2 = cand[c2], PP = places[D2.i];
+      var forced = (D2.i === pickedPlace || D2.i === hoverPlace);
+      /* a coarse zoom is not the place for rank 7 towns: they would bury the
+         continent names */
+      if (!forced) {
+        if (z < 4.5 && PP.l > 3) continue;
+        if (z < 6 && PP.l > 6) continue;
+      }
+      var lx = D2.px, ly = D2.py - 8;
+      var w2 = ctx.measureText(PP.n).width + 8, h2 = 15;
+      var box2 = [lx - w2 / 2, ly - h2 / 2, lx + w2 / 2, ly + h2 / 2];
+      var ok2 = true;
+      for (var q2 = 0; q2 < placed.length && ok2; q2++) {
+        var b2 = placed[q2];
+        if (box2[0] < b2[2] && box2[2] > b2[0] && box2[1] < b2[3] && box2[3] > b2[1]) ok2 = false;
+      }
+      if (!ok2) continue;
+      placed.push(box2);
+      var picked2 = (D2.i === pickedPlace);
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(12,22,32,.8)';
+      ctx.strokeText(PP.n, lx, ly);
+      ctx.fillStyle = picked2 ? COL.cityPick : COL.cityLabel;
+      ctx.fillText(PP.n, lx, ly);
+      done++;
+    }
+  }
   ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+}
+
+/* ---------- cities ----------
+   Drawn from the point table, once per frame: 7 342 points, of which the zoom
+   filter keeps 26 at the fitted world view and all of them at z 9. Each one costs
+   one rotation + one fwd() (projectRotLLVis) and a screen-bounds test, so the
+   layer is ~0.2 ms at the world view and ~1 ms fully zoomed in - cheaper than the
+   graticule. Positions are collected here because the label pass and the picker
+   both need them, and recomputing them there would double the cost. */
+var cityDots = [];
+function drawCities(z) {
+  placeSeen = 0;
+  cityDots.length = 0;
+  if (!citiesOn || !places.length || mode === '3d') return;
+  var k = view.k, ox = W * 0.5 - view.cx * k, oy = H * 0.5 + view.cy * k;
+  var o = [0, 0];
+  var small = null, capital = null;
+  for (var i = 0; i < places.length; i++) {
+    var P = places[i];
+    /* Natural Earth's own MIN_ZOOM, verbatim: it is the zoom at which that place is
+       meant to appear. 0.35 of slack so a place shows on the step before, which is
+       what makes zooming feel continuous rather than pop-in. */
+    if (P.z > z + 0.35) continue;
+    if (!C.projectRotLLVis(P.lon, P.lat, FRAME, C.CUR, o)) continue;
+    var px = o[0] * k + ox, py = oy - o[1] * k;
+    if (px < -4 || py < -4 || px > W + 4 || py > H + 4) continue;
+    var r = placeRadius(P.f);
+    cityDots.push({ px: px, py: py, i: i, r: r });
+    var path = (r > 2.2) ? (capital || (capital = new Path2D())) : (small || (small = new Path2D()));
+    path.moveTo(px + r, py);
+    path.arc(px, py, r, 0, 6.283185307179586);
+    placeSeen++;
+  }
+  if (!placeSeen) return;
+  /* ONE fill and ONE stroke for the whole layer (a stroke per dot would be 7 000
+     state changes at a deep zoom) */
+  if (small) {
+    ctx.fillStyle = COL.city; ctx.fill(small);
+    ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(small);
+  }
+  if (capital) {
+    ctx.fillStyle = COL.city; ctx.fill(capital);
+    ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1; ctx.stroke(capital);
+    ctx.fillStyle = COL.city; ctx.fill(capital);      /* the stroke eats into the dot */
+  }
+  /* the hovered/picked city on top of the rest, so it is never hidden by a dot */
+  var sel = pickedPlace >= 0 ? pickedPlace : hoverPlace;
+  if (sel >= 0) {
+    for (var q = 0; q < cityDots.length; q++) {
+      if (cityDots[q].i !== sel) continue;
+      var d = cityDots[q], rr2 = d.r + 2;
+      ctx.beginPath(); ctx.arc(d.px, d.py, rr2, 0, 6.283185307179586);
+      ctx.fillStyle = COL.cityPick; ctx.fill();
+      ctx.strokeStyle = COL.cityRing; ctx.lineWidth = 1.5; ctx.stroke();
+      break;
+    }
+  }
+}
+/* nearest city to a screen point, within its own grab radius (a capital's dot is
+   bigger, so its grab radius is too). -1 when none: the country pick then runs. */
+function pickPlaceAt(px, py) {
+  var best = -1, bestD = Infinity;
+  for (var i = 0; i < cityDots.length; i++) {
+    var d = cityDots[i];
+    var dx = d.px - px, dy = d.py - py;
+    var dd = dx * dx + dy * dy;
+    var grab = d.r + 4;
+    if (dd <= grab * grab && dd < bestD) { bestD = dd; best = d.i; }
+  }
+  return best;
 }
 
 /* ---------- picking (same LOD traversal as drawing) ---------- */
@@ -778,11 +963,23 @@ function setHover(px, py) {
     if (h3 !== gHover) { gHover = h3; highlight3D(); refreshUI(); }
     return;
   }
+  /* a city beats the country under it: its dot is a 2-3 px target on purpose, so
+     reaching the country is a matter of moving a few pixels off the dot */
+  var hp = pickPlaceAt(px, py);
+  if (hp >= 0) {
+    if (hp !== hoverPlace || hover !== -1) { hoverPlace = hp; hover = -1; refreshUI(); }
+    return;
+  }
   var h = pickAt(px, py);
-  if (h !== hover) { hover = h; refreshUI(); }
+  if (h !== hover || hoverPlace !== -1) { hover = h; hoverPlace = -1; refreshUI(); }
 }
 function pickAtPoint(px, py) { return (mode === '3d') ? pick3D(px, py) : pickAt(px, py); }
 function doPick(px, py) {
+  if (mode !== '3d') {
+    var hp = pickPlaceAt(px, py);
+    if (hp >= 0) { pickedPlace = hp; picked = -1; hoverPlace = hp; hover = -1; refreshUI(); return; }
+    pickedPlace = -1;
+  }
   var h = pickAtPoint(px, py);
   if (mode === '3d') gPicked = h; else picked = h;
   highlight3D();
@@ -1384,7 +1581,8 @@ function refreshMenu() {
     var on = (id === '2d' && mode === '2d') ||
              (id === '3d' && mode === '3d') ||
              (mode === '2d' && id === 'proj:' + projID) ||
-             (id === 'layer:' + layerName);
+             (id === 'layer:' + layerName) ||
+             (id === 'cities' && citiesOn);
     if (on) el.classList.add('on'); else el.classList.remove('on');
   }
   /* the projection rows cannot apply in 3D: dim that section instead of hiding
@@ -1413,7 +1611,35 @@ function refreshGlobe() {
 }
 
 /* ---------- info panel ---------- */
+/* the city panel: the same .row markup as a country, so it inherits the styling.
+   Everything shown comes from the point table; nothing is invented. */
+function showPlacePanel(i) {
+  var P = places[i];
+  var rows = [
+    ['name', P.n],
+    ['country', P.c],
+    ['region', P.r],
+    ['type', PLACE_FCLASS[P.f] || P.f],
+    ['population', popText(P.p) ? fmtNum(P.p) + ' (pop. max)' : ''],
+    ['at', Math.abs(P.lat).toFixed(3) + '° ' + (P.lat >= 0 ? 'N' : 'S') + ', ' +
+           Math.abs(P.lon).toFixed(3) + '° ' + (P.lon >= 0 ? 'E' : 'W')],
+    ['time zone', P.tz || ''],
+    ['source', 'Natural Earth 10m populated places · rank ' + P.l + ' · shows from z ' + P.z]
+  ];
+  var s = '';
+  for (var k2 = 0; k2 < rows.length; k2++) {
+    var val = rows[k2][1];
+    if (!val || val === '') continue;
+    s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
+  }
+  panel.innerHTML = s;
+  panel.classList.add('show');
+  hud.textContent = hudText();
+}
+
 function refreshUI() {
+  var pi = (pickedPlace >= 0) ? pickedPlace : hoverPlace;
+  if (mode !== '3d' && pi >= 0 && places[pi]) { showPlacePanel(pi); return; }
   var idx = picked >= 0 ? picked : hover;
   var f = idx >= 0 ? feats[idx] : null;
   if (!f) {
@@ -1473,7 +1699,8 @@ function hudText() {
                 ' · segs ' + fmtNum(segs + gratSegs) +
                 ' (' + fmtNum(segs) + ' land + ' + fmtNum(gratSegs) + ' grid)' +
                 ' · ' + fmtNum(seenPieces) + ' pieces' +
-                (skippedPieces ? ' (+' + fmtNum(skippedPieces) + ' sub-pixel)' : '');
+                (skippedPieces ? ' (+' + fmtNum(skippedPieces) + ' sub-pixel)' : '') +
+                (citiesOn ? ' · ' + fmtNum(placeSeen) + ' cities' : '');
   if (!dbg()) return segLine + '\n' + main;
   return segLine + ' · reproject ' + lastMs.toFixed(1) + ' ms (rings ' + reprojSplit.rings.toFixed(1) +
          ' + ' + reprojSplit.rest.toFixed(1) + ') · path ' + drawMs.path.toFixed(1) +
@@ -1492,9 +1719,9 @@ function helpText() {
   /* two lengths: the full hint needs room the narrow layouts do not have, and it
      is the HUD (left) that must stay readable */
   if (W < 1150) {
-    return '\u2630 view \u00b7 wheel = zoom \u00b7 drag = move the centre \u00b7 dbl-click = go + zoom';
+    return '\u2630 view \u00b7 wheel = zoom \u00b7 drag = move the centre \u00b7 dbl-click = go + zoom \u00b7 c cities';
   }
-  return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre of projection \u00b7 dbl-click = go + zoom \u00b7 r reset';
+  return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre of projection \u00b7 dbl-click = go + zoom \u00b7 r reset \u00b7 c cities';
 }
 function fmtKm2(v) {
   if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + ' million km²';
@@ -1723,14 +1950,18 @@ var keys = {};
 window.addEventListener('keydown', function (e) {
   keys[e.key] = true;
   stopInertia();
-  if (e.key === 'Enter') { picked = (mode === '3d') ? gHover : hover; if (mode === '3d') gPicked = gHover; refreshUI(); }
+  if (e.key === 'Enter') {
+    if (mode !== '3d' && hoverPlace >= 0) { pickedPlace = hoverPlace; picked = -1; refreshUI(); return; }
+    picked = (mode === '3d') ? gHover : hover; if (mode === '3d') gPicked = gHover; pickedPlace = -1; refreshUI();
+  }
   if (e.key === 'r' || e.key === 'R') {
     if (mode === '3d') { globe.lon = 0; globe.lat = 0; globe.dist = 3.05; }
     else { setCenterFresh(0, 0); fitView(worldBounds()); }
     refreshUI();
   }
   if (e.key === 'm' || e.key === 'M') { setMode(mode === '3d' ? '2d' : '3d'); closeMenu(); }
-  if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; gPicked = -1; highlight3D(); refreshUI(); } }
+  if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; gPicked = -1; pickedPlace = -1; hoverPlace = -1; highlight3D(); refreshUI(); } }
+  if (e.key === 'c' || e.key === 'C') toggleCities();
   if (e.key === 't' || e.key === 'T') toggleLayer();
 });
 window.addEventListener('keyup', function (e) { keys[e.key] = false; });

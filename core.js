@@ -1986,6 +1986,31 @@ function projectRotLL(lonDeg, latDeg, m, proj, out) {
   return out;
 }
 
+/* projectRotLL + the visibility test of visibleAt, in ONE pass: one rotation and
+   one fwd() per point instead of two.
+   This is the hot path of the city layer (7 342 points, tested every frame), so it
+   also avoids the plain projectRotLL's trap: on a cone-clipped projection the
+   hidden cap maps ONTO the visible disc, so a point behind the world projects to a
+   perfectly plausible screen position. The X' >= clipCos test is what tells them
+   apart. Returns true when the point is drawn, and `out` holds the plane point
+   either way. */
+function projectRotLLVis(lonDeg, latDeg, m, proj, out) {
+  var phi = latDeg * DEG, lam = lonDeg * DEG;
+  var s = Math.sin(phi), c = Math.cos(phi);
+  var x = c * Math.cos(lam), y = s, z = -c * Math.sin(lam);
+  var X = m[0] * x + m[1] * y + m[2] * z,
+      Y = m[3] * x + m[4] * y + m[5] * z,
+      Z = m[6] * x + m[7] * y + m[8] * z;
+  /* EPS at the limb: a point EXACTLY on the rim (cos of the angular distance = 0,
+     e.g. the South Pole station seen from a centre on the equator) computes X as
+     -6e-17, i.e. a hair on the hidden side. It belongs to the drawn rim, not the
+     hidden cap, so the test is given the same 1e-12 slack the geometry has. */
+  var vis = !(proj.clip === 'cone' && X < (proj.clipCos || 0) - 1e-12);
+  if (proj.fwdVec && proj.clip === 'cone') proj.fwdVec(X, Y, Z, out);
+  else proj.fwd(Math.atan2(-Z, X), Math.asin(Math.max(-1, Math.min(1, Y))), out);
+  return vis;
+}
+
 /* Would a point at (lon,lat) be inside the drawn figure, seen from the frame
    centered at (lon0,lat0)? Needed for halo-free label placement: a horizon
    projection draws only x' >= 0, so a label anchored on the hidden hemisphere
@@ -2336,7 +2361,8 @@ var CORE = {
   levelForK: levelForK, prepareXYZ: prepareXYZ, visibleAt: visibleAt,
   clipLonF: clipLonF, CLIPB: CLIPB, CLIPA: CLIPA,
   pieceLevelIndex: pieceLevelIndex, hitTestPieces: hitTestPieces,
-  projectRotLL: projectRotLL, frameFor: frameFor, graticuleRot: graticuleRot,
+  projectRotLL: projectRotLL, projectRotLLVis: projectRotLLVis,
+  frameFor: frameFor, graticuleRot: graticuleRot,
   buildFeatures: buildFeatures, hitTest: hitTest,
   buildFeaturesLOD: buildFeaturesLOD, hitTestLOD: hitTestLOD,
   ringFlat: ringFlat, levelIndex: levelIndex, LOD_U: LOD_U, ensureLevel: ensureLevel,
