@@ -2252,6 +2252,17 @@ function graticuleRot(lon0, lat0, step, dlon, dlat, proj, k, m0) {
         t = target === 0 ? b : a;
         lo = rl[ia * 2] + (rl[ib * 2] - rl[ia * 2]) * t;
         la = rl[ia * 2 + 1] + (rl[ib * 2 + 1] - rl[ia * 2 + 1]) * t;
+      } else if (proj.clip === 'cone') {
+        /* NOT clamped to the lon window: for a horizon projection the frame edge is
+           the RIM, and lon' = +-180 is an ordinary meridian pointing away from the
+           viewer at plane x = 0. Clamping onto it therefore collapsed every sample
+           of a line that ran past the seam into the same two plane points and drew
+           the grid as a dashed line falling down the middle of the disc, with the
+           rest of that line missing (measured at centre 155.8, 11.5: 10 of 29 runs
+           under 40 px, 36 % of the total grid length lost). The unwrap leaves lon'
+           in an arbitrary 360-turn, and the projection is 360-periodic in it, so
+           bring it back into (-180, 180] by SUBTRACTION and keep the geometry. */
+        lo = lo - 360 * Math.round(lo / 360);
       } else {
         lo = Math.max(-180, Math.min(180, lo));
       }

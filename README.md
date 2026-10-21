@@ -220,9 +220,9 @@ in the three pseudocylindrical ones, `moveCentre` returns the canonical frame to
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Eight node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Nine node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All eight exit 0: the five asserting ones end in
+directory does not matter). All nine exit 0: the seven asserting ones end in
 `ALL PASS`, `harness.js` ends with its expected headless `no three.js` line, and
 `polarchk.js` / `visible_check.js <proj>` print per-centre tables to read.
 
@@ -236,6 +236,7 @@ directory does not matter). All eight exit 0: the five asserting ones end in
 | `polarchk.js` | audit table: how far the drawn picture diverges from the true visible land, per centre (cone projections) |
 | `harness.js` | headless app run: draw, hover, pick, layer switch, HUD |
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
+| `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 
 `harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
 null (reading 'Scene')` in a headless run — that is expected, not a failure
