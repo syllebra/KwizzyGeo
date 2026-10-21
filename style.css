@@ -1,0 +1,193 @@
+/* fullscreen stage; the 2D canvas, the WebGL canvas and the label overlay
+   stack inside it, all non-interactive so the stage div gets the events */
+html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background: #143456; }
+#stage { position: fixed; inset: 0; touch-action: none; cursor: crosshair; }
+#map { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+#ggl { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+#labels { position: fixed; inset: 0; display: block; pointer-events: none; }
+#stage, #map, #ggl { pointer-events: auto; }
+
+.hud {
+  position: fixed; left: 14px; bottom: 14px; pointer-events: none;
+  font: 11px/14px ui-monospace, Menlo, monospace; color: rgba(220,235,245,.88);
+  /* The text sits over the map, and on the 10m layer the land is light grey: pale
+     text on pale land was invisible. A soft dark plate (plus the shadow) keeps it
+     readable over ocean, land and glint alike; the plate is only as wide as the
+     text because the element is inline-block-ish (max-content via width:fit). */
+  width: -moz-fit-content; width: fit-content; max-width: calc(100vw - 28px);
+  padding: 5px 8px; border-radius: 7px;
+  background: rgba(6,12,20,.62);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  border: 1px solid rgba(150,180,205,.14);
+  text-shadow: 0 1px 2px rgba(0,0,0,.85);
+  white-space: pre;
+}
+.help {
+  /* max-width keeps this line clear of .hud. The HUD's first line is now long
+     (fps + segments), and at 1280 px it ran under this text, so the help line is
+     confined to the bottom-right corner and the HUD to the left of it. */
+  position: fixed; right: 14px; bottom: 14px; pointer-events: none;
+  /* hard bound: the HUD (left) and this line (right) must never meet. With the
+     HUD plate now sized to its text, 30vw here leaves a gap on any width where
+     both fit at all; below 1150 px the help line is shortened by the app. */
+  max-width: min(30vw, 420px);
+  font: 11px/14px system-ui, sans-serif; color: rgba(220,235,245,.72);
+  padding: 4px 7px; border-radius: 6px;
+  background: rgba(6,12,20,.5);
+  text-shadow: 0 1px 2px rgba(0,0,0,.8); text-align: right;
+}
+
+.panel {
+  position: fixed; right: 16px; top: 16px; width: 300px;
+  display: none; pointer-events: none;
+  font: 12px/17px system-ui, sans-serif;
+  color: #eef3f8;
+  background: rgba(10,18,28,.82);
+  border: 1px solid rgba(180,205,225,.35);
+  border-radius: 8px; padding: 10px 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45);
+}
+.panel.show { display: block; }
+.panel .row { display: grid; grid-template-columns: 82px 1fr; gap: 8px; margin-bottom: 6px; }
+.panel .k { color: rgba(150,170,190,.9); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.panel .v { color: #f2f6fa; }
+
+/* ---------- menu ----------
+   A sheet anchored top-left, ABOVE the stage; #menu has pointer-events:auto so
+   events over it never reach the map handlers (a tap on the menu cannot pan or
+   pick the map underneath).
+   Reworked for touch:
+     * sectioned (View / Projection / Layer) instead of one flat run of 12 rows -
+       on a phone the flat list ran off the bottom of the screen
+     * rows are >= 44 px tall on a coarse pointer (Apple/Material's minimum) and
+       the label is 14 px, so a row is tappable with a thumb
+     * the sheet fits the viewport: #items scrolls when it cannot
+     * a scrim behind it: tapping anywhere outside closes the menu (phones have
+       no Esc)
+     * touch-action: manipulation, so a tap is delivered without the 300 ms
+       double-tap-zoom delay
+   Closed it is only the burger, whose tag names the active projection. */
+#scrim {
+  position: fixed; inset: 0; z-index: 15;
+  background: rgba(4,10,18,.45);
+  opacity: 0; pointer-events: none; transition: opacity .16s ease-out;
+  -webkit-backdrop-filter: blur(1px); backdrop-filter: blur(1px);
+}
+#scrim.on { opacity: 1; pointer-events: auto; }
+
+#menu {
+  position: fixed; left: 16px; top: 14px; z-index: 20;
+  min-height: 44px; max-height: calc(100vh - 28px);
+  display: flex; align-items: center; gap: 10px;
+  font: 12px/17px system-ui, sans-serif; color: #eef3f8;
+  background: rgba(10,18,28,.9);
+  border: 1px solid rgba(180,205,225,.35);
+  border-radius: 10px; padding: 9px 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45);
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+#menu.open {
+  flex-wrap: wrap; align-content: start;
+  width: 320px; max-width: calc(100vw - 32px);
+  border-radius: 12px;
+  background: rgba(8,15,24,.97);
+}
+#burger {
+  pointer-events: auto; cursor: pointer;
+  display: flex; align-items: center; gap: 7px;
+  min-height: 26px;
+  font: 20px/20px system-ui, sans-serif; color: rgba(225,240,252,.92);
+  white-space: nowrap;
+}
+#burger .tag { font: 10px/13px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .07em; color: rgba(150,170,190,.9); }
+#items { display: none; }
+#menu.open #items {
+  display: block; flex: 1 1 100%;
+  max-height: calc(100vh - 120px); overflow-y: auto;
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+  /* a thin, dark scrollbar: the browser default is a bright grey bar that looks
+     like a bug on a dark sheet */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120,150,180,.45) transparent;
+}
+#menu.open #items::-webkit-scrollbar { width: 6px; }
+#menu.open #items::-webkit-scrollbar-thumb { background: rgba(120,150,180,.45); border-radius: 3px; }
+#menu.open #items::-webkit-scrollbar-track { background: transparent; }
+
+.mgroup { margin: 0 0 10px; }
+.mgroup:last-child { margin-bottom: 2px; }
+.mtitle {
+  font: 9px/12px system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .1em; color: rgba(140,162,182,.75);
+  margin: 0 2px 5px;
+}
+/* in 3D the projection rows cannot apply: dim them rather than hide them, so the
+   sheet does not change height between modes */
+.mgroup.dim { opacity: .38; }
+
+.menuitem {
+  pointer-events: auto; cursor: pointer;
+  display: flex; align-items: center; gap: 9px;
+  min-height: 30px; margin-bottom: 4px;
+  padding: 5px 10px; border: 1px solid rgba(180,205,225,.2); border-radius: 7px;
+  background: rgba(24,40,58,.55);
+  color: rgba(205,222,238,.78);
+  font: 12px/16px system-ui, sans-serif;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .1s linear;
+}
+.menuitem:last-child { margin-bottom: 0; }
+.menuitem .mi-ico { font: 15px/15px system-ui, sans-serif; width: 18px; text-align: center; opacity: .9; }
+.menuitem .mi-lab { flex: 1 1 auto; }
+/* the tick marks the current row; it is drawn always (empty when off) so the
+   label does not shift when the selection moves */
+.menuitem::after {
+  content: '\2713'; font: 12px/12px system-ui, sans-serif;
+  color: rgba(150,210,255,0); margin-left: auto;
+}
+.menuitem.on { color: #f6fafd; background: rgba(96,150,196,.5); border-color: rgba(190,215,235,.55); }
+.menuitem.on::after { color: rgba(175,225,255,.95); }
+.menuitem:hover { background: rgba(46,74,102,.75); }
+.menuitem:active { background: rgba(70,110,150,.9); }
+
+/* a coarse pointer (finger) needs bigger rows: 44 px is the usual minimum, and
+   the type goes up with it or the label looks lost in the box */
+/* ---------- small screens ----------
+   On a phone the bottom of the screen cannot hold a 4-line HUD and a wrapped help
+   paragraph: they overlapped (measured in a 390x749 frame, the help text ran
+   straight through the HUD). The help line is the thing to drop - every gesture
+   it lists is either a standard one or discoverable - and the HUD goes to two
+   lines with the type one step down. */
+@media (max-width: 900px) {
+  .help { display: none; }
+  .hud {
+    font: 10px/13px ui-monospace, Menlo, monospace;
+    left: 10px; bottom: 10px; width: auto; max-width: calc(100vw - 20px);
+    /* pre-wrap, not normal: the HUD is built with real newlines between its
+       fields, and `normal` collapses them, so on a narrow screen the segment line
+       and the projection line ran together into one paragraph */
+    white-space: pre-wrap;
+    max-width: 100%;
+  }
+  .panel { width: min(240px, calc(100vw - 24px)); right: 10px; top: 10px; }
+}
+@media (pointer: coarse), (max-width: 700px) {
+  #menu { left: 10px; top: 10px; padding: 8px 10px; border-radius: 11px; }
+  #menu.open { width: min(340px, calc(100vw - 20px)); }
+  #burger { min-height: 30px; font-size: 22px; }
+  #burger .tag { font-size: 11px; }
+  .menuitem { min-height: 44px; font-size: 14px; padding: 9px 12px; gap: 11px; }
+  .menuitem .mi-ico { font-size: 17px; width: 20px; }
+  .mtitle { font-size: 10px; margin-bottom: 6px; }
+  #menu.open #items { max-height: calc(100vh - 110px); }
+}
+@media (max-height: 520px) {
+  /* landscape phone: the sheet must not be taller than the screen */
+  .menuitem { min-height: 36px; padding: 6px 10px; }
+  .mgroup { margin-bottom: 7px; }
+}

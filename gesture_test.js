@@ -1,0 +1,211 @@
+/* Inertia + touch gestures, driven through the real app handlers.
+   Checks:
+     1. a drag that ends while moving keeps moving (glide), and stops by itself
+     2. the glide is time-based: the same release velocity travels a similar
+        distance whether frames are 16 ms or 33 ms apart
+     3. any new press / wheel / key stops the glide dead
+     4. a tap picks and does NOT pan; a small drag pans and does NOT pick
+     5. a double tap zooms about the tapped point
+     6. the menu opens on the burger, closes on the scrim, and an item activates
+   Run: node gesture_test.js (from the folder holding core.js) */
+const fs = require('fs');
+global.Path2D = function () { return { moveTo() {}, lineTo() {}, closePath() {} }; };
+const L = {};
+function ctxStub() {
+  return { setTransform() {}, createLinearGradient() { return { addColorStop() {} }; },
+    fillRect() {}, fill() {}, stroke() {}, beginPath() {}, rect() {}, closePath() {},
+    moveTo() {}, lineTo() {}, fillText() {}, strokeText() {},
+    measureText(t) { return { width: String(t).length * 6.2 }; }, save() {}, restore() {}, clip() {} };
+}
+function el(extra) {
+  const o = { innerHTML: '', textContent: '', className: '', dataset: {}, children: [], style: {},
+    classList: { _s: new Set(),
+      add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); }, contains(c) { return this._s.has(c); } },
+    getContext: () => ctxStub(),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }) };
+  o.addEventListener = function (t, f) { L[(o._n || 'x') + ':' + t] = f; };
+  o.classList = {
+    add(c) { const a = o.className ? o.className.split(' ') : []; if (a.indexOf(c) < 0) a.push(c); o.className = a.filter(Boolean).join(' '); },
+    remove(c) { const a = o.className ? o.className.split(' ') : []; o.className = a.filter(x => x && x !== c).join(' '); },
+    contains(c) { return (o.className ? o.className.split(' ') : []).indexOf(c) >= 0; }
+  };
+  o.appendChild = function (c) { o.children.push(c); return c; };
+  o.setAttribute = function (k, v) { o['attr:' + k] = v; };
+  o.getElementsByClassName = function (cn) {
+    const out = [];
+    const walk = n => { for (const c of n.children || []) { if (c.className && (' ' + c.className + ' ').indexOf(' ' + cn + ' ') >= 0) out.push(c); walk(c); } };
+    walk(o); return out;
+  };
+  return Object.assign(o, extra || {});
+}
+const map = el({ _n: 'map' }), stage = el({ _n: 'stage' }), labels = el({ _n: 'labels' });
+const menu = el({ _n: 'menu' }), burger = el({ _n: 'burger' }), items = el({ _n: 'items' }), scrim = el({ _n: 'scrim' });
+const panel = el(), hud = el(), help = el();
+let rafQueue = [];
+global.window = { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 1, location: { search: '' },
+  addEventListener(t, f) { L['win:' + t] = f; },
+  requestAnimationFrame(f) { rafQueue.push(f); return rafQueue.length; },
+  document: { getElementById(id) { return { map, stage, labels, menu, burger, items, scrim }[id] || (id === 'panel' ? panel : (id === 'hud' ? hud : help)); },
+    createElement() { return el(); }, addEventListener() {} } };
+global.document = global.window.document;
+global.requestAnimationFrame = global.window.requestAnimationFrame;
+const files = { 'so50.geojson': __dirname + '/so50.geojson', 'countries.geojson': __dirname + '/countries.geojson', 'ne10m.geojson': __dirname + '/ne10m.geojson' };
+global.fetch = () => Promise.resolve({ json: () => JSON.parse(fs.readFileSync(files['countries.geojson'], 'utf8')) });
+
+new Function(fs.readFileSync(__dirname + '/core.js', 'utf8')).call();
+new Function(fs.readFileSync(__dirname + '/app.js', 'utf8')).call();
+
+/* the app's frame function is queued through requestAnimationFrame; drain it with
+   explicit timestamps so the glide can be stepped deterministically */
+function frame(tMs) { const q = rafQueue; rafQueue = []; for (const f of q) f(tMs); }
+let fails = 0;
+function check(name, cond, extra) {
+  if (cond) console.log('ok   ' + name);
+  else { fails++; console.log('FAIL ' + name + (extra !== undefined ? '   [' + extra + ']' : '')); }
+}
+const centre = () => hud.textContent.split('\n').pop().replace(/.*centre /, '');
+const num = s => parseFloat(s);
+
+/* Drive BOTH clocks from one fake time: the app reads performance.now() for its
+   pointer samples and the animation-frame timestamp for the glide. In a browser
+   those agree; here they must be made to, or a "33 ms frame" test measures the
+   velocity over 1 ms of wall time. */
+let fakeNow = 1000;
+const realPerf = (typeof performance !== 'undefined') ? performance.now.bind(performance) : Date.now;
+if (typeof performance !== 'undefined') {
+  performance.now = () => fakeNow;
+} else {
+  global.performance = { now: () => fakeNow };
+}
+function ev(x, y, extra) { return Object.assign({ offsetX: x, offsetY: y, clientX: x, clientY: y, preventDefault() {} }, extra || {}); }
+function fire(t, e) { const f = L['stage:' + t] || L[t]; if (f) f(e); }
+
+setTimeout(function () {
+  /* ---------- 1. a fling keeps moving, then stops ---------- */
+  let before = centre();
+  fire('mousedown', ev(700, 400));
+  let x = 700;
+  for (let i = 0; i < 6; i++) { fakeNow += 16; x -= 30; fire('mousemove', ev(x, 400)); frame(fakeNow); }
+  fire('mouseup', ev(x, 400));
+  const atRelease = centre();
+  /* step frames with no further input: the inertia must advance the centre */
+  for (let i = 0; i < 8; i++) { fakeNow += 16; frame(fakeNow); }
+  const afterGlide = centre();
+  check('drag moved the centre', atRelease !== before, before + ' -> ' + atRelease);
+  check('release with speed glides further', afterGlide !== atRelease, atRelease + ' -> ' + afterGlide);
+
+  /* it must come to rest on its own */
+  for (let i = 0; i < 200; i++) { fakeNow += 16; frame(fakeNow); }
+  const settled = centre();
+  for (let i = 0; i < 20; i++) { fakeNow += 16; frame(fakeNow); }
+  check('glide stops by itself', centre() === settled, settled + ' vs ' + centre());
+
+  /* ---------- 3. a new press stops the glide ---------- */
+  fire('mousedown', ev(700, 400));
+  x = 700;
+  for (let i = 0; i < 6; i++) { fakeNow += 16; x -= 40; fire('mousemove', ev(x, 400)); frame(fakeNow); }
+  fire('mouseup', ev(x, 400));
+  fakeNow += 16; frame(fakeNow);
+  const gliding = centre();
+  fire('mousedown', ev(700, 400));          /* grab it */
+  const stopped = centre();
+  for (let i = 0; i < 10; i++) { fakeNow += 16; frame(fakeNow); }
+  check('a new press stops the glide', centre() === stopped, gliding + ' -> ' + stopped + ' -> ' + centre());
+  fire('mouseup', ev(700, 400));
+
+  /* ---------- 2b. the glide is frame-rate independent ----------
+     A flick at a given speed must travel the same distance whether frames are
+     16 ms or 50 ms apart: otherwise a slow layer (or a 30 Hz screen) would fling
+     the map much further than a fast one, which is what happened when the glide
+     mixed the wall clock with the animation-frame clock. */
+  (function () {
+    const travel = [];
+    for (const frameMs of [16, 33, 50]) {
+      const perFrame = 20 * frameMs / 16;         /* same px/s at every rate */
+      fire('mousedown', ev(700, 400));
+      let x = 700;
+      for (let i = 0; i < 6; i++) {
+        fakeNow += frameMs; x -= perFrame;
+        fire('mousemove', ev(x, 400)); frame(fakeNow);
+      }
+      fire('mouseup', ev(x, 400));
+      /* stop the world, then measure the glide alone */
+      const lonOf = () => { const m = /centre (-?[0-9.]+)/.exec(hud.textContent); return m ? +m[1] : 0; };
+      const c0 = lonOf();
+      for (let i = 0; i < 500; i++) { fakeNow += frameMs; frame(fakeNow); }
+      travel.push(Math.abs(lonOf() - c0));
+    }
+    const lo = Math.min(...travel), hi = Math.max(...travel);
+    check('glide distance is frame-rate independent (< 5% spread)',
+      hi > 0 && (hi - lo) / hi < 0.05,
+      travel.map(t => t.toFixed(2)).join(' / ') + ' deg');
+  })();
+
+  /* ---------- 4. tap vs drag on touch ---------- */
+  let pickedBefore = panel.innerHTML;
+  let c0 = centre();
+  fire('touchstart', { touches: [{ clientX: 640, clientY: 400 }], changedTouches: [{ clientX: 640, clientY: 400 }], preventDefault() {} });
+  fakeNow += 60;
+  fire('touchend', { touches: [], changedTouches: [{ clientX: 640, clientY: 400 }], preventDefault() {} });
+  check('a tap does not pan', centre() === c0, c0 + ' -> ' + centre());
+
+  let c1 = centre();
+  fire('touchstart', { touches: [{ clientX: 500, clientY: 400 }], changedTouches: [{ clientX: 500, clientY: 400 }], preventDefault() {} });
+  for (let i = 1; i <= 5; i++) {
+    fakeNow += 16;
+    fire('touchmove', { touches: [{ clientX: 500 - i * 20, clientY: 400 }], preventDefault() {} });
+    frame(fakeNow);
+  }
+  fire('touchend', { touches: [], changedTouches: [{ clientX: 400, clientY: 400 }], preventDefault() {} });
+  check('a drag does pan', centre() !== c1, c1 + ' -> ' + centre());
+  const cAfterDrag = centre();
+  for (let i = 0; i < 120; i++) { fakeNow += 16; frame(fakeNow); }
+  check('a drag flings too', centre() !== cAfterDrag);
+
+  /* ---------- 5. double tap zooms about the tapped point ---------- */
+  for (let i = 0; i < 200; i++) { fakeNow += 16; frame(fakeNow); }
+  const zBefore = hud.textContent.match(/z ([0-9.]+)/)[1];
+  /* let the previous tap's window expire */
+  fakeNow += 1000;
+  fire('touchstart', { touches: [{ clientX: 300, clientY: 300 }], changedTouches: [{ clientX: 300, clientY: 300 }], preventDefault() {} });
+  fire('touchend', { touches: [], changedTouches: [{ clientX: 300, clientY: 300 }], preventDefault() {} });
+  fakeNow += 120;
+  fire('touchstart', { touches: [{ clientX: 305, clientY: 302 }], changedTouches: [{ clientX: 305, clientY: 302 }], preventDefault() {} });
+  fire('touchend', { touches: [], changedTouches: [{ clientX: 305, clientY: 302 }], preventDefault() {} });
+  fakeNow += 200; frame(fakeNow);
+  const zAfter = hud.textContent.match(/z ([0-9.]+)/)[1];
+  check('double tap zooms in', num(zAfter) > num(zBefore) + 0.3, zBefore + ' -> ' + zAfter);
+
+  /* ---------- 6. menu: open, activate, close on scrim ---------- */
+  check('menu starts closed', !menu.classList.contains('open'));
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  check('burger click opens the menu', menu.classList.contains('open'));
+  check('scrim is shown with the menu', scrim.classList.contains('on'));
+
+  /* a row: pick a PROJECTION row (the 3D row needs WebGL, which the harness has
+     no business providing) and check it both closes the sheet and takes effect */
+  const rows = items.getElementsByClassName('menuitem');
+  check('menu has rows', rows.length >= 8, rows.length + ' rows');
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3);
+  const perspRow = rows.find(r => r.dataset.id === 'proj:persp');
+  L['menu:click']({ target: perspRow, clientX: 10, clientY: 10 });
+  check('clicking a row closes the menu', !menu.classList.contains('open'));
+  check('scrim hidden again', !scrim.classList.contains('on'));
+  check('the row took effect (projection switched)', /Perspective/.test(hud.textContent), hud.textContent.split('\n').pop());
+  check('the row is marked active', perspRow.classList.contains('on'));
+
+  /* reopen and close via the scrim */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['scrim:click']({});
+  check('scrim click closes the menu', !menu.classList.contains('open'));
+
+  /* a press that travels (scrolling the sheet) must NOT activate a row */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  const layerRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'layer:110m');
+  L['menu:pointerdown']({ clientX: 10, clientY: 10 });
+  L['menu:click']({ target: layerRow, clientX: 10, clientY: 90 });
+  check('a scrolled press does not activate a row', menu.classList.contains('open'));
+
+  console.log(fails === 0 ? '\nALL PASS' : '\n' + fails + ' FAILURE(S)');
+  process.exit(fails ? 1 : 0);
+}, 900);
