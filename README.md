@@ -84,7 +84,8 @@ France re-projects to 663,705–663,711 km² across centres against 663,709 in t
 build pipeline, a 0.001 % spread). What *is* rebuilt per centre: the projected
 pieces, the LOD level in use, the feature bboxes, the frame and the graticule.
 
-Cost of one recentre on the real layers, warmed (`recentercost.js`):
+Cost of one recentre on the real layers, warmed (`recenter_cost.js`, a probe kept
+outside this repo):
 
 | layer | rings re-cut + projected | frame | graticule | per recentre |
 |---|---|---|---|---|
@@ -186,13 +187,28 @@ in the three pseudocylindrical ones, `moveCentre` returns the canonical frame to
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** `node test_core.js` (46 checks: projection maths, inverse round
-trip, equal-area, picking, LOD, and the orthographic back-face audit),
-`node gesture_test.js` (20 checks: inertia and its frame-rate independence,
-tap-vs-drag, double tap, menu activation and scrim),
-`node harness.js` (headless app run: draw, hover, pick, layer switch),
-`recenter_cost.js` (a probe, not shipped) (re-centring invariants + rasterised coverage + cost),
-`node visible_check.js <proj>` (what is painted vs the source data, per centre).
+**Tests.** Seven node scripts, all run from the repository root. The six
+unattended runs exit 0 and end in `ALL PASS` (`harness.js` ends with its expected
+headless `no three.js` line); `visible_check.js` takes a projection name.
+
+| script | what it checks |
+|---|---|
+| `test_core.js` | 46 unit checks on `core.js`: projection maths, inverse round trip, equal-area, picking, LOD, orthographic back-face audit |
+| `gesture_test.js` | 20 checks through the real handlers: inertia and its frame-rate independence, tap-vs-drag, double tap, menu activation and scrim |
+| `pole_test.js` | the centre of projection turns the frame by exactly the angle travelled, and the frame never drifts across a pole |
+| `pole_sim.js` | the same on the app's own chain (pan → `geoAt` → `moveCentre` → reproject), per re-centring projection |
+| `artifact_test.js` | no stray geometry after a wheel zoom between two reprojections, a drag and a layer switch |
+| `harness.js` | headless app run: draw, hover, pick, layer switch, HUD |
+| `visible_check.js <proj>` | what is painted vs the source data, per centre |
+
+`harness.js` prints `ERROR no three.js` and `m(3d): Cannot read properties of
+null (reading 'Scene')` in a headless run — that is expected, not a failure
+(there is no WebGL context in node).
+
+The measurement probes quoted in this document (`recenter_cost.js`,
+`poletest2.js`, `rollpc2.js`, the `shp2geojson*.py` converters) are deliberately
+**not** in this repository: they were one-off instruments, and their numbers are
+recorded here instead.
 
 Colours as requested: blue ocean (vertical gradient), light grey countries,
 white on hover/pick. The panel shows name, localised names, type/sovereign,
