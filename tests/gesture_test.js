@@ -49,8 +49,9 @@ global.window = { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 1, locat
     createElement() { return el(); }, addEventListener() {} } };
 global.document = global.window.document;
 global.requestAnimationFrame = global.window.requestAnimationFrame;
-const files = { 'so50.geojson': __dirname + '/../so50.geojson', 'countries.geojson': __dirname + '/../countries.geojson', 'ne10m.geojson': __dirname + '/../ne10m.geojson' };
-global.fetch = () => Promise.resolve({ json: () => JSON.parse(fs.readFileSync(files['countries.geojson'], 'utf8')) });
+const files = { 'so50.geojson': __dirname + '/../data/so50.geojson', 'countries.geojson': __dirname + '/../data/countries.geojson', 'ne10m.geojson': __dirname + '/../data/ne10m.geojson' };
+/* keyed on the basename: the app fetches data/<name>.geojson */
+global.fetch = (u) => Promise.resolve({ json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '')] || files['countries.geojson'], 'utf8')) });
 
 new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8')).call();
 new Function(fs.readFileSync(__dirname + '/../app.js', 'utf8')).call();

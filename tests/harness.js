@@ -109,8 +109,11 @@ global.window = {
 global.document = global.window.document;
 global.requestAnimationFrame = function (f) { return 1; };
 global.Promise = Promise;
+const DATA = __dirname + '/../data/';
 global.fetch = function (u) {
-  const p = (u === 'so50.geojson') ? __dirname + '/../so50.geojson' : __dirname + '/../countries.geojson';
+  /* the app asks for data/<name>.geojson: match on the basename */
+  const name = String(u).replace(/^.*\//, '');
+  const p = (name === 'so50.geojson') ? DATA + 'so50.geojson' : DATA + 'countries.geojson';
   return Promise.resolve({ json: function () { return JSON.parse(fs.readFileSync(p, 'utf8')); } });
 };
 

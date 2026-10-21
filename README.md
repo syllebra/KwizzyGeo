@@ -4,24 +4,33 @@ Geographical Quiz Game — the map half: a pure HTML/CSS/JS view of Natural Eart
 admin-0 country polygons, no libraries and no map tiles, drawn on one fullscreen
 `<canvas>` in the **Eckert IV** equal-area pseudocylindrical projection.
 
-Everything is at the repository root: open `index.html` and it runs. The doc below
-is the viewer's own account of how it works. Two layers are loaded at startup; **50m sovereignty is the default**:
+Serve the root, open `index.html`, and it runs — no build step. The doc below
+is the viewer's own account of how it works. Three layers ship in `data/`; two are
+loaded at startup and **50m sovereignty is the default**:
 
 | layer | file | features | vertices |
 |---|---|---|---|
-| **`so50.geojson`** (default) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
-| `countries.geojson` (alternative) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
+| **`data/so50.geojson`** (default) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
+| `data/countries.geojson` (alternative) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
+| `data/ne10m.geojson` (lazy) | `ne_10m_admin_0_map_units` v5.1.1 | 298 | 552,828 raw |
 
-Open it at **http://localhost:8123/** (server: `python3 -m http.server 8123 --directory .`).
+Open it at **http://localhost:8123/** (server: `python3 -m http.server 8123 --directory .`
+from the repository root — the page fetches `data/*.geojson`, so serving `data/`
+alone does not work).
 Switch layers with **`t`** or the URL param **`?layer=110m`**. The 2D view opens on
 **perspective (3 R)** — the default is `persp`, not `ortho` and not Eckert IV;
 `?proj=` still picks any re-centring projection (see the registry below).
 
 ## Files
 
-The repository root is **exactly what a player loads** — serve it and the game
-runs. Nothing else is needed at runtime; the node scripts live in `tests/` and are
-never fetched by the browser.
+Three folders, one job each: the code a player loads at the root, the data in
+`data/`, the node scripts in `tests/`.
+
+```
+index.html  style.css  core.js  app.js  three.bundle.cjs   <- the app
+data/   so50.geojson  countries.geojson  ne10m.geojson    <- the layers
+tests/  test_core.js  gesture_test.js  pole_test.js  ...   <- node only
+```
 
 | file | role |
 |---|---|
@@ -30,20 +39,30 @@ never fetched by the browser.
 | `core.js` | projection registry + geometry + re-centring, pure functions (unit-tested by `tests/test_core.js`) |
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
 | `three.bundle.cjs` | three.js, vendored for the 3D globe |
-| `so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
-| `countries.geojson` | 177 features |
-| `ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
+| `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
+| `data/countries.geojson` | 177 features |
+| `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
+The three layers are fetched relative to the page, through the one constant
+`app.js` sets at the top of `LAYERS`:
+
+```js
+var DATA_DIR = 'data/';
+```
+
+Move the data or rename that folder — one string, no other path in the app
+hardcodes a `.geojson` name. The server test suite reads the same files from
+`tests/../data/`.
+
 ### Deploying
 
-Upload the seven runtime files above (`index.html`, `style.css`, `core.js`,
-`app.js`, `three.bundle.cjs` and the three `.geojson`); leave `tests/`, the
-README and the licence out if the host only serves the game. `index.html` needs
-`style.css`, `three.bundle.cjs`, `core.js` and `app.js` next to it, and `app.js`
-fetches the `.geojson` files **by bare filename** (`fetch('so50.geojson')`), so
-all seven must stay in the same directory.
+Upload the five app files at the root and `data/` beside them; `tests/`, the
+README and the licence are never fetched, so leave them out if the host serves
+only the game. `index.html` needs `style.css`, `three.bundle.cjs`, `core.js` and
+`app.js` next to it; the layers must keep the `data/` prefix, or `DATA_DIR` must
+be changed to match.
 
 ## Projection
 

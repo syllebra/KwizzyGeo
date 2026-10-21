@@ -29,7 +29,7 @@ for (const lon of [-179.9, -120, -0.5, 0, 47.25, 179.5]) {
 check('inverse roundtrip < 1e-9 deg', worst < 1e-9);
 
 /* 3. equal-area property: known countries vs reference values */
-const geo = JSON.parse(fs.readFileSync(__dirname + '/../countries.geojson', 'utf8'));
+const geo = JSON.parse(fs.readFileSync(__dirname + '/../data/countries.geojson', 'utf8'));
 const feats = C.buildFeatures(geo, 0.2);
 check('feature count 177', feats.length === 177);
 const truth = {
@@ -85,7 +85,7 @@ console.log(`densified vertices total (step 0.2): ${verts}`);
 check('vertex budget < 250k', verts < 250000);
 
 /* 6. LOD layer: the 50m sovereignty file, drawn through the level ladder */
-const g50 = JSON.parse(fs.readFileSync(__dirname + '/../so50.geojson', 'utf8'));
+const g50 = JSON.parse(fs.readFileSync(__dirname + '/../data/so50.geojson', 'utf8'));
 const lods = C.buildFeaturesLOD(g50, 0.2);
 check('50m features = 201', lods.length === 201);
 let dens = 0; for (const ft of lods) for (const rg of ft.rings) dens += rg.pts.length / 2;
@@ -142,7 +142,7 @@ check('full LOD index memory < 12 MB', idxMB * 4 < 12 * 1048576);
    is land, and look for pixels painted where there is sea (a back face showing
    through) or painted twice (a fold). */
 {
-  const g = JSON.parse(fs.readFileSync(__dirname + '/../countries.geojson', 'utf8'));
+  const g = JSON.parse(fs.readFileSync(__dirname + '/../data/countries.geojson', 'utf8'));
   const f2 = C.buildFeaturesLOD(g, 0.2, true);
   C.prepareXYZ(f2);
   const ref2 = C.buildFeaturesLOD(g, 0.2, false);

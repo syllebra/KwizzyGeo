@@ -294,10 +294,11 @@ function toWorldY(py) { return -(py - H * 0.5) / view.k + view.cy; }
    demand: nobody should pay that download, that parse (~150 ms) and that
    densify/LOD build (~250 ms) unless they pick the layer. Its LOD is the same
    10-step ladder as the others, computed once at load. */
+var DATA_DIR = 'data/';
 var LAYERS = [
-  { id: '50m',  file: 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
-  { id: '110m', file: 'countries.geojson',  label: 'Natural Earth 110m countries' },
-  { id: '10m',  file: 'ne10m.geojson',      label: 'Natural Earth 10m map units', lazy: true }
+  { id: '50m',  file: DATA_DIR + 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
+  { id: '110m', file: DATA_DIR + 'countries.geojson',  label: 'Natural Earth 110m countries' },
+  { id: '10m',  file: DATA_DIR + 'ne10m.geojson',      label: 'Natural Earth 10m map units', lazy: true }
 ];
 function layerLabel(id) {
   for (var i = 0; i < LAYERS.length; i++) if (LAYERS[i].id === id) return LAYERS[i].label;
@@ -356,8 +357,8 @@ function noteRef(geo) {          /* 110m thresholds keyed by NAME and NAME_LONG 
 
 function loadAll() {
   Promise.all([
-    fetch('countries.geojson').then(function (r) { return r.json(); }),
-    fetch('so50.geojson').then(function (r) { return r.json(); })
+    fetch(DATA_DIR + 'countries.geojson').then(function (r) { return r.json(); }),
+    fetch(DATA_DIR + 'so50.geojson').then(function (r) { return r.json(); })
   ]).then(function (pair) {
     var g110 = pair[0], g50 = pair[1];
     noteRef(g110);

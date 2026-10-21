@@ -14,7 +14,7 @@ const fs = require('fs');
 const src = fs.readFileSync(__dirname + '/../core.js', 'utf8');
 const C = new Function(src + '\nreturn CORE;')();
 const DEG = Math.PI / 180;
-const geo = JSON.parse(fs.readFileSync(__dirname + '/../countries.geojson', 'utf8'));
+const geo = JSON.parse(fs.readFileSync(__dirname + '/../data/countries.geojson', 'utf8'));
 const feats = C.buildFeaturesLOD(geo, 0.2, true);      /* reference for "is land" */
 C.prepareXYZ(feats);
 const geoFeats = C.buildFeaturesLOD(geo, 0.2, false);  /* planar reference at centre 0 */
