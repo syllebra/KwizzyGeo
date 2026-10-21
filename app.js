@@ -28,7 +28,7 @@ var view = { cx: 0, cy: 0, k: 100, lon: 0, lat: 0 }, fitK = 100;
 /* THE CITY LAYER: data/places.json (Natural Earth 10m populated places, 7 342
    points, see tools/shp2geojson_places.py). Switched on/off with `c`, the
    burger's Overlay row, or ?cities=0|1. */
-var places = [], citiesOn = true, placeSeen = 0;
+var places = [], citiesOn = true, placeSeen = 0, placesSum = '';
 var hoverPlace = -1, pickedPlace = -1;
 
 /* ---------- NORTH-UP TILT ----------
@@ -135,6 +135,9 @@ function menuGroups() {
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
     { title: 'Layer', items: layers },
+    /* one chip per language, in a wrapping row: 18 rows of a full-width menu item
+       would be 800 px of sheet on a phone for something most sessions never touch */
+    { title: 'Language', chips: LANGS.map(function (L) { return { id: 'lang:' + L.c, label: L.label }; }) },
     /* an overlay, not a view: the row says whether it is on, and clicking it
        toggles - a chip that is a pick (like the projection rows) would need a
        second row for "off" */
@@ -142,6 +145,7 @@ function menuGroups() {
                                 { id: 'north', label: 'North up', ico: '\u2191' }], needs2d: true }
   ]);
 }
+var spotEl = document.getElementById('spot');
 var scrimEl = document.getElementById('scrim');
 function menuOpen() { return menuEl.classList.contains('open'); }
 function openMenu() {
@@ -194,6 +198,25 @@ function buildMenu() {
     title.className = 'mtitle';
     title.textContent = grp.title;
     box.appendChild(title);
+    if (grp.chips) {
+      /* a wrapping row of small chips: one line of type each, no icon, so 18
+         languages cost ~5 rows of sheet instead of 18 */
+      var wrap0 = document.createElement('div');
+      wrap0.className = 'chips';
+      for (var c0 = 0; c0 < grp.chips.length; c0++) {
+        var ch = grp.chips[c0];
+        var cel = document.createElement('div');
+        cel.className = 'chip';
+        cel.dataset.id = ch.id;
+        cel.setAttribute('role', 'menuitem');
+        cel.innerHTML = flagHTML(LANG_FLAG[ch.id.slice(5)], 'fis') +
+                        '<span class="nm">' + ch.label + '</span>';
+        wrap0.appendChild(cel);
+      }
+      box.appendChild(wrap0);
+      itemsEl.appendChild(box);
+      continue;
+    }
     for (var i = 0; i < grp.items.length; i++) {
       var it = grp.items[i];
       var el = document.createElement('div');
@@ -211,6 +234,13 @@ function buildMenu() {
     }
     itemsEl.appendChild(box);
   }
+  /* the data's provenance, where a curious player can find it without reading the
+     README: the whole map is Natural Earth's, and the licence asks for the credit */
+  var foot = document.createElement('div');
+  foot.className = 'mfoot';
+  foot.innerHTML = 'Data <a href="https://www.naturalearthdata.com/" target="_blank" ' +
+                   'rel="noopener">Natural Earth</a> &middot; public domain';
+  itemsEl.appendChild(foot);
   refreshBurger();
   refreshMenu();
 }
@@ -234,6 +264,7 @@ function menuClick(el) {
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
   if (id === 'north') { toggleNorth(); refreshMenu(); return; }
+  if (id.indexOf('lang:') === 0) { setLang(id.slice(5)); return; }
 }
 /* pick a layer by id (menu row, ?layer=, or the t key) */
 function setLayer(id) {
@@ -271,7 +302,7 @@ function itemFromNode(node) {
   var t = node;
   while (t && t !== menuEl) {
     if (t === burgerEl) return burgerEl;
-    if (t.classList && t.classList.contains('menuitem')) return t;
+    if (t.classList && (t.classList.contains('menuitem') || t.classList.contains('chip'))) return t;
     t = t.parentNode;
   }
   return null;
@@ -347,10 +378,19 @@ function toWorldY(py) { return -(py - H * 0.5) / view.k + view.cy; }
    densify/LOD build (~250 ms) unless they pick the layer. Its LOD is the same
    10-step ladder as the others, computed once at load. */
 var DATA_DIR = 'data/';
+/* THE DATA VERSION. The scripts carry ?v=N in index.html, but the data files are
+   fetched by the code, so they need their own stamp or a rebuilt layer keeps being
+   served from the browser cache (measured: after regenerating ne10m.geojson with its
+   19 name fields, the page kept drawing the six-field one and the country labels
+   simply stayed English - no error, just stale data). GitHub Pages also caches
+   through its CDN, so this is not only a local-dev concern.
+   BUMP THIS whenever a file in data/ changes. */
+var DATA_V = 2;
+function dataURL(name) { return DATA_DIR + name + '?v=' + DATA_V; }
 var LAYERS = [
-  { id: '50m',  file: DATA_DIR + 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
-  { id: '110m', file: DATA_DIR + 'countries.geojson',  label: 'Natural Earth 110m countries' },
-  { id: '10m',  file: DATA_DIR + 'ne10m.geojson',      label: 'Natural Earth 10m map units', lazy: true }
+  { id: '50m',  name: 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
+  { id: '110m', name: 'countries.geojson', label: 'Natural Earth 110m countries' },
+  { id: '10m',  name: 'ne10m.geojson',     label: 'Natural Earth 10m map units', lazy: true }
 ];
 function layerLabel(id) {
   for (var i = 0; i < LAYERS.length; i++) if (LAYERS[i].id === id) return LAYERS[i].label;
@@ -398,6 +438,294 @@ function pickLayerID() {
   return layerName;
 }
 
+/* ---------- LANGUAGE ----------
+   Natural Earth ships the country names in 19 languages and the place names in 26.
+   The selector offers the 18 that BOTH layers carry: an Italian option would put
+   Italian city names on a map whose country names stayed English, which is worse
+   than not offering Italian at all.
+
+   Country names come straight out of the layer (properties NAME_<CODE>). City names
+   do not fit there - 18 languages x 7 342 places would double the base file - so
+   they live in one small file per language, data/cities.<code>.json, holding only
+   the names that DIFFER from the base name (31 kB for French against 182 kB for
+   Russian, and a non-Latin script differs for all 7 342). A language file is fetched
+   the first time that language is picked and never before, so choosing English (or
+   never opening the selector) downloads nothing extra. Each file carries `n` and
+   `sum`, a fingerprint of the place list it was built from: if the data is ever
+   rebuilt from another Natural Earth release the indices move, and the app must
+   notice rather than label Lagos "Londres". */
+var LANGS = [
+  { c: 'en', label: 'English' },
+  { c: 'fr', label: 'Français' },
+  { c: 'de', label: 'Deutsch' },
+  { c: 'es', label: 'Español' },
+  { c: 'pt', label: 'Português' },
+  { c: 'nl', label: 'Nederlands' },
+  { c: 'sv', label: 'Svenska' },
+  { c: 'ru', label: 'Русский' },
+  { c: 'uk', label: 'Українська' },
+  { c: 'el', label: 'Ελληνικά' },
+  { c: 'zh', label: '中文' },
+  { c: 'ja', label: '日本語' },
+  { c: 'ko', label: '한국어' },
+  { c: 'ar', label: 'العربية' },
+  { c: 'fa', label: 'فارسی' },
+  { c: 'he', label: 'עברית' },
+  { c: 'hi', label: 'हिन्दी' },
+  { c: 'bn', label: 'বাংলা' }
+];
+/* a language is NOT a country, so this is a convention and nothing more: the flag of
+   the language's main country of origin. `en` is gb rather than us, `pt` is pt,
+   `ar` is sa, `es` is es (not the 20 others). It is here, in one table, precisely
+   because it is a judgement call: change a line and the chip follows. */
+var LANG_FLAG = {
+  en: 'gb', fr: 'fr', de: 'de', es: 'es', pt: 'pt', nl: 'nl', sv: 'se', ru: 'ru',
+  uk: 'ua', el: 'gr', zh: 'cn', ja: 'jp', ko: 'kr', ar: 'sa', fa: 'ir', he: 'il',
+  hi: 'in', bn: 'bd'
+};
+var LANG = 'en';
+var cityNames = {};            /* code -> {place index: name} */
+var cityNamesState = {};       /* code -> 'loading' | 'ok' | 'failed' */
+
+/* the name of a country in the language in play, falling back to the layer's own
+   name: NAME_<CODE> is empty for a handful of features even in Natural Earth */
+function countryName(p) {
+  var v = p['NAME_' + LANG.toUpperCase()];
+  if (v) return v;
+  v = p['NAME_' + LANG.toUpperCase() + '_LONG'];
+  return (v || p.NAME_LONG || p.NAME || '');
+}
+function countryNameIn(p, code) {
+  return p['NAME_' + code.toUpperCase()] || countryNameEn(p);
+}
+function countryNameEn(p) { return p.NAME_EN || p.NAME_LONG || p.NAME || ''; }
+
+/* the name of a place: the loaded language file when it has an entry for this
+   index, else the base name. Never falls back to ANOTHER language - a half
+   translated map is worse than an English name in a French map. */
+function cityName(i) {
+  var t = cityNames[LANG];
+  if (t && t[i] != null) return t[i];
+  var P = places[i];
+  return P ? P.n : '';
+}
+
+/* the language survives a reload; a browser in private mode simply forgets it */
+function storedLang() {
+  try { return window.localStorage.getItem('kwizzy.lang'); } catch (e) { return null; }
+}
+function langLabel(code) {
+  for (var i = 0; i < LANGS.length; i++) if (LANGS[i].c === code) return LANGS[i].label;
+  return code;
+}
+function validLang(code) {
+  for (var i = 0; i < LANGS.length; i++) if (LANGS[i].c === code) return code;
+  return null;
+}
+function loadCityNames(code, done) {
+  if (cityNames[code]) { if (done) done(true); return; }
+  if (cityNamesState[code] === 'loading') return;
+  cityNamesState[code] = 'loading';
+  fetch(dataURL('cities.' + code + '.json')).then(function (r) {
+    if (!r.ok) throw new Error('cities.' + code + ' ' + r.status);
+    return r.json();
+  }).then(function (j) {
+    /* the fingerprint guard: refuse a file built from a different place list */
+    if (j.sum && placesSum && j.sum !== placesSum) throw new Error('cities.' + code + ' is for another data release');
+    if (j.n && places.length && j.n !== places.length) throw new Error('cities.' + code + ' has ' + j.n + ' places');
+    cityNames[code] = j.names || {};
+    cityNamesState[code] = 'ok';
+    if (done) done(true);
+  }).catch(function (e) {
+    cityNamesState[code] = 'failed';
+    cityNames[code] = {};              /* base names: a failed language is not fatal */
+    if (done) done(false, e);
+  });
+}
+function setLang(code, silent) {
+  code = validLang(code) || 'en';
+  if (code === LANG) return;
+  LANG = code;
+  try { window.localStorage.setItem('kwizzy.lang', code); } catch (e) { /* private mode */ }
+  try { if (document.documentElement) document.documentElement.lang = code; } catch (e) {}
+  function apply() {
+    layout = buildLabels();            /* country labels are rebuilt: they carry the name */
+    capCache = null;                   /* the capital lookup matches raw ADM0NAME: keep it */
+    refreshMenu();
+    refreshUI();
+  }
+  if (code === 'en' || cityNames[code]) { apply(); return; }
+  loadCityNames(code, function () { apply(); });
+}
+
+/* ---------- LINKS OUT: Wikipedia ----------
+   The article title is the ENGLISH name, not the name on screen: the panel follows the
+   language selector, and an encyclopedia article does not - a French player reading
+   "Allemagne" must still land on en.wikipedia.org/wiki/Germany (or he could be sent to
+   the French Wikipedia, but then the title would have to be translated too, and
+   places.json only carries en/de/es/fr/pt/nl/sv/ru/uk/el/zh/ja/ko/ar/fa/he/hi/bn for
+   the countries and a subset for the cities).
+   Verified: all 201 country names in the 50m layer resolve to an article as-is. City
+   names mostly do; the ones that do not are obscure places whose article does not
+   exist in any spelling, and Wikipedia answers those with its own "no article with
+   this exact name" page, which offers the search - an honest dead end rather than a
+   broken link.
+   The URL is `w/index.php?...&go=Go` rather than `/wiki/<title>`: `go=Go` follows a
+   redirect straight to the article when the title is right AND falls back to the
+   search results when it is not, in one request. */
+function wikiURL(title) {
+  if (!title) return '';
+  return 'https://en.wikipedia.org/w/index.php?title=Special%3ASearch&search=' +
+         encodeURIComponent(String(title).replace(/\s+/g, ' ').trim()) + '&go=Go';
+}
+
+/* ---------- THE SPOT MENU (right click / long press) ----------
+   Right-clicking the map answers "what is at this point, and how do I get there
+   elsewhere?" - the coordinates under the cursor and the same place in Google Maps at
+   the scale on screen. On a touch screen there is no right button, so a long press
+   (500 ms without moving) opens the same menu; it is cancelled by any movement, so it
+   can never fight a drag.
+   The menu is positioned at the cursor but flipped back inside the viewport: opened
+   near the right edge it would otherwise run off the screen, which is the classic way
+   a context menu ends up half unusable. */
+var spotOpen = false, spotAt = null;
+function openSpot(px, py) {
+  var g = geoAt(px, py);
+  if (!g) { closeSpot(); return; }              /* outside the disc: nothing there */
+  spotAt = { lon: g[0], lat: g[1], px: px, py: py };
+  var z = zoomLevel();
+  var latTxt = Math.abs(g[1]).toFixed(3) + '° ' + (g[1] >= 0 ? 'N' : 'S');
+  var lonTxt = Math.abs(g[0]).toFixed(3) + '° ' + (g[0] >= 0 ? 'E' : 'W');
+  spotEl.innerHTML =
+    '<div class="shead">' + latTxt + ' · ' + lonTxt + '</div>' +
+    '<div class="ssub">z ' + z.toFixed(1) + ' · ' + (Math.round(view.k / fitK * 100) / 100) + '×</div>' +
+    '<a class="btn wide" target="_blank" rel="noopener noreferrer" href="' +
+      googleMapsURL(g[1], g[0], z) + '">Open in Google Maps</a>' +
+    '<button class="btn wide" id="spotcopy" type="button">Copy coordinates</button>';
+  spotEl.classList.add('show');
+  spotOpen = true;
+  /* place it, then measure: the element has to be laid out before its size is known */
+  spotEl.style.left = px + 'px'; spotEl.style.top = py + 'px';
+  var w = spotEl.offsetWidth || 190, h = spotEl.offsetHeight || 90;
+  if (px + w + 12 > W) spotEl.style.left = Math.max(8, px - w) + 'px';
+  if (py + h + 12 > H) spotEl.style.top = Math.max(8, py - h) + 'px';
+  var cp = document.getElementById('spotcopy');
+  if (cp) cp.onclick = function () { copySpot(); };
+}
+function closeSpot() {
+  if (!spotOpen) return;
+  spotOpen = false;
+  spotEl.classList.remove('show');
+}
+function copySpot() {
+  if (!spotAt) return;
+  var txt = spotAt.lat.toFixed(6) + ', ' + spotAt.lon.toFixed(6);
+  var btn = document.getElementById('spotcopy');
+  function done(ok) {
+    if (!btn) return;
+    btn.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(function () { if (btn) btn.textContent = 'Copy coordinates'; }, 1200);
+  }
+  /* navigator.clipboard needs a secure context; over plain http on a LAN box it is
+     undefined, and the old execCommand path needs a selection - so both are tried
+     and the button says which happened rather than pretending. */
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(function () { done(true); },
+                                            function () { done(false); });
+    return;
+  }
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var ok = document.execCommand && document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(!!ok);
+  } catch (e) { done(false); }
+}
+
+/* ---------- LINKS OUT: Google Maps ----------
+   "Open this spot at this scale": the point under the cursor and the zoom on screen,
+   translated to a Google Maps URL. Google's z is the same doubling scale as ours up to
+   its own cap, so our zoom level maps across directly - clamped, because Google stops
+   at 21 and goes silly below 2 (a whole-planet view has no pin to show). */
+function googleMapsURL(lat, lon, z) {
+  var zz = Math.max(2, Math.min(21, Math.round(z || 2)));
+  var la = lat.toFixed(6), lo = lon.toFixed(6);
+  return 'https://www.google.com/maps/place/' + la + ',' + lo + '/@' + la + ',' + lo + ',' + zz + 'z';
+}
+
+/* ---------- FLAGS ----------
+   SVG flags vendored from lipis/flag-icons (MIT) into data/flags, one file per ISO
+   3166-1 code, and flags.css generated by tools/fetch_flags.py. <span class="fi
+   fi-fr"></span> is the whole API - the library's own class names, so adding a flag
+   means copying one SVG and re-running the script.
+
+   WHY THE TABLE BELOW EXISTS. Natural Earth does not simply give the ISO code:
+   `ISO_A2` is "-99" for 17 of the 50m features - France, Norway, the Netherlands,
+   the United States, the United Kingdom, New Zealand, Israel, Finland, Denmark,
+   Georgia, Australia, China, Kosovo, Somaliland, Taiwan, Northern Cyprus and the
+   Siachen Glacier - because those rows carry a sovereignty the NE editors did not
+   resolve to a single country. Sub-codes appear too ("CN-TW", "FR-973"). A -99 row
+   with no mapping would simply lose its flag, so the ones that ARE unambiguous are
+   mapped by their GEOUNIT, and anything genuinely ambiguous (Somaliland, Northern
+   Cyprus, Siachen) is left WITHOUT a flag rather than given a wrong one. */
+var NE_ISO2 = {
+  'United States of America': 'us', 'United Kingdom': 'gb', 'Taiwan': 'tw',
+  'Norway': 'no', 'New Zealand': 'nz', 'Netherlands': 'nl', 'Israel': 'il',
+  'Georgia': 'ge', 'France': 'fr', 'Finland': 'fi', 'Denmark': 'dk',
+  'China': 'cn', 'Australia': 'au', 'Kosovo': 'xk', 'Somalia': 'so',
+  'Iraq': 'iq', 'Serbia': 'rs', 'Portugal': 'pt', 'Papua New Guinea': 'pg',
+  'French Guiana': 'gf', 'Martinique': 'mq', 'Guadeloupe': 'gp', 'Reunion': 're',
+  'Mayotte': 'yt', 'Wales': 'gb', 'England': 'gb', 'Scotland': 'gb',
+  'Northern Ireland': 'gb', 'Flemish Region': 'be', 'Walloon Region': 'be',
+  'Brussels Capital Region': 'be', 'Madeira': 'pt', 'Azores': 'pt',
+  'Zanzibar': 'tz', 'Jan Mayen': 'sj', 'Gaza': 'ps', 'West Bank': 'ps'
+};
+/* a two-letter code from a feature, or '' when there is no honest answer */
+function flagCodeOf(props) {
+  var iso = String(props.ISO_A2 || '');
+  if (/^[A-Za-z]{2}$/.test(iso)) return iso.toLowerCase();
+  var m = /^([A-Za-z]{2})-/.exec(iso);          /* CN-TW, FR-973, ... */
+  if (m) {
+    /* the sub-code names the PARENT state, which is usually the right flag for an
+       outlying territory - except Taiwan, which is its own flag and its own country */
+    if (iso.toUpperCase() === 'CN-TW') return 'tw';
+    return m[1].toLowerCase();
+  }
+  var names = [props.GEOUNIT, props.ADMIN, props.SOVEREIGNT, props.NAME_LONG, props.NAME];
+  for (var i = 0; i < names.length; i++) {
+    if (names[i] && NE_ISO2[names[i]]) return NE_ISO2[names[i]];
+  }
+  return '';
+}
+/* the flag as a span, or '' - never a broken image: a country with no honest ISO
+   code simply has no flag, and the layout must not shift for it */
+function flagHTML(code, cls) {
+  if (!code || !/^[a-z]{2}$/.test(code)) return '';
+  return '<span class="fi fi-' + code + (cls ? ' ' + cls : '') + '"></span>';
+}
+
+/* A CITY HAS NO ISO CODE: places.json carries the country NAME (ADM0NAME), so the
+   names are indexed once per layer - every spelling a feature offers points at its
+   flag - and a name that is not in the index simply gets no flag. */
+var cityFlagIdx = null;
+function buildCityFlagIdx() {
+  cityFlagIdx = {};
+  for (var i = 0; i < feats.length; i++) {
+    var p = feats[i].props;
+    var code = flagCodeOf(p);
+    if (!code) continue;
+    var keys = [p.NAME, p.NAME_LONG, p.ADMIN, p.GEOUNIT, p.SOVEREIGNT];
+    for (var q = 0; q < keys.length; q++) if (keys[q] && !cityFlagIdx[keys[q]]) cityFlagIdx[keys[q]] = code;
+  }
+}
+function flagForCountryName(name) {
+  if (!cityFlagIdx) buildCityFlagIdx();
+  if (!name) return '';
+  return cityFlagIdx[name] || '';
+}
+
 /* ---------- the city layer ---------- */
 /* data/places.json is a point TABLE, not GeoJSON: {fields:[...], places:[[...]]}.
    Read through the field names declared in the file, so the converter can reorder
@@ -411,35 +739,121 @@ function buildPlaces(json) {
     out.push({
       n: r[ix.n], c: r[ix.c], r: r[ix.r],
       p: r[ix.p], z: r[ix.z], l: r[ix.l], f: r[ix.f], tz: r[ix.tz],
-      lon: r[ix.lon], lat: r[ix.lat]
+      lon: r[ix.lon], lat: r[ix.lat],
+      k: r[ix.k], e: r[ix.e], a: r[ix.a]
     });
   }
   return out;
 }
-/* THE CAPITAL OF A COUNTRY, from the place layer: the places whose ADM0NAME is that
-   country and whose class is a national capital (A0 / A0R). Natural Earth spells a
-   country the same way in both files, but not always, so the match tries the
-   sovereign name, the long name and the admin name before giving up - the entries
-   that differ are things like "United States of America" vs "United States".
-   Returns the place index (for the panel and the map highlight) or -1. */
+/* ---------- CAPITALS ----------
+   A country can have SEVERAL capitals and Natural Earth says which is which in
+   CAPIN: South Africa has three (Pretoria administrative, Cape Town legislative,
+   Bloemfontein judicial), Bolivia two (Sucre constitutional, La Paz administrative),
+   the Netherlands two (Amsterdam de facto, The Hague official+legislative).
+
+   Taking the first match is WRONG, and that is what this replaced: for South Africa
+   it returned Bloemfontein - the judicial seat, a city with 460 000 people - as "the
+   capital". The rule now is:
+
+     1. only the places Natural Earth flags as the country's capital (ADM0CAP = 1),
+        so a capital-of-a-region or a former capital is never a candidate;
+     2. among those, the one with the ADMINISTRATIVE role, because that is the seat of
+        government a reader means by "the capital";
+     3. failing that, the first flagged one (Amsterdam for the Netherlands, Tokyo for
+        Japan, Kuala Lumpur for Malaysia - each of which is right, and each of which
+        has a second, differently-roled seat listed beside it).
+
+   CAPIN is stored at 16 characters by Natural Earth, so the strings arrive truncated
+   ("Legislative cap", "Official, legis"); they are turned into tags here rather than
+   in the data, so the full width of the source survives in places.json. */
+/* the vocabulary, in the order the words appear in CAPIN. Every value present in the
+   data is listed here - the odd ones included, because they are odd: Natural Earth
+   spells "official" as "Offical" once (Dodoma), writes "Dejure" without a space, and
+   uses CAPIN for things that are not roles at all ("UN Headquarters" on New York,
+   "EU Parliment" on Strasbourg, "While Jerulsale..." on Tel Aviv). A value that maps
+   to nothing would silently turn a seat of government into an ordinary city. */
+var CAP_WORDS = [
+  /* [needle, tag]. Matched ANYWHERE, because the second role arrives after an "and"
+     or a comma ("De facto, admin", "Official and ad") and half the strings are cut off
+     at 16 characters. Order here is irrelevant; the output is normalised below. */
+  ['administrative', 'administrative'], ['admin', 'administrative'], ['and ad', 'administrative'],
+  [', ad', 'administrative'],
+  ['legislative', 'legislative'], ['legis', 'legislative'], ['and le', 'legislative'],
+  [', le', 'legislative'],
+  ['judicial', 'judicial'],
+  ['official', 'official'], ['offical', 'official'],
+  /* "Capital of both" is Nicosia, the seat of both Cypriot administrations: a capital
+     with no qualifier, so it gets the neutral "official" tag rather than none */
+  ['capital of both', 'official'],
+  ['de facto', 'de facto'], ['dejure', 'de jure'], ['de jure', 'de jure'],
+  ['former', 'former'],
+  ['claimed', 'claimed'],
+  ['while', 'contested'], ['seat of', 'seat of government'],
+  ['un head', 'not a capital'], ['eu parl', 'not a capital']
+];
+/* the order roles are DISPLAYED in: the seat that governs first, the historic
+   qualifiers last */
+var CAP_ORDER = ['administrative', 'legislative', 'judicial', 'official', 'de facto',
+                 'de jure', 'seat of government', 'contested', 'claimed', 'former',
+                 'not a capital'];
+function capRoles(raw) {
+  var t = String(raw || '').toLowerCase(), hit = {}, i;
+  for (i = 0; i < CAP_WORDS.length; i++) {
+    if (t.indexOf(CAP_WORDS[i][0]) >= 0) hit[CAP_WORDS[i][1]] = 1;
+  }
+  var out = [];
+  for (i = 0; i < CAP_ORDER.length; i++) if (hit[CAP_ORDER[i]]) out.push(CAP_ORDER[i]);
+  return out;
+}
+/* every capital of a country, primary first, each with its roles. [] when the layer
+   has none (a dependent territory, a disputed area) - the panel then shows no row. */
 var capCache = null;
-function capitalOf(featureIndex) {
+function capitalsOf(featureIndex) {
   var f = feats[featureIndex];
-  if (!f || !places.length) return -1;
+  if (!f || !places.length) return [];
   var p = f.props;
   var names = [p.SOVEREIGNT, p.ADMIN, p.NAME_LONG, p.NAME, p.GEOUNIT];
-  if (!capCache) {
-    capCache = {};
-    for (var i = 0; i < places.length; i++) {
-      var P = places[i];
-      if (P.f !== 'A0' && P.f !== 'A0R') continue;
-      if (!capCache[P.c]) capCache[P.c] = i;
-    }
-  }
+  if (!capCache) buildCapCache();
+  var key = null;
   for (var q = 0; q < names.length; q++) {
-    if (names[q] && capCache[names[q]] !== undefined) return capCache[names[q]];
+    if (names[q] && capCache[names[q]]) { key = names[q]; break; }
   }
-  return -1;
+  return key ? capCache[key] : [];
+}
+function buildCapCache() {
+  capCache = {};
+  for (var i = 0; i < places.length; i++) {
+    var P = places[i];
+    if (P.f !== 'A0' && P.f !== 'A0R') continue;
+    var roles = capRoles(P.k);
+    /* a former capital is not a capital; neither is a place Natural Earth files under
+       "Admin-0 capital" with no role and no ADM0CAP flag at all - Johannesburg is one
+       (three seats of government in South Africa, and it is not one of them). */
+    if (roles.indexOf('former') >= 0 || roles.indexOf('not a capital') >= 0) continue;
+    if (!P.a && !roles.length) continue;
+    var entry = { i: i, roles: roles, primary: !!P.a };
+    (capCache[P.c] || (capCache[P.c] = [])).push(entry);
+  }
+  /* ORDER: the places Natural Earth flags as the country's capital come first, and
+     among those the ADMINISTRATIVE seat wins - which is the whole point: South Africa
+     has three flagged seats (Pretoria administrative, Cape Town legislative,
+     Bloemfontein judicial) and the first in file order was Bloemfontein.
+     A seat that is NOT flagged (Putrajaya, The Hague) is still listed, after the
+     capital - it is a seat of government, not the capital, and the role says so. */
+  for (var k in capCache) {
+    if (!capCache.hasOwnProperty(k)) continue;
+    capCache[k].sort(function (x, y) {
+      if (x.primary !== y.primary) return x.primary ? -1 : 1;
+      var ax = x.roles.indexOf('administrative') >= 0 ? 0 : 1;
+      var ay = y.roles.indexOf('administrative') >= 0 ? 0 : 1;
+      return ax - ay;
+    });
+  }
+}
+/* the one to draw / highlight: the first of the ordered list */
+function capitalOf(featureIndex) {
+  var list = capitalsOf(featureIndex);
+  return list.length ? list[0].i : -1;
 }
 
 /* population, or nothing at all when Natural Earth says -99 (unknown) */
@@ -463,8 +877,8 @@ function noteRef(geo) {          /* 110m thresholds keyed by NAME and NAME_LONG 
 
 function loadAll() {
   Promise.all([
-    fetch(DATA_DIR + 'countries.geojson').then(function (r) { return r.json(); }),
-    fetch(DATA_DIR + 'so50.geojson').then(function (r) { return r.json(); })
+    fetch(dataURL('countries.geojson')).then(function (r) { return r.json(); }),
+    fetch(dataURL('so50.geojson')).then(function (r) { return r.json(); })
   ]).then(function (pair) {
     var g110 = pair[0], g50 = pair[1];
     noteRef(g110);
@@ -535,12 +949,20 @@ function loadPlaces() {
   /* ?lon/&lat/&z move the centre WITHOUT a drag, so the tilt must not sit waiting
      for a gesture that will never come */
   lastMoveT = loopNow;
-  fetch(DATA_DIR + 'places.json').then(function (r) {
+  fetch(dataURL('places.json')).then(function (r) {
     if (!r.ok) throw new Error('places.json ' + r.status);
     return r.json();
   }).then(function (json) {
     places = buildPlaces(json);
-    capCache = null;
+    placesSum = json.sum || '';
+    capCache = null;                 /* rebuilt from the new places */
+    /* the names must land before the first paint of a city label, so the language
+       is applied here rather than in the URL block above */
+    var ml = /[?&]lang=([A-Za-z-]+)/.exec(urlSearch());
+    var want = validLang((ml ? ml[1] : '') || storedLang() || 'en');
+    if (want && want !== 'en') {
+      loadCityNames(want, function () { setLang(want, true); });
+    }
     refreshHud();
   }).catch(function (e) {
     places = []; citiesOn = false;
@@ -575,7 +997,7 @@ function fetchLayer(id, done) {
   loadingLayer = id;
   var wasText = hud.textContent;
   hud.textContent = 'loading ' + def.label + '…';
-  fetch(def.file).then(function (r) { return r.json(); }).then(function (geo) {
+  fetch(dataURL(def.name)).then(function (r) { return r.json(); }).then(function (geo) {
     loaded[id] = C.buildFeaturesLOD(geo, 0.2, true);
     C.prepareXYZ(loaded[id]);
     loadingLayer = null;
@@ -595,6 +1017,7 @@ function useLayer(id) {
         hover = -1; picked = -1;
 
         recenterDirty = false;
+        cityFlagIdx = null;            /* the layer (and its ISO codes) changed */
         reproject();
         refreshUI();
       }
@@ -749,7 +1172,7 @@ function buildLabels() {
     var pl2 = projectLabel(gll[0], gll[1]);
     out.push({
       i: i, lx: pl2[0], ly: pl2[1], lonDeg: gll[0], latDeg: gll[1],
-      name: p.NAME_LONG || p.NAME,
+      name: countryName(p),
       rank: p.LABELRANK || 3,
       minz: th[0], maxz: th[1],
       area: f.areaSr * C.SR_TO_KM2
@@ -1004,8 +1427,9 @@ function drawLabels(z) {
 
       var st = labelStyle(kind);
       ctx.font = st.font;
+      var cname = cityName(D2.i);
       var lx = D2.px, ly = D2.py + st.dy;
-      var w2 = trackedWidth(PP.n, st.track) + 8, h2 = isCap2 ? 17 : 15;
+      var w2 = trackedWidth(cname, st.track) + 8, h2 = isCap2 ? 17 : 15;
       /* ONE retry on the other side of the dot before giving up. A ring with no
          name reads as an unfinished label (measured at z 4: 3 of 9 capitals lost
          their name to a country name that happened to sit above them), and the
@@ -1025,7 +1449,7 @@ function drawLabels(z) {
       if (!box2) continue;
       placed.push(box2);
       ly = lyTry;
-      drawTracked(PP.n, lx, ly, st.track, COL[st.fill], st.halo, st.haloLw);
+      drawTracked(cname, lx, ly, st.track, COL[st.fill], st.halo, st.haloLw);
       done++;
     }
   }
@@ -1150,12 +1574,18 @@ function doPick(px, py) {
 
 function refreshMenu() {
   var rows = itemsEl.getElementsByClassName('menuitem');
+  var chips = itemsEl.getElementsByClassName('chip');
+  for (var q0 = 0; q0 < chips.length; q0++) {
+    var cid = chips[q0].dataset.id;
+    if (cid === 'lang:' + LANG) chips[q0].classList.add('on'); else chips[q0].classList.remove('on');
+  }
   for (var i = 0; i < rows.length; i++) {
     var el = rows[i], id = el.dataset.id;
     var on = (id === 'proj:' + projID) ||
              (id === 'layer:' + layerName) ||
              (id === 'cities' && citiesOn) ||
-             (id === 'north' && northUp);
+             (id === 'north' && northUp) ||
+             (id === 'lang:' + LANG);
     if (on) el.classList.add('on'); else el.classList.remove('on');
   }
   refreshBurger();
@@ -1166,8 +1596,14 @@ function refreshMenu() {
    Everything shown comes from the point table; nothing is invented. */
 function showPlacePanel(i) {
   var P = places[i];
+  var loc = cityName(i);
+  var base = P.n;
+  var altCity = [];
+  if (loc !== base) altCity.push(base);
+  else if (P.f === 'A0' || P.f === 'A0R') { /* nothing to add */ }
   var rows = [
-    ['name', P.n],
+    ['name', flagHTML(flagForCountryName(P.c)) + '<span class="nm">' + loc + '</span>'],
+    ['also', altCity.join('  ·  ')],
     ['country', P.c],
     ['region', P.r],
     ['type', PLACE_FCLASS[P.f] || P.f],
@@ -1175,12 +1611,18 @@ function showPlacePanel(i) {
     ['at', Math.abs(P.lat).toFixed(3) + '° ' + (P.lat >= 0 ? 'N' : 'S') + ', ' +
            Math.abs(P.lon).toFixed(3) + '° ' + (P.lon >= 0 ? 'E' : 'W')],
     ['time zone', P.tz || ''],
+    ['capital', capRoles(P.k).length ? capRoles(P.k).join(', ') : ''],
     ['source', 'Natural Earth 10m populated places · rank ' + P.l + ' · shows from z ' + P.z]
   ];
+  rows.push(['', linkRow([
+    ['Wikipedia', wikiURL(P.e || P.n)],
+    ['Google Maps', googleMapsURL(P.lat, P.lon, zoomLevel())]
+  ])]);
   var s = '';
   for (var k2 = 0; k2 < rows.length; k2++) {
     var val = rows[k2][1];
     if (!val || val === '') continue;
+    if (!rows[k2][0]) { s += '<div class="links">' + val + '</div>'; continue; }
     s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
   }
   panel.innerHTML = s;
@@ -1199,23 +1641,36 @@ function refreshUI() {
     return;
   }
   var p = f.props, km2 = f.areaSr * C.SR_TO_KM2;
+  /* "also": the same country in the other languages, minus the one already shown,
+     English first because it is the common denominator on a map of this kind */
+  var shown = countryName(p);
   var alt = [];
-  var alts = [p.NAME_FR, p.NAME_DE, p.NAME_ES, p.NAME_IT, p.NAME_RU, p.NAME_ZH];
-  for (var i = 0; i < alts.length; i++) if (alts[i]) alt.push(alts[i]);
+  var alts = [countryNameEn(p), p.NAME_FR, p.NAME_DE, p.NAME_ES, p.NAME_RU, p.NAME_ZH, p.NAME_AR, p.NAME_JA];
+  for (var i = 0; i < alts.length; i++) if (alts[i] && alts[i] !== shown && alt.indexOf(alts[i]) < 0) alt.push(alts[i]);
   /* the capital, from the place layer (see capitalOf) - with its population when
      Natural Earth knows it, because "capital: Paris" plus a number is the single
      most useful pair of facts on this panel */
-  var capIdx = capitalOf(idx);
+  /* EVERY capital, not just the first: a country with three seats of government is
+     exactly the case where hiding two of them is wrong. The primary is listed first
+     and carries no role word (it is what "capital" means); the others say what they
+     are, which is the whole point of CAPIN. */
+  var caps = capitalsOf(idx);
   var capTxt = '';
-  if (capIdx >= 0) {
-    var CP = places[capIdx];
-    capTxt = CP.n + (CP.p > 0 ? ' · ' + fmtNum(CP.p) : '');
+  if (caps.length) {
+    var parts = [];
+    for (var ci = 0; ci < caps.length; ci++) {
+      var CP = places[caps[ci].i];
+      var nm = cityName(caps[ci].i);
+      var role = caps[ci].roles.length ? ' (' + caps[ci].roles.join(', ') + ')' : '';
+      parts.push(nm + role + (CP.p > 0 ? ' · ' + fmtNum(CP.p) : ''));
+    }
+    capTxt = parts.join('<br>');
   }
   var rows = [
-    ['name', p.NAME_LONG || p.NAME],
+    ['name', flagHTML(flagCodeOf(p)) + '<span class="nm">' + shown + '</span>'],
     ['also', alt.join('  ·  ')],
     ['capital', capTxt],
-    ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== (p.NAME_LONG || p.NAME) ? ' · sovereign: ' + p.SOVEREIGNT : '')],
+    ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== shown ? ' · sovereign: ' + p.SOVEREIGNT : '')],
     ['region', [p.CONTINENT, p.SUBREGION].filter(function (x) { return x; }).join(' / ')],
     ['area', fmtKm2(km2)],
     ['population', p.POP_EST ? fmtNum(p.POP_EST) + ' est. ' + (p.POP_YEAR || '') : ''],
@@ -1224,15 +1679,38 @@ function refreshUI() {
     ['codes', 'ISO ' + p.ISO_A2 + ' / ' + p.ISO_A3 + ' / ' + p.ISO_N3 + ' · NE ' + p.NE_ID],
     ['geometry', f.rings.length + ' part(s) · ' + p.VERTS + ' vertices']
   ];
+  /* the links out. Real <a> elements so middle-click / open-in-new-tab work; .panel
+     is pointer-events:none (the map must stay draggable under it), so the anchors opt
+     back in in the CSS. Google Maps gets the country's LABEL point - the anchor
+     Natural Earth uses for the country on a map - not the cursor, which may be in
+     the panel. */
+  rows.push(['', linkRow([
+    ['Wikipedia', wikiURL(p.NAME_EN || p.NAME_LONG || p.NAME)],
+    ['Google Maps', googleMapsURL(p.LABEL_Y != null ? p.LABEL_Y : view.lat,
+                                  p.LABEL_X != null ? p.LABEL_X : view.lon, zoomLevel())]
+  ])]);
   var s = '';
   for (var k2 = 0; k2 < rows.length; k2++) {
     var val = rows[k2][1];
     if (!val || val === '') continue;
+    if (!rows[k2][0]) { s += '<div class="links">' + val + '</div>'; continue; }
+    /* every row is `position: relative` - cheap, and it keeps the flag's absolute
+       position defined whether or not this particular row has one */
     s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
   }
   panel.innerHTML = s;
   panel.classList.add('show');
   hud.textContent = hudText();
+}
+/* a row of external links, always opening in a new tab */
+function linkRow(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    if (!list[i][1]) continue;
+    out.push('<a class="btn" href="' + list[i][1] + '" target="_blank" rel="noopener noreferrer">' +
+             list[i][0] + '</a>');
+  }
+  return out.join('');
 }
 function hudText() {
   var nm = layerLabel(layerName);
@@ -1290,6 +1768,7 @@ var touch = null;
    2D canvas and the WebGL canvas underneath the label overlay. */
 function bindPointer(el) {
   el.addEventListener('mousedown', function (e) {
+    closeSpot();                   /* any new press dismisses the menu */
     fly = null;                    /* the finger takes over from any flight */
     lastMoveT = loopNow;
     drag = { x: e.offsetX, y: e.offsetY };
@@ -1312,6 +1791,12 @@ function bindPointer(el) {
     if (hover !== -1) { hover = -1; refreshUI(); }
   });
   el.addEventListener('click', function (e) { doPick(e.offsetX, e.offsetY); });
+  /* right click: the spot menu. preventDefault keeps the BROWSER's menu away - this
+     is a map, and "Save image as..." is not what a right click is asking for here. */
+  el.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    openSpot(e.offsetX, e.offsetY);
+  });
   el.addEventListener('dblclick', function (e) {
     doPick(e.offsetX, e.offsetY);
     /* one gesture for "take me there", ANIMATED: the view pulls back (so the
@@ -1324,6 +1809,7 @@ function bindPointer(el) {
   el.addEventListener('wheel', function (e) {
     e.preventDefault();
     stopInertia();               /* a wheel step takes over from any glide */
+    closeSpot();
     fly = null;                  /* ...and from any flight */
     var f = zoomFactor(e.deltaY);
     /* WHEEL = ZOOM, as it always was. A previous version made the plain wheel move
@@ -1757,6 +2243,7 @@ function keyStep() {
    second finger joins and leaves without moving. */
 var TAP_SLOP = 8, TAP_MS = 320, TAP_DIST = 40;
 var lastTap = { t: 0, x: 0, y: 0 };
+var longPressTimer = null;    /* a touch long press opens the spot menu */
 function touchHandler(e, start) {
   e.preventDefault();
   var ts = e.touches;
@@ -1766,14 +2253,26 @@ function touchHandler(e, start) {
     var x = ts[0].clientX - r.left, y = ts[0].clientY - r.top;
     if (start) {
       stopInertia();
+      closeSpot();
       touch = { mode: 'tap', x: x, y: y, sx: x, sy: y, t: nowMs(), moved: 0 };
       startMotion(x, y);
+      /* LONG PRESS = the right click of a touch screen. The timer is armed here and
+         disarmed by any movement past the tap slop (below) or by the finger lifting,
+         so it can never fire in the middle of a drag. */
+      if (longPressTimer) clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(function () {
+        longPressTimer = null;
+        if (!touch || touch.mode !== 'tap' || touch.moved > TAP_SLOP) return;
+        touch.mode = 'held';
+        openSpot(x, y);
+      }, 500);
     } else if (touch && touch.mode === 'tap') {
       var d0 = Math.hypot(x - touch.sx, y - touch.sy);
       touch.moved = Math.max(touch.moved, d0);
       if (d0 > TAP_SLOP) {                   /* a drag, not a tap */
         touch.mode = 'pan';
         touch.x = x; touch.y = y;
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
         return;
       }
     } else if (touch && touch.mode === 'pan') {
@@ -1803,7 +2302,9 @@ function touchHandler(e, start) {
 function touchEnd(e) {
   e.preventDefault();
   var r = canvasRect;
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   if (!touch) return;
+  if (touch.mode === 'held') { touch = null; lastTap.t = 0; return; }
   if (touch.mode === 'pinch') {
     /* everything lifted: remember where, so the next tap is not seen as a pair */
     touch = null;
@@ -1894,8 +2395,20 @@ window.addEventListener('resize', function () {
 
 /* Read-only introspection: the two animations above are timed, and a test that can
    only see the canvas cannot tell "the tilt finished" from "the tilt never ran".
-   Nothing here writes to the view. */
+   Nothing here writes to the view (setLang is the one exception: the language is a
+   property of the whole app, and driving the selector from a test means driving the
+   same entry point the menu row uses). */
 window.ViewState = {
+  lang: function () { return LANG; },
+  /* the ONE writing entry point here: the language is a property of the whole app
+     and a test must drive the same path the menu chip does */
+  setLang: function (code) { setLang(code); },
+  cityName: function (i) { return cityName(i); },
+  cityNamesLoaded: function () { return Object.keys(cityNames); },
+  countryName: function (i) { return feats[i] ? countryName(feats[i].props) : ''; },
+  capitals: function (i) { return capitalsOf(i).map(function (e) {
+    return { n: places[e.i].n, roles: e.roles, primary: e.primary };
+  }); },
   rollDeg: function () { return C.frameRoll(FRAME) * 180 / Math.PI; },
   centre: function () { return [view.lon, view.lat]; },
   k: function () { return view.k; },

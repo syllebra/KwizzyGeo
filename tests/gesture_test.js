@@ -54,7 +54,7 @@ global.document = global.window.document;
 global.requestAnimationFrame = global.window.requestAnimationFrame;
 const files = { 'so50.geojson': __dirname + '/../data/so50.geojson', 'countries.geojson': __dirname + '/../data/countries.geojson', 'ne10m.geojson': __dirname + '/../data/ne10m.geojson', 'places.json': __dirname + '/../data/places.json' };
 /* keyed on the basename: the app fetches data/<name> */
-global.fetch = (u) => Promise.resolve({ ok: true, json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '')] || files['countries.geojson'], 'utf8')) });
+global.fetch = (u) => Promise.resolve({ ok: true, json: () => JSON.parse(fs.readFileSync(files[String(u).replace(/^.*\//, '').replace(/\?.*$/, '')] || files['countries.geojson'], 'utf8')) });
 
 new Function(fs.readFileSync(__dirname + '/../core.js', 'utf8')).call();
 new Function(fs.readFileSync(__dirname + '/../app.js', 'utf8')).call();
@@ -199,8 +199,8 @@ setTimeout(function () {
   /* Layer / Overlay, and no View group: the globe view was removed and the
      PROJECTION group is archived (ARCHIVED_PROJECTIONS in app.js). The registry
      still works via ?proj=. */
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 2,
-        items.getElementsByClassName('mgroup').length + ' groups');
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3,
+        items.getElementsByClassName('mgroup').length + ' groups (Layer, Overlay, Language)');
   check('the projection rows are archived, not rendered',
         !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
   const perspRow = rows.find(r => r.dataset.id === 'layer:50m');

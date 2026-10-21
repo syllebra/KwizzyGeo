@@ -4,6 +4,11 @@ Geographical Quiz Game — the map half: a pure HTML/CSS/JS view of Natural Eart
 admin-0 country polygons, no libraries and no map tiles, drawn on one fullscreen
 `<canvas>` in the **Eckert IV** equal-area pseudocylindrical projection.
 
+**Data: [Natural Earth](https://www.naturalearthdata.com/), public domain** — the
+50m sovereignty, 110m countries, 10m map units and 10m populated-places layers, at
+v5.1.1 / v5.1.2, converted by the scripts in `tools/`. If another source is added
+later it goes in that list, and in the credit line at the bottom of the map's menu.
+
 Serve the root, open `index.html`, and it runs — no build step. The doc below
 is the viewer's own account of how it works. Three layers ship in `data/`; two are
 loaded at startup and **50m sovereignty is the default**:
@@ -44,7 +49,12 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
 | `data/places.json` | Natural Earth **10m populated places**: 7,342 cities as a point table, 0.59 MB |
-| `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json`) |
+| `data/cities.<code>.json` | the localised city names, one file per language (18), fetched only when that language is picked |
+| `data/flags/<cc>.svg` | 249 country flags, vendored SVGs (see **Flags**) |
+| `flags.css` | the generated stylesheet: `.fi` / `.fi-fr` → the right SVG |
+| `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json` + the 18 `cities.<code>.json`) |
+| `tools/shp2geojson10m.py` | the 10m map-units converter, including every `NAME_<CODE>` the selector needs |
+| `tools/fetch_flags.py` | copies the flags the app can ask for and regenerates `flags.css` |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
@@ -298,6 +308,136 @@ crowded corner drops what does not fit), and a city label that collides above it
 tries once **below** it before giving up. City labels are placed after country labels
 against the same boxes, so a city never lands on a country name.
 
+## Language
+
+The map speaks **18 languages**, and it is Natural Earth's data all the way down:
+`so50.geojson` / `ne10m.geojson` carry `NAME_<CODE>` for each, and the places carry
+`NAME_<CODE>` too. The selector is a wrapping row of chips in the burger sheet, under
+**Language**, each labelled in its own script so a speaker finds it without reading a
+list of exonyms; `?lang=fr` and `localStorage` set it too.
+
+**Only the 18 languages both layers carry are offered.** Natural Earth has Italian,
+Polish and Turkish city names but no Italian/Polish/Turkish *country* names — offering
+Italian would put Italian city names on a map whose country names stayed English,
+which is worse than not offering Italian. (The optional 110m layer carries only six;
+there the app falls back to the English name.)
+
+**City names are a separate file per language.** Eighteen languages × 7 342 places
+would double `places.json`, so `data/cities.<code>.json` holds only the names that
+**differ** from the base name — 31 kB for French (1 536 of 7 342 differ), 182 kB for
+Russian and ~150–250 kB for a non-Latin script, where every name differs. The file is
+fetched the first time that language is picked and never before, so a player who never
+opens the selector downloads nothing.
+
+**The index trap.** Those files are keyed by the *position* of a place in
+`places.json`, so a file built from another Natural Earth release would put "Londres"
+on Lagos and nothing would crash. Both sides therefore carry `sum`, a fingerprint of
+the place list, plus `n`; the app refuses a mismatch and falls back to the base names.
+`tests/lang_test.js` checks the real files against each other, and checks the two names
+you asked about: **London → Londres**, Vienna → Vienne / Wien / Viena, Moscow → Moscou /
+Москва.
+
+A country panel shows the localised name and lists the others under **also**; a city
+panel shows the localised name and puts the base name under **also** when they differ.
+
+**Data credit** lives at the bottom of the burger sheet: *Data Natural Earth · public
+domain*, linking to <https://www.naturalearthdata.com/>. That is the source of every
+layer, and it is public domain, so the credit is a courtesy rather than an obligation —
+but it belongs where a curious player can find it, not only in this README.
+
+### Bumping the data
+The scripts carry `?v=N` in `index.html`; the data files carry `DATA_V` in `app.js`,
+because they are fetched by code and a rebuilt layer would otherwise keep coming from
+the browser cache. **Bump `DATA_V` whenever a file in `data/` changes.**
+
+## Capitals
+
+**A country can have several capitals, and Natural Earth says which is which** in
+`CAPIN`: South Africa has three (Pretoria administrative, Cape Town legislative,
+Bloemfontein judicial), Bolivia two (Sucre constitutional, La Paz administrative), the
+Netherlands two (Amsterdam de facto, The Hague official+legislative).
+
+The panel used to take the first match, and for South Africa that named
+**Bloemfontein** — the judicial seat, 460 000 people — as "the capital". The rule now:
+
+1. only places Natural Earth flags as the country's capital (`ADM0CAP = 1`), so a
+   former capital, a regional capital, or a place filed `Admin-0 capital` with no role
+   and no flag (Johannesburg) is not a candidate;
+2. among those, the **administrative** seat leads — that is what a reader means by
+   "the capital";
+3. every other seat is listed under it **with its role**, which is the point of the
+   exercise.
+
+`CAPIN` is stored at 16 characters by Natural Earth, so values arrive truncated
+(`"Legislative cap"`, `"Official, legis"`), plus one typo (`"Offical capital"` on
+Dodoma) and three values that are not roles at all (`"UN Headquarters"` on New York,
+`"EU Parliment"` on Strasbourg, `"While Jerulsale…"` on Tel Aviv). `CAP_WORDS` in
+`app.js` recognises every value that appears in the data and `CAP_ORDER` normalises the
+display order, so a second role arriving after a comma or an "and" is not lost.
+
+A city panel also shows the role when the city is a capital.
+
+## Links out
+
+Two buttons at the bottom of every panel:
+
+* **Wikipedia** — the article for the **English** name (`NAME_EN` for a country,
+`e` for a city), not the name on screen: the panel follows the language selector and an
+encyclopedia does not. Verified: all 201 country names in the 50m layer resolve to an
+article as-is. City names mostly do — 239 of 7 100 do not, and 1 427 are disambiguation
+pages — which is why the URL is `w/index.php?…&go=Go`: it 302s straight to the article
+when the title is right *and* falls back to the search results when it is not, in one
+request. (Checked against the live API.)
+* **Google Maps** — the country's `LABEL` point (or the city's own coordinates) at the
+zoom on screen.
+
+**Right-click the map** (or **long-press** on touch) for the point menu: the coordinates
+under the cursor, the zoom, *Open in Google Maps* at that scale, and *Copy coordinates*.
+The long press is cancelled by any movement, so it can never fire mid-drag, and the menu
+flips back inside the viewport when opened near an edge. The copy button falls back to
+`execCommand` because `navigator.clipboard` needs a secure context and this app is served
+over plain HTTP on a LAN box.
+
+## Flags
+
+Country flags are SVG, from **[lipis/flag-icons](https://github.com/lipis/flag-icons)**
+— MIT licence, © 2013 Panayiotis Lipiridis (the licence text ships as
+`flags.LICENSE.txt`, beside the CSS). Class names are the library's own, so the API
+is one line:
+
+```html
+<span class="fi fi-fr"></span>          <!-- 4:3 -->  <span class="fi fi-fr fis"></span>  <!-- square -->
+```
+
+**Vendored, not `<link>`-ed from a CDN.** The app is a static page that has to work
+served from a LAN box with no internet, and its whole ethos is "no libraries, no
+tiles". A `<link>` to jsDelivr would make every viewer fetch a third-party asset and
+would make the flags vanish in exactly the case where the map still works. So
+`tools/fetch_flags.py` copies the 249 SVGs the app can actually ask for (1.6 MB, of
+which a browser fetches only the ones it paints — each flag is a `background-image`)
+and generates `flags.css`. Re-run it after adding a layer:
+
+    curl -sSLo f.zip https://github.com/lipis/flag-icons/archive/refs/tags/v7.6.0.zip
+    unzip f.zip && python3 tools/fetch_flags.py flag-icons-7.6.0
+
+**Where a flag shows:** on the name row of a country panel, on the name row of a city
+panel (from the city's country), and on each language chip.
+
+**Natural Earth does not simply give the ISO code**, and pretending it does is how you
+get no flags on half the interesting countries: `ISO_A2` is `-99` for 17 features of the
+50m layer — France, Germany's neighbours, Norway, the Netherlands, the United States,
+the United Kingdom, New Zealand, Israel, Finland, Denmark, Georgia, Australia, China —
+and sub-codes like `CN-TW` / `FR-973` appear as well. `NE_ISO2` in `app.js` maps the
+unambiguous ones by `GEOUNIT`, and the genuinely ambiguous ones — **Somaliland,
+Northern Cyprus, Siachen Glacier, the UNDOF Zone** — are deliberately left **without a
+flag** rather than given a wrong one. A flag is a claim about sovereignty; a missing
+one is honest, a wrong one is not.
+
+**A language is not a country.** The flag on a language chip is a convention — the
+language's main country of origin — and it is one table (`LANG_FLAG`), because it is a
+judgement call: `en` → gb rather than us, `pt` → pt, `ar` → sa, `es` → es. Change a
+line and the chip follows.
+
 ## Glass
 
 Every floating surface — HUD, help line, info panel, menu sheet, scrim — is the same
@@ -420,9 +560,9 @@ rather than on pixels.
   `?proj=ortho` projection (any `recenter: true` entry of `PROJ`), `?dbg=1` shows
   the reprojection time, piece count and viewport in the HUD
 
-**Tests.** Eleven node scripts in `tests/`, run as `node tests/<script>.js` (they
+**Tests.** Fourteen node scripts in `tests/`, run as `node tests/<script>.js` (they
 locate `core.js`, `app.js` and the data through `__dirname`, so the working
-directory does not matter). All eleven exit 0: the nine asserting ones end in
+directory does not matter). All fourteen exit 0: the twelve asserting ones end in
 `ALL PASS` (`harness.js` only prints and asserts nothing), and `polarchk.js` /
 `visible_check.js <proj>` print per-centre tables to read.
 
@@ -438,6 +578,9 @@ directory does not matter). All eleven exit 0: the nine asserting ones end in
 | `visible_check.js <proj>` | what is painted vs the source data, per centre |
 | `grat_test.js` | the graticule covers every visible meridian/parallel, at 8 centres x 2 zooms x all 5 re-centring projections (161 checks) |
 | `places_test.js` | the city table is well formed, and its visibility rule matches the geometry (a place, its antipode, the limb) at 8 centres (42 checks) |
+| `links_test.js` | the capital rule (South Africa → Pretoria, all three seats listed, Johannesburg excluded; Bolivia/Netherlands/Malaysia/Japan; Lagos and New York rejected), every `CAPIN` value parses, both URL builders, and the spot menu open/place/flip/close plus the long press (56 checks) |
+| `flags_test.js` | every code the app can ask for has an SVG and a CSS rule (driven by the two tables, parsed out of `app.js` so they cannot drift); every `url()` resolves; the licence ships; and Somaliland / Northern Cyprus / Siachen stay deliberately flagless (106 checks) |
+| `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, colour, tracking, and the capital's exemption from the rank cut (19 checks) |
 
 The measurement probes quoted in this document (`recenter_cost.js`,
