@@ -55,6 +55,16 @@ var FLAG_ASK = [
   { id: 'flags', label: 'Country \u2192 flag', sub: 'a country is named: pick its flag' }
 ];
 
+/* HOW LONG A ROUND IS. 0 means "All": every country of the pool, once - the whole
+   zone, which is a real game for a continent (Africa is 54 questions) and a long one
+   for the world (195). A session never asks more questions than its pool holds,
+   whatever is asked for. */
+var LENS = [
+  { id: 10, label: '10',  sub: 'a short round' },
+  { id: 25, label: '25',  sub: 'a long round' },
+  { id: 0,  label: 'All', sub: 'every country of the zone, once' }
+];
+
 var DIFFS = [
   { id: 'easy',   label: 'Easy',   sub: 'the wrong answers are far away' },
   { id: 'medium', label: 'Normal', sub: 'the wrong answers come from anywhere' },
@@ -239,21 +249,29 @@ function question(sess, r) {
 }
 
 /* ---------- a session ---------- */
-/* cfg: {mode, zone, difficulty, len}. `items` is the whole item list; the pool is
-   derived once, so a session cannot change its own rules halfway. */
+/* cfg: {mode, zone, difficulty, len, variant}. `items` is the whole item list; the pool
+   is derived ONCE, so a session cannot change its own rules halfway - and the length is
+   resolved against that pool, so "All" on a six-country zone is six questions and "25"
+   on the same zone is six too, not twenty-five with repeats. */
 function newSession(items, cfg, seed) {
   var c = {
     mode: (byId(MODES, cfg.mode) || MODES[0]).id,
     zone: (byId(ZONES, cfg.zone) || ZONES[0]).id,
     difficulty: (byId(DIFFS, cfg.difficulty) || DIFFS[1]).id,
-    len: Math.max(1, Math.min(50, cfg.len | 0 || 10)),
+    len: 10,
+    lenWanted: 10,
     /* only meaningful in flag mode; null elsewhere so a session cannot carry a
        setting that does not apply to it */
     variant: null
   };
   if (c.mode === 'flag') c.variant = (byId(FLAG_ASK, cfg.variant) || FLAG_ASK[0]).id;
+  var pool = poolFor(items, c.zone, c.mode);
+  var want = (cfg.len === 0 || cfg.len === 'all' || cfg.len === 'All') ? 0 : (cfg.len | 0);
+  if (!want) want = pool.length;
+  c.lenWanted = want;
+  c.len = Math.max(1, Math.min(want, pool.length || want, 500));
   return {
-    cfg: c, pool: poolFor(items, c.zone, c.mode),
+    cfg: c, pool: pool,
     used: {}, i: 0, score: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };
@@ -278,7 +296,7 @@ function answerQuestion(sess, q, chosen) {
 }
 
 var QUIZCORE = {
-  N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK,
+  N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,
   /* exposed for the tests, and for nothing else */

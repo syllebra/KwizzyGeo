@@ -21,6 +21,10 @@ var M = window.MapApp;
    browser has no audio at all, so every call goes through J() and is a no-op when gone. */
 var JU = window.Juice || null;
 function J() { return JU; }
+/* the record of everything played (stats.js). Optional exactly like the juice: the
+   quiz runs without it, it just cannot remember anything. */
+var ST = window.KwizzyStats || null;
+function S() { return ST; }
 if (!Q || !M) return;
 
 var quizEl = document.getElementById('quiz');
@@ -38,6 +42,7 @@ try {
       for (var i1 = 0; i1 < Q.ZONES.length; i1++) if (o.zone === Q.ZONES[i1].id) cfg.zone = o.zone;
       for (var i2 = 0; i2 < Q.DIFFS.length; i2++) if (o.difficulty === Q.DIFFS[i2].id) cfg.difficulty = o.difficulty;
       for (var i3 = 0; i3 < Q.FLAG_ASK.length; i3++) if (o.variant === Q.FLAG_ASK[i3].id) cfg.variant = o.variant;
+      for (var i4 = 0; i4 < Q.LENS.length; i4++) if (o.len === Q.LENS[i4].id) cfg.len = o.len;
     }
   }
 } catch (e) { /* private mode: keep the defaults */ }
@@ -49,6 +54,9 @@ var screen = 'start';        /* start | question | end */
 var soundOpen = false;       /* the sound & music drawer, over whichever screen */
 var soundEl = document.getElementById('qz-sound');   /* a SIBLING of #quiz, so a screen
                                                        re-render cannot wipe the drawer */
+var statsOpen = false;       /* the record of everything played */
+var statsEl = document.getElementById('qz-stats');
+var statsArmed = false;      /* the Reset button has been pressed once */
 var session = null, q = null, answered = false, chosen = -1;
 var infoMsg = '';
 var bumped = false;          /* the score just went up: its next render bumps */
@@ -81,16 +89,16 @@ function modeLabel(id) {
 }
 function flagsReady() { return M.ready(); }
 function capsReady() { return M.placesReady(); }
-function bestKey() { return 'kwizzy.quiz.best.' + cfg.mode + '.' + cfg.zone + '.' + cfg.difficulty; }
-function bestOf() {
-  try { var v = parseInt(window.localStorage.getItem(bestKey()), 10); return isFinite(v) ? v : -1; }
-  catch (e) { return -1; }
+/* THE BEST SCORE OF THIS CONFIG comes from stats.js, which compares by RATIO (so a
+   25/25 beats a 10/10 and a 9/10 beats a 4/5) and keeps the length it was set at -
+   the old per-key integer died with the fixed 10-question round. */
+function cfgForStats() {
+  return { mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty,
+           variant: cfg.mode === 'flag' ? cfg.variant : null };
 }
-function saveBest(n) {
-  var b = bestOf();
-  if (n <= b) return b;
-  try { window.localStorage.setItem(bestKey(), String(n)); } catch (e) {}
-  return n;
+function bestOf() {
+  if (!S()) return { score: 0, len: 0, ratio: 0, played: 0 };
+  return S().best(cfgForStats());
 }
 
 /* ---------- screen 1: the first page ---------- */
@@ -103,7 +111,7 @@ function startHTML() {
      pulsing light of the app, and it is decorative only (aria-hidden) */
   h += '<div class="qz-brand"><span class="qz-halo" aria-hidden="true"></span>' +
        '<h1>Kwizzy<span>Geo</span></h1>' +
-       '<p>Ten questions, six answers, one map.</p></div>';
+       '<p>Six answers, one map — a round is 10, 25 or the whole zone.</p></div>';
 
   h += '<div class="qz-h">Find</div><div class="qz-modes">';
   for (var i = 0; i < Q.MODES.length; i++) {
@@ -137,6 +145,13 @@ function startHTML() {
   }
   h += '</div>';
 
+  h += '<div class="qz-h">Questions</div><div class="chips qz-row">';
+  for (var L = 0; L < Q.LENS.length; L++) {
+    h += '<button class="chip' + (cfg.len === Q.LENS[L].id ? ' on' : '') + '" data-len="' +
+         Q.LENS[L].id + '">' + esc(Q.LENS[L].label) + '</button>';
+  }
+  h += '</div><div class="qz-note">' + esc(lenSub()) + '</div>';
+
   h += '<div class="qz-h">Difficulty</div><div class="chips qz-row">';
   for (var d = 0; d < Q.DIFFS.length; d++) {
     h += '<button class="chip' + (cfg.difficulty === Q.DIFFS[d].id ? ' on' : '') + '" data-diff="' +
@@ -150,10 +165,24 @@ function startHTML() {
   h += '<div class="qz-note qz-info">' + esc(infoMsg || defaultInfo()) + '</div>';
   h += '<div class="qz-foot">' +
        '<span class="qz-links"><a class="qz-link" data-act="explore">Explore the map instead</a>' +
-       '<a class="qz-link" data-act="snd-open">Sound &amp; music</a></span>' +
+       '<a class="qz-link" data-act="snd-open">Sound &amp; music</a>' +
+       '<a class="qz-link" data-act="stats-open">Stats</a></span>' +
        '<span class="qz-best">' + bestText() + '</span></div>';
   h += '</div>';
   return h;
+}
+/* the note under the length chips: "All" needs to say how many that actually is, and
+   a zone smaller than the asked length says so instead of silently repeating */
+function lenSub() {
+  var want = cfg.len;
+  var n = flagsReady() ? Q.poolFor(M.items(), cfg.zone, cfg.mode).length : 0;
+  if (!want) {
+    return n ? ('every country of ' + zoneLabel(cfg.zone) + ': ' + n + ' questions')
+             : 'every country of the zone, once';
+  }
+  if (n && n < want) return n + ' countries in ' + zoneLabel(cfg.zone) + ': the round is ' + n + ' questions';
+  for (var i = 0; i < Q.LENS.length; i++) if (Q.LENS[i].id === want) return Q.LENS[i].sub;
+  return '';
 }
 function diffSub(id) {
   for (var i = 0; i < Q.DIFFS.length; i++) if (Q.DIFFS[i].id === id) return Q.DIFFS[i].sub;
@@ -166,8 +195,10 @@ function defaultInfo() {
 }
 function bestText() {
   var b = bestOf();
-  if (b < 0) return '';
-  return 'best here: ' + b + ' / ' + cfg.len;
+  if (!b.len) return '';
+  /* the length is printed with the score: it is what makes two bests comparable */
+  return 'best here: ' + b.score + ' / ' + b.len +
+         (b.played > 1 ? ' · ' + b.played + ' rounds' : '');
 }
 
 /* ---------- screen 2: a question ---------- */
@@ -290,9 +321,19 @@ function endHTML() {
     if (a.ok) ok++;
     dots += '<span class="qz-dot' + (a.ok ? ' good' : ' bad') + '" style="--i:' + i + '"></span>';
   }
+  /* the run goes into the record BEFORE the best is read, so this round can be the
+     best one - and so the record survives a player who closes the tab on the score */
   var before = bestOf();
-  var best = saveBest(ok);
-  var fresh = ok > before;              /* a new best: the number flashes gold, once */
+  if (S()) S().endRun(session);
+  var after = bestOf();
+  var fresh = !before.len || (after.score === ok && after.len === n && ok / n > before.ratio);
+  /* the running total, read ONCE (the sheet and this line must agree, and reading the
+     store three times was three JSON parses per render) */
+  var ever = '';
+  if (S()) {
+    var sum = S().summary();
+    if (sum.asked > n) ever = ' \u00b7 ' + sum.correct + ' right of ' + sum.asked + ' ever';
+  }
   var msg = ok === n ? 'Every one. Ridiculous.' :
             ok >= n * 0.8 ? 'Strong. The map is yours.' :
             ok >= n * 0.5 ? 'Solid half. Again?' :
@@ -304,7 +345,9 @@ function endHTML() {
     '<div class="qz-dots">' + dots + '</div>' +
     '<div class="qz-endmsg">' + esc(msg) + '</div>' +
     '<div class="qz-note' + (fresh ? ' qz-best-new' : '') + '">' +
-    (fresh ? 'new best: ' : 'best here: ') + best + ' / ' + n + '</div>' +
+    (fresh ? 'new best: ' : 'best here: ') + after.score + ' / ' + after.len +
+    /* the whole record, one line: this run's place in it */
+    ever + '</div>' +
     '<div class="qz-actions"><button class="qz-play" data-act="again">Play again</button>' +
     '<button class="qz-ghost" data-act="menu">Change settings</button></div>' +
     '</div>';
@@ -375,6 +418,102 @@ function soundToggle(open) {
   soundRender();
 }
 
+/* ---------- the stats sheet ----------
+   Everything stats.js remembers, in the order a player cares about it: what I have done
+   overall, how each mode and zone treats me, my best rounds, and the countries I keep
+   getting wrong. Read-only except the Reset, which is a two-step button (a one-tap
+   erase of a season's record is not a thing to offer by accident). */
+function pctText(v, asked) {
+  if (!asked) return '\u2014';
+  return Math.round(v * 100) + '%';
+}
+function statRows(list, labelOf, n) {
+  var h = '', shown = 0;
+  for (var i = 0; i < list.length && shown < (n || 99); i++) {
+    var r = list[i];
+    shown++;
+    h += '<div class="qz-srow"><span class="k">' + esc(labelOf(r.key)) + '</span>' +
+         '<span class="v">' + pctText(r.pct, r.asked) + '</span>' +
+         '<span class="q">' + r.correct + '/' + r.asked + '</span>' +
+         (r.bestLen ? '<span class="b">best ' + r.best + '/' + r.bestLen + '</span>' : '') +
+         '</div>';
+  }
+  return h || '<div class="qz-note">Nothing yet.</div>';
+}
+function countryRows(list) {
+  var h = '';
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    h += '<div class="qz-crow">' + flagSpan(c.flag, 'fis') +
+         '<span class="nm">' + esc(c.name) + '</span>' +
+         '<span class="q">' + c.correct + '/' + c.asked + '</span>' +
+         '<span class="v">' + pctText(c.pct, c.asked) + '</span></div>';
+  }
+  return h;
+}
+function statsHTML() {
+  var st = S();
+  if (!st) {
+    return '<div class="qz-scrim" data-act="stats-close"></div><div class="qz-sheet">' +
+           '<div class="qz-h">Stats</div><div class="qz-note">No stats module on this page.</div></div>';
+  }
+  var m = st.summary();
+  /* a PINNED header and footer with a scrolling body: the record is longer than a
+     phone screen, and a sheet whose title scrolls away and whose Close button is below
+     the fold is a sheet you cannot get out of. */
+  var h = '<div class="qz-scrim" data-act="stats-close"></div><div class="qz-sheet qz-statsheet">';
+  h += '<div class="qz-shead"><span class="qz-h">Your record</span>' +
+       '<button class="qz-x qz-xs" data-act="stats-close" aria-label="Close">\u2715</button></div>';
+  h += '<div class="qz-sbody">';
+  if (!m.asked) {
+    h += '<div class="qz-note">Nothing played yet. A round writes itself down here.</div>';
+  } else {
+    h += '<div class="qz-figs">' +
+         '<div class="fig"><b>' + m.asked + '</b><span>questions</span></div>' +
+         '<div class="fig"><b>' + Math.round(m.pct * 100) + '%</b><span>right</span></div>' +
+         '<div class="fig"><b>' + m.bestStreak + '</b><span>best streak</span></div>' +
+         '<div class="fig"><b>' + m.played + '</b><span>rounds kept</span></div>' +
+         '</div>';
+    h += '<div class="qz-h">By mode</div>' + statRows(m.modes, modeLabel);
+    h += '<div class="qz-h">By zone</div>' + statRows(m.zones, zoneLabel);
+    if (m.cfgs.length) {
+      h += '<div class="qz-h">Best rounds</div>' +
+           statRows(m.cfgs.slice(0, 4), function (k) {
+             var p = String(k).split('|');
+             return modeLabel(p[0]) + (p[1] ? ' \u00b7 ' + zoneLabel(p[1]) : '') +
+                    (p[2] ? ' \u00b7 ' + diffLabel(p[2]) : '');
+           });
+    }
+    if (m.missed.length) h += '<div class="qz-h">Costs you the most</div>' + countryRows(m.missed);
+    if (m.known.length) h += '<div class="qz-h">Never missed</div>' + countryRows(m.known.slice(0, 6));
+  }
+  h += '</div>';
+  h += '<div class="qz-sfoot">' +
+       '<button class="qz-ghost" data-act="stats-reset">' +
+       (statsArmed ? 'Really erase everything?' : 'Reset stats') + '</button>' +
+       '<button class="qz-play" data-act="stats-close">Done</button></div>';
+  h += '</div>';
+  return h;
+}
+function statsRender() {
+  if (!statsEl) statsEl = document.getElementById('qz-stats');
+  if (!statsEl) return;
+  statsEl.innerHTML = statsOpen ? statsHTML() : '';
+  statsEl.className = statsOpen ? 'qz-stats on' : 'qz-stats';
+}
+function statsToggle(open) {
+  statsOpen = (open === undefined) ? !statsOpen : !!open;
+  if (!statsOpen) statsArmed = false;
+  statsRender();
+}
+function statsReset() {
+  if (!statsArmed) { statsArmed = true; statsRender(); return; }
+  statsArmed = false;
+  if (S()) S().reset();
+  statsRender();
+  render();          /* the start page's "best here" line is now empty */
+}
+
 /* ---------- render ---------- */
 function render() {
   if (!quizEl) return;
@@ -395,6 +534,7 @@ function render() {
     bodyEl.classList.add('qz-owning');
   }
   soundRender();
+  statsRender();
 }
 function info(msg) { infoMsg = msg || ''; if (screen === 'start') render(); }
 
@@ -449,6 +589,7 @@ function choose(i) {
   answered = true;
   chosen = i;
   bumped = res.ok;
+  if (S()) S().answer(q, res.ok, q.answer);
   render();
   bumped = false;
   var j = J();
@@ -522,6 +663,9 @@ function onQuizClick(e) {
       else if (act === 'explore') hide();
       else if (act === 'snd-open') soundToggle(true);
       else if (act === 'snd-close') soundToggle(false);
+      else if (act === 'stats-open') statsToggle(true);
+      else if (act === 'stats-close') statsToggle(false);
+      else if (act === 'stats-reset') statsReset();
       return;
     }
     /* the three switches and the music choice: juice.js owns the state, this renders it */
@@ -541,6 +685,15 @@ function onQuizClick(e) {
     if (el) { tapSfx(); cfg.zone = el.getAttribute('data-zone'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'variant');
     if (el) { tapSfx(); cfg.variant = el.getAttribute('data-variant'); storeCfg(); info(''); render(); return; }
+    el = attrUp(e.target, 'len');
+    if (el) {
+      tapSfx();
+      cfg.len = parseInt(el.getAttribute('data-len'), 10) || 0;
+      storeCfg();
+      info('');
+      render();
+      return;
+    }
     el = attrUp(e.target, 'diff');
     if (el) { tapSfx(); cfg.difficulty = el.getAttribute('data-diff'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'i');
@@ -556,6 +709,7 @@ function onQuizClick(e) {
 if (quizEl && quizEl.addEventListener) {
   quizEl.addEventListener('click', onQuizClick);
   if (soundEl) soundEl.addEventListener('click', onQuizClick);
+  if (statsEl) statsEl.addEventListener('click', onQuizClick);
 
   /* THE HIGHLIGHT MOVED: Kwizzy's `select` pip belongs to a selection step this game
      does not have (one tap answers). The nearest honest equivalent is the pointer
@@ -615,11 +769,15 @@ window.addEventListener('keydown', function (e) {
   if (screen === 'question') {
     if (e.key >= '1' && e.key <= '6') { tapSfx(); choose(parseInt(e.key, 10) - 1); e.preventDefault(); return; }
     if (e.key === 'Enter' || e.key === ' ') { next(); e.preventDefault(); return; }
-    if (e.key === 'Escape') { quit(); return; }
+    if (e.key === 'Escape') {
+      if (soundOpen || statsOpen) { soundToggle(false); statsToggle(false); return; }
+      quit(); return;
+    }
   } else if (screen === 'end') {
     if (e.key === 'Enter') { startSession(); e.preventDefault(); return; }
     if (e.key === 'Escape') { quit(); return; }
   } else if (screen === 'start') {
+    if (e.key === 'Escape' && (soundOpen || statsOpen)) { soundToggle(false); statsToggle(false); return; }
     if (e.key === 'Enter') { startSession(); e.preventDefault(); }
   }
 });
@@ -655,6 +813,9 @@ window.Quizzy = {
     return {
       screen: screen,
       mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty, len: cfg.len,
+      /* the length of the ROUND IN PROGRESS, which "All" resolves against the pool
+         (cfg.len stays 0 = All, so the choice survives) */
+      roundLen: session ? session.cfg.len : cfg.len,
       variant: cfg.variant,
       index: session ? session.i : 0, score: session ? session.score : 0,
       answered: answered, chosen: chosen,
@@ -676,6 +837,7 @@ window.Quizzy = {
     if (patch.zone) cfg.zone = patch.zone;
     if (patch.difficulty) cfg.difficulty = patch.difficulty;
     if (patch.variant) cfg.variant = patch.variant;
+    if (patch.len !== undefined) cfg.len = patch.len | 0;
     storeCfg();
     if (screen === 'start') render();
   },
@@ -685,6 +847,10 @@ window.Quizzy = {
   quit: function () { quit(); },
   html: function () { return quizEl ? quizEl.innerHTML : ''; },
   best: function () { return bestOf(); },
+  stats: function () { return S(); },
+  statsOpen: function () { return statsOpen; },
+  statsToggle: function (open) { statsToggle(open); return statsOpen; },
+  statsHtml: function () { return statsEl ? statsEl.innerHTML : ''; },
   /* the sound drawer, and the juice module itself (null when absent) */
   sound: function () { return { open: soundOpen, html: soundEl ? soundEl.innerHTML : '' }; },
   soundToggle: function (open) { soundToggle(open); return soundOpen; },

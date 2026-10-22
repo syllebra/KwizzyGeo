@@ -71,7 +71,7 @@ const els = {
   menu: DivEl('menu'), burger: DivEl('burger'), items: DivEl('items'), scrim: DivEl('scrim'),
   spot: DivEl('spot'), quiz: DivEl('quiz'),
   /* the juice: the drawer (a sibling of #quiz) and the particle layer */
-  'qz-sound': DivEl('qz-sound'), burst: DivEl('burst')
+  'qz-sound': DivEl('qz-sound'), 'qz-stats': DivEl('qz-stats'), burst: DivEl('burst')
 };
 const bodyEl = DivEl('body');
 const store = {};
@@ -136,6 +136,8 @@ load('quizcore.js');
    through module.exports, so it is required and put where the page puts it */
 global.window.KwizzyPlaylist = require(__dirname + '/../media/music/playlist.js');
 load('juice.js');
+/* stats.js is UMD like the playlist module: required here, put where the page puts it */
+global.window.KwizzyStats = require(__dirname + '/../stats.js');
 load('quiz.js');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -169,6 +171,11 @@ async function afterLoad() {
         /data-diff="easy"/.test(h) && /data-diff="medium"/.test(h) && /data-diff="hard"/.test(h));
   check('World is the default zone', Z().zone === 'world');
   check('the start page has a Play button', /data-act="play"/.test(h));
+  /* the round length: 10, 25 or the whole zone */
+  check('the start page offers three round lengths',
+        /data-len="10"/.test(h) && /data-len="25"/.test(h) && /data-len="0"/.test(h));
+  check('10 questions is the default', Z().len === 10);
+  check('the length note says what the round will be', /a short round/.test(h));
   check('Play is enabled once the map is loaded', !/data-act="play" disabled/.test(h));
   check('the start page links to the map viewer', /data-act="explore"/.test(h));
 
@@ -218,16 +225,19 @@ async function afterLoad() {
   });
 
   /* ---------- 4. every country can be shown ---------- */
-  /* THE FIT TEST. A quiz asks "which country is lit up", so the country must
-     actually be on screen at a size a human can recognise - and the neighbours
-     around it are what makes the question answerable. Two failure modes are real
-     (both were shipped once in the viewer's double-click): a scattered sovereignty
-     (France with its overseas departments, Russia across the seam) fitting the whole
-     world, and a microstate fitting to a pixel. */
+  /* THE FIT TEST. A quiz asks "which country is lit up", so the country must be on
+     screen at a size a human can recognise - and, since "see the surroundings", the
+     view must not be so tight that a small country is a shape in an empty field.
+     Three failure modes are real: a scattered sovereignty (France with its overseas
+     departments, Russia across the seam) fitting the whole world; a country fitted
+     past the viewport; and a small country zoomed into nothing but itself.
+     So: the box never overflows, the VISIBLE WINDOW is never smaller than the floor
+     (~6 degrees), and a big country still fills the screen. */
   M().enter();
   const view = global.window.ViewState.viewSize();
   const wide = Math.max(view[0], view[1]), tall = Math.min(view[0], view[1]);
-  let worstBig = 0, worstBigName = '', worstSmall = 1e9, worstSmallName = '', noFit = [];
+  let worstBig = 0, worstBigName = '', noFit = [];
+  const windows = [];
   const sample = items.filter((it, i) => i % 3 === 0 || ['France', 'Russia', 'United States of America',
     'Kiribati', 'Vatican', 'Monaco', 'Indonesia', 'Japan'].indexOf(it.nameEn) >= 0);
   sample.forEach(it => {
@@ -235,9 +245,10 @@ async function afterLoad() {
     if (!t || !t.e || !isFinite(t.k)) { noFit.push(it.name); return; }
     const w = (t.e[2] - t.e[0]) * t.k, h2 = (t.e[3] - t.e[1]) * t.k;
     const big = Math.max(w, h2);
-    const small = Math.min(w, h2);
     if (big > worstBig) { worstBig = big; worstBigName = it.name; }
-    if (small < worstSmall) { worstSmall = small; worstSmallName = it.name + ' (' + Math.round(small) + 'px)'; }
+    /* the window: the shorter screen side, in degrees (the fit's own measurement) */
+    const ppd = M().planePerDeg(t.lon, t.lat);
+    windows.push({ name: it.nameEn, deg: ppd ? (tall / t.k) / ppd : 0 });
   });
   M().exit();
   check('every sampled country has a fitted destination', noFit.length === 0, noFit.join(','));
@@ -245,7 +256,28 @@ async function afterLoad() {
         worstBig <= wide, worstBigName + ' ' + Math.round(worstBig) + 'px of ' + wide);
   check('the fit uses most of one axis of the screen', worstBig >= tall * 0.5,
         Math.round(worstBig) + 'px of ' + tall);
-  check('no country is fitted to a speck', worstSmall >= 60, worstSmallName);
+  /* THE SMALL-COUNTRY FLOOR, stated in degrees: nothing is zoomed past a ~5.3 degree
+     window (6 degrees across 88 % of the shorter side, i.e. 6 x 0.88). */
+  const tightest = windows.slice().sort((a, b) => a.deg - b.deg)[0];
+  const winByName = {};
+  check('no country is zoomed tighter than the 6-degree window',
+        tightest && tightest.deg >= 5.2, tightest && (tightest.name + ' ' + tightest.deg.toFixed(2) + ' deg'));
+  /* ...and the floor is what a small country gets: Luxembourg and Malta are zoomed
+     out to it, Germany is not (it is bigger than the floor) */
+  windows.forEach(w => { winByName[w.name] = w.deg; });
+  ['Luxembourg', 'Malta', 'Cyprus', 'Israel', 'Monaco'].forEach(n => {
+    if (winByName[n] == null) return;
+    check(n + ' is shown with its surroundings (window >= 5.2 deg)', winByName[n] >= 5.2,
+          winByName[n].toFixed(2) + ' deg');
+  });
+  if (winByName.Germany != null) {
+    check('a country bigger than the floor keeps its exact fit (Germany < 12 deg)',
+          winByName.Germany < 12, winByName.Germany.toFixed(2) + ' deg');
+  }
+  if (winByName.Russia != null) {
+    check('...and a huge one is still huge (Russia > 25 deg)', winByName.Russia > 25,
+          winByName.Russia.toFixed(2) + ' deg');
+  }
 
   /* France must be metropolitan France, not a box over the Atlantic and the Indian
      Ocean: its core rings are a small subset of its rings */
@@ -334,8 +366,60 @@ async function afterLoad() {
   check('nine of ten right', /9 <span>\/ 10/.test(Qz.html()), Qz.html().slice(0, 120));
   check('the round is a row of dots', (Qz.html().match(/class="qz-dot /g) || []).length === 10,
         (Qz.html().match(/class="qz-dot /g) || []).length);
-  check('the best score is remembered', store['kwizzy.quiz.best.country.world.easy'] === '9',
-        store['kwizzy.quiz.best.country.world.easy']);
+  /* the score is recorded in the STATS store, with the length it was set at */
+  const statsBlob = JSON.parse(store['kwizzygeo.stats.v1'] || '{}');
+  const bestEntry = (statsBlob.byCfg || {})['country|world|easy|-'];
+  check('the round is written to the stats store', !!bestEntry, JSON.stringify(Object.keys(statsBlob.byCfg || {})));
+  check('...with its score and its length', bestEntry && bestEntry.best === 9 && bestEntry.bestLen === 10,
+        bestEntry && (bestEntry.best + '/' + bestEntry.bestLen));
+  check('...and the answers are counted', statsBlob.asked === 10 && statsBlob.correct === 9,
+        statsBlob.asked + '/' + statsBlob.correct);
+  check('every answered country is in the record', Object.keys(statsBlob.byCountry || {}).length === 10,
+        Object.keys(statsBlob.byCountry || {}).length);
+
+  /* ---------- 5c. the round length ---------- */
+  Qz.set({ mode: 'country', zone: 'oceania', difficulty: 'medium', len: 0 });
+  const oceania = QC.poolFor(items, 'oceania', 'country').length;
+  check('All starts a round for the whole zone', Qz.start() === true);
+  check('...one question per country of the zone', Z().roundLen === oceania,
+        Z().roundLen + ' vs ' + oceania);
+  check('...and the progress line says so', new RegExp('1 / ' + oceania).test(Qz.html()),
+        (Qz.html().match(/Question [^<]*/) || [''])[0]);
+  Qz.quit();
+
+  Qz.set({ mode: 'country', zone: 'europe', difficulty: 'medium', len: 25 });
+  check('a 25-question round starts', Qz.start() === true);
+  check('...with 25 questions', Z().roundLen === 25, Z().roundLen);
+  Qz.quit();
+  Qz.set({ len: 10 });
+
+  /* ---------- 5d. the stats sheet ---------- */
+  check('the start page links to the stats', /data-act="stats-open"/.test(Qz.html()));
+  check('the stats sheet starts closed', Qz.statsOpen() === false);
+  Qz.statsToggle(true);
+  check('the stats sheet opens', Qz.statsOpen() === true);
+  const sh2 = Qz.statsHtml();
+  check('it shows the figures', /qz-figs/.test(sh2) && /questions/.test(sh2) && /best streak/.test(sh2));
+  check('it shows the record so far', /10/.test(sh2), sh2.slice(0, 200));
+  check('it breaks the record down by mode and zone',
+        /By mode/.test(sh2) && /By zone/.test(sh2) && /Find the country/.test(sh2));
+  check('it lists the best rounds', /Best rounds/.test(sh2));
+  check('it names the countries that cost the most', /Costs you the most/.test(sh2));
+  check('resetting is a two-step button', /Reset stats/.test(sh2));
+  /* the first press only arms it; the second erases */
+  const beforeJump = JSON.parse(store['kwizzygeo.stats.v1']).asked;
+  L['qz-stats:click']({ target: { getAttribute(a) { return a === 'data-act' ? 'stats-reset' : null; },
+                                  parentNode: null } });
+  check('one press arms the reset without erasing',
+        /Really erase everything/.test(Qz.statsHtml()) &&
+        JSON.parse(store['kwizzygeo.stats.v1']).asked === beforeJump);
+  L['qz-stats:click']({ target: { getAttribute(a) { return a === 'data-act' ? 'stats-reset' : null; },
+                                  parentNode: null } });
+  check('the second press erases the record',
+        JSON.parse(store['kwizzygeo.stats.v1']).asked === 0,
+        JSON.parse(store['kwizzygeo.stats.v1']).asked);
+  check('...and the sheet says there is nothing yet', /Nothing played yet/.test(Qz.statsHtml()));
+  Qz.statsToggle(false);
 
   /* ---------- 5b. the sound & music drawer ---------- */
   check('the drawer starts closed', Qz.sound().open === false);

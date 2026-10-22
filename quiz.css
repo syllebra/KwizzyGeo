@@ -177,8 +177,12 @@ body.qz-playing #menu { display: none; }
   padding-left: 9px; border-left: 1px solid rgba(180, 205, 225, .25);
 }
 
+/* CENTRED WITHOUT A TRANSFORM. It used `left:50% + translateX(-50%)`, and the
+   entrance animation (cardIn ends on `transform: none`) silently wiped the translate -
+   so on a phone the prompt sat half a screen to the right, hanging off the edge. left /
+   right / margin:auto needs no transform and cannot be undone by an animation. */
 .qz-ask {
-  position: absolute; top: 58px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 58px; left: 0; right: 0; margin: 0 auto;
   width: min(560px, calc(100vw - 24px));
   padding: 13px 18px 14px; border-radius: 15px; text-align: center;
   background: var(--glass-tint-strong);
@@ -351,6 +355,7 @@ body.qz-playing #menu { display: none; }
   .qz-answers-flags .qz-ans .n { display: none; }
   .qz-optflag { font-size: 30px; }
   .qz-details { max-height: 122px; }
+  .qz-figs { grid-template-columns: 1fr 1fr; }
   .qz-reveal { width: 100%; }
   .qz-endh { font-size: 44px; line-height: 50px; }
   .qz-foot { flex-direction: column; gap: 4px; }
@@ -579,12 +584,66 @@ body.qz-playing #menu { display: none; }
 .qz-sheet .qz-h:first-child { margin-top: 0; }
 .qz-sheet .qz-note { min-height: 0; }
 
+/* ═══════════════ the stats sheet ═══════════════
+   Same material as the sound drawer, but a wider card and a scrolling body: it holds
+   four figures, three tables and two country lists. */
+.qz-stats { position: fixed; inset: 0; z-index: 24; display: none; }
+.qz-stats.on { display: block; }
+.qz-stats .qz-scrim { animation: scrimIn .16s ease-out both; }
+/* the sheet fills the height it is given and scrolls INSIDE: a pinned header (title +
+   close) and a pinned footer (reset / done), so the way out is always on screen even
+   when the record is long */
+.qz-statsheet {
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(760px, calc(100vh - 28px));
+  padding: 0;
+  display: flex; flex-direction: column;
+  animation: sheetIn .3s cubic-bezier(.2,.9,.25,1.05) both;
+}
+.qz-shead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 8px; border-bottom: 1px solid rgba(180, 205, 225, .12);
+}
+.qz-shead .qz-h { margin: 0; flex: 1 1 auto; }
+.qz-xs { width: 30px; height: 30px; font: 13px/28px system-ui, sans-serif; border-radius: 9px; }
+.qz-sbody { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 8px;
+            scrollbar-width: thin; scrollbar-color: rgba(120, 150, 180, .45) transparent; }
+.qz-sbody::-webkit-scrollbar { width: 5px; }
+.qz-sbody::-webkit-scrollbar-thumb { background: rgba(120, 150, 180, .45); border-radius: 3px; }
+.qz-sfoot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 16px 14px; border-top: 1px solid rgba(180, 205, 225, .12);
+}
+.qz-sfoot .qz-play, .qz-sfoot .qz-ghost { padding: 9px 16px; min-height: 40px; font-size: 13px; }
+.qz-figs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 6px; }
+.qz-figs .fig {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 9px 4px 8px; border-radius: 11px;
+  background: rgba(38, 60, 84, .34); border: 1px solid rgba(180, 205, 225, .16);
+}
+.qz-figs b { font: 600 19px/23px system-ui, sans-serif; color: #f2f8fd; }
+.qz-figs span { font: 9px/12px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .07em;
+               color: rgba(160, 182, 202, .9); text-align: center; }
+
+.qz-srow, .qz-crow {
+  display: flex; align-items: baseline; gap: 8px; padding: 5px 2px;
+  border-bottom: 1px solid rgba(180, 205, 225, .08);
+  font: 12px/16px system-ui, sans-serif;
+}
+.qz-srow:last-child, .qz-crow:last-child { border-bottom: 0; }
+.qz-srow .k { flex: 1 1 auto; color: rgba(226, 238, 248, .95); }
+.qz-srow .v, .qz-crow .v { font: 600 12px/16px ui-monospace, Menlo, monospace; color: #8ed0ff; min-width: 38px; text-align: right; }
+.qz-srow .q, .qz-crow .q { font: 11px/16px ui-monospace, Menlo, monospace; color: rgba(160, 182, 202, .9); min-width: 42px; text-align: right; }
+.qz-srow .b { font: 10px/16px ui-monospace, Menlo, monospace; color: #46d18e; min-width: 66px; text-align: right; }
+.qz-crow .nm { flex: 1 1 auto; color: rgba(226, 238, 248, .95); }
+.qz-crow .fi { flex: 0 0 auto; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .2); }
+
 /* ═══════════════ reduced motion ═══════════════
    Kwizzy's ADR 0004, taken literally: movement goes, the look and every word stay.
    The particles never exist (juice.js checks the same query), the halo keeps its
    glow as a still, the loader-less screens simply appear. */
 @media (prefers-reduced-motion: reduce) {
-  #quiz, #quiz *, .qz-sound, .qz-sound *, .spark, .qz-sheet {
+  #quiz, #quiz *, .qz-sound, .qz-sound *, .qz-stats, .qz-stats *, .spark, .qz-sheet {
     animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .001ms !important;

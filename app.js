@@ -2057,7 +2057,7 @@ var CITY_ZOOM = 7;               /* z of a "stand in this city" view */
 
    The four comments below (arrive north-up, refine the centre, measure once more at
    the centre being returned) are the traps this cost: all four are load-bearing. */
-function fitTargetForFeature(fi, g0, pad, fobj) {
+function fitTargetForFeature(fi, g0, pad, fobj, minWindowDeg) {
   var f = fobj || feats[fi];
   if (!f) return null;
   var g = g0;
@@ -2129,9 +2129,46 @@ function fitTargetForFeature(fi, g0, pad, fobj) {
   var eFin = C.featureExtent(f, upright(C.moveCentre(mUp, gc[0], gc[1], proj,
                 new Float64Array(9))), proj) || e2;
   if (!eFin) return { lon: gc[0], lat: gc[1], k: clampK(view.k * 2), fit: false };
+  var k = fitKForExtent(eFin, pad);
+  /* THE SMALL-COUNTRY FLOOR. A fit hugs the shape, which is exactly right when you
+     asked for a place - and wrong on a quiz, where "which country is lit up" is only
+     answerable if you can see where it sits: fitted tight, Luxembourg is a shape
+     floating in a field of nothing, Malta is a blob with no sea to place it in.
+     So the window never shows less than MIN_WINDOW_DEG of the globe (measured, then
+     converted to the plane at that centre): a country LARGER than that keeps its exact
+     fit, and a smaller one is zoomed out until the window is that wide. 6 deg is about
+     670 km - enough that a neighbour or a coastline is always in frame. */
+  var win = minWindowDeg ? windowFor(eFin, gc[0], gc[1], proj, minWindowDeg) : 0;
+  if (win && win < k) k = win;
   /* `e` is the box the zoom was computed from, in plane units at that centre: the
      only way to check the fit from outside is to multiply it by the k returned. */
-  return { lon: gc[0], lat: gc[1], k: fitKForExtent(eFin, pad), fit: true, fi: fi, e: eFin };
+  return { lon: gc[0], lat: gc[1], k: k, fit: true, fi: fi, e: eFin };
+}
+
+/* plane units per degree of arc at a centre: the LARGEST of the four cardinal steps,
+   so a window of N degrees needs at least N x this many plane units in whichever
+   direction the projection stretches. Measured rather than derived, because it is not
+   the same number for every projection and it changes with latitude (Eckert squashes
+   longitude near the poles, perspective stretches everything away from the centre). */
+function planePerDeg(lon0, lat0, proj) {
+  var m = C.rotMat(lon0, lat0, new Float64Array(9));
+  var o = [0, 0], best = 0, i;
+  var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (i = 0; i < 4; i++) {
+    C.projectRotLL(lon0 + dirs[i][0], lat0 + dirs[i][1], m, proj, o);
+    if (!isFinite(o[0]) || !isFinite(o[1])) continue;
+    var d = Math.sqrt(o[0] * o[0] + o[1] * o[1]);
+    if (d > best) best = d;
+  }
+  return best;
+}
+/* the zoom that makes `deg` degrees of the globe span the viewport's SHORTER side
+   (the constraining one), or 0 when it cannot be measured */
+function windowFor(e, lon0, lat0, proj, deg) {
+  var ppd = planePerDeg(lon0, lat0, proj);
+  if (!(ppd > 0) || !isFinite(ppd)) return 0;
+  var span = deg * ppd;
+  return Math.min(W, H) * 0.88 / span;
 }
 
 function flyTarget(x, y) {
@@ -2617,6 +2654,11 @@ function quizKm(lon0, lat0, lon1, lat1) {
           Math.cos(la0) * Math.cos(la1) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
+/* how much of the globe a quiz question always shows (see the floor in
+   fitTargetForFeature): 6 degrees is ~670 km, enough for a neighbour or a coastline.
+   A country bigger than that keeps its exact fit, so Russia is unaffected and
+   Luxembourg is not a shape in an empty field. */
+var QUIZ_MIN_WINDOW_DEG = 6;
 var quizSavedLayer = null;
 
 function quizIndexOf(key) {
@@ -2670,7 +2712,7 @@ window.MapApp = {
     if (i < 0) return false;
     picked = i;
     hover = -1; hoverPlace = -1; pickedPlace = -1;
-    var t = fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]));
+    var t = fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]), QUIZ_MIN_WINDOW_DEG);
     if (t) flyTo(t.lon, t.lat, t.k);
     return true;
   },
@@ -2685,7 +2727,7 @@ window.MapApp = {
   fitTarget: function (key) {
     var i = quizIndexOf(key);
     if (i < 0) return null;
-    return fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]));
+    return fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]), QUIZ_MIN_WINDOW_DEG);
   },
   /* THE DETAILS of the country, and of its capital city, as the info panel renders
      them - the same builder, so a quiz answer and a click on the map say the same
@@ -2702,6 +2744,9 @@ window.MapApp = {
   },
   pickedFeature: function () { return picked; },
   clear: function () { picked = -1; },
+  /* plane units per degree at a point, in the projection in play: the fit floor's own
+     measurement, exposed so a test can state the visible window in degrees */
+  planePerDeg: function (lon, lat) { return planePerDeg(lon, lat, C.CUR); },
   coreRings: function (key) {
     var i = quizIndexOf(key);
     if (i < 0) return 0;

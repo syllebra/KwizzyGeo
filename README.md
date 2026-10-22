@@ -51,6 +51,7 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
 | `quizcore.js` | **the game's rules**: modes, zones, difficulty, the six options — pure functions, no DOM (unit-tested by `tests/quizcore_test.js`) |
 | `quiz.js` | **the game's screens**: the three pages, the keyboard, and the hand-over of the map |
+| `stats.js` | **the record**: every answer and every round, in localStorage, with the best-by-ratio rule (unit-tested by `tests/stats_test.js`) |
 | `juice.js` | **the feel**, ported from the Kwizzy app: sound effects, haptics, particle bursts, the music engine and the sound drawer (unit-tested by `tests/juice_test.js`) |
 | `media/sfx/*.wav` | the six clips, 547 kB, from Kwizzy (synthesised, no samples, no licence) |
 | `media/music/*.mp3` | the five 25 s ambient loops, 3 MB, from Kwizzy (their own) |
@@ -81,11 +82,12 @@ hardcodes a layer name. The server test suite reads the same files from
 
 ### Deploying
 
-Upload the six app files at the root and `data/` beside them; `tests/`, `tools/`,
+Upload the app files at the root and `data/` + `media/` beside them; `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
 only the game. `index.html` needs `style.css`, `quiz.css`, `flags.css`, `core.js`,
-`app.js`, `quizcore.js` and `quiz.js` next to it; the layers must keep the `data/`
-prefix, or `DATA_DIR` must be changed to match.
+`app.js`, `quizcore.js`, `stats.js`, `juice.js` and `quiz.js` next to it (plus
+`media/` for the sound) — the layers must keep the `data/` prefix, or `DATA_DIR` must be
+changed to match.
 
 ## Sound, music, haptics and animation
 
@@ -156,8 +158,19 @@ difficulties, Play — and the map blurred behind it. The settings survive a rel
 | **Find the flag → country** | a flag, shown large, beside the prompt | country names |
 | **Find the country → flag** | the country is named, lit up, with its capital | **six flags** |
 
-**Always six options, always ten questions**, one answer per question, and a
-country is never asked twice in a round (the used-set resets when a pool runs out).
+**Always six options, one answer per question, and a country is never asked twice in a
+round.** The length is chosen on the start page:
+
+| **Questions** | what it means |
+|---|---|
+| **10** | a short round (the default) |
+| **25** | a long one |
+| **All** | every country of the zone, once — 41 for Europe, 195 for the world |
+
+A round is never longer than its pool: asking 25 questions of a six-country zone gives
+six, and the note under the chips says so before you start. `cfg.len` keeps the CHOICE
+(0 = All) and `session.cfg.len` is what the round actually is, resolved once against
+the pool the session was built from.
 
 **The flag question has two halves** (`FLAG_ASK` in `quizcore.js`, a chip row that
 only appears while the flag mode is picked). *Flag → country* shows the flag and
@@ -210,7 +223,14 @@ The map is borrowed, not owned (`window.MapApp` in `app.js`; `quiz.js` calls it)
   **off**: any of them can spell out the answer;
 * arrows / `a` / `d` still pan and zoom, so the neighbours can be inspected;
 * `show(id)` lights the country and flies to it with **the double click's own
-  flight, unchanged**: `flyTo()` at its default `FLY_DUR` (950 ms), the same
+  flight** (the same `flyTo`, the same dip, the same untwisting) **plus a floor on the
+  final zoom**: the view never shows less than **6 degrees** of the globe (~670 km, in
+  `QUIZ_MIN_WINDOW_DEG`). A country bigger than that keeps its exact fit — Russia is
+  Russia — but Luxembourg, Malta or Monaco are no longer a shape in an empty field:
+  there is always a neighbour or a coastline in frame, which is what makes "which
+  country is lit up" answerable. The floor is measured in the plane at the destination
+  (`planePerDeg`, four cardinal steps, the largest), so it holds for every projection
+  rather than assuming a scale. Flight details: `flyTo()` at its default `FLY_DUR` (950 ms), the same
   zoom-out-then-in dip (`kMin`), the same untwisting, and the same `FLY_PAD` (6 % a
   side, 88 % of the viewport). An earlier build shortened it to 520 ms with a 15 %
   pad and it read as a jump cut: too little time for the dip, so the map looked like
@@ -249,6 +269,35 @@ shortened where the English name is a mouthful or too close to another option
 (`People's Republic of China` → China, `Federated States of Micronesia` → Micronesia,
 the two Congos → DR Congo / Congo).
 
+### The record: `stats.js`
+
+Everything played is written to `localStorage kwizzygeo.stats.v1` — a third key, apart
+from the settings and from the quiz's own config, so resetting one never wipes another.
+
+| kept | shape |
+|---|---|
+| counters | `asked`, `correct`, `streak`, `bestStreak`, `first`, `last` |
+| `runs[]` | the last 60 finished rounds: `{t, mode, zone, difficulty, variant, len, score}` |
+| `byCfg{}` | per mode\|zone\|difficulty\|variant: `played, asked, correct, best, bestLen, last` |
+| `byMode{}`, `byZone{}` | the same counters grouped one level coarser |
+| `byCountry{}` | per country: `{n, f, a, c}` — name, flag code, asked, correct |
+
+**The best score compares by RATIO**, then by score: 25/25 beats 10/10, and 9/10 beats
+4/5. The old per-key integer died with the fixed length. The flag mode's two halves are
+separate configs (`flag|asia|easy|flags` vs `...|name`), because picking a flag and
+naming a country are not the same skill.
+
+The **Stats** sheet (start-page footer) shows four figures (questions, right %, best
+streak, rounds kept), a table per mode and per zone with each one's best round, and the
+two lists a player actually wants: **"costs you the most"** — sorted by number of misses
+first, so one unlucky question does not top it — and **"never missed"**. It has a pinned
+header and footer with a scrolling body, so the way out is always on screen. **Reset** is
+a two-step button.
+
+Everything in `stats.js` is re-validated on load: a corrupt blob, `null`, an array, a
+bucket with `correct > asked`, a country with no counts, a `localStorage` that throws —
+each loads as a working (possibly empty) record, never as NaN in a percentage.
+
 ### Fixing the data, not the code
 
 One feature in `data/so50.geojson` was wrong: the unit whose `NAME` is **Georgia**
@@ -262,10 +311,11 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 
 | script | what it pins |
 |---|---|
-| `tests/quizcore_test.js` | 48 checks on a synthetic lattice: zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
-| `tests/quiz_test.js` | 99 checks headless over the **real data**: the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
+| `tests/quizcore_test.js` | 60 checks on a synthetic lattice: the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
+| `tests/quiz_test.js` | 149 checks headless over the **real data**: the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
+| `tests/stats_test.js` | 62 checks on the record: an empty record, one answer, the streak, the groupings (mode / zone / the two flag halves kept apart), what "best" means across lengths, the 60-run cap, every corrupt-blob shape, reset (and that the settings key survives it), a `localStorage` that refuses to write, and that 300 answers stay under 40 kB |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
 
 Both new scripts run in node with a fake DOM, no browser and no network:

@@ -134,6 +134,34 @@ check('capital options are capital names, all different', capQ.every(q => {
 check('capital mode always offers the answer capital',
       capQ.every(q => q.options[q.correct].cap === q.answer.cap && q.options[q.correct].id === q.answer.id));
 
+/* ---------- 3b. how long a round is ---------- */
+(function () {
+  check('three lengths are offered: 10, 25 and All',
+        Q.LENS.map(l => l.id).join(',') === '10,25,0', Q.LENS.map(l => l.id).join(','));
+  [10, 25].forEach(len => {
+    const s = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: len }, 5);
+    check('a ' + len + '-question round is ' + len + ' questions',
+          s.cfg.len === len && s.pool.length >= len, s.cfg.len);
+    let n = 0, q;
+    while ((q = Q.nextQuestion(s))) n++;
+    check('...and asks exactly that many', n === len, n);
+  });
+  const allS = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 0 }, 5);
+  let n = 0, q, ids = {};
+  while ((q = Q.nextQuestion(allS))) { n++; ids[q.answer.id] = (ids[q.answer.id] || 0) + 1; }
+  check('All asks every country of the pool once', n === allS.pool.length && n === ALL.length, n);
+  check('...and repeats none', Object.keys(ids).every(k => ids[k] === 1));
+  /* a zone narrower than the asked length: the pool wins, never a repeat */
+  const europe = Q.newSession(ALL, { mode: 'country', zone: 'africa', difficulty: 'medium', len: 0 }, 5);
+  check('All on a zone is that zone\'s pool', europe.cfg.len === europe.pool.length && europe.pool.length > 0,
+        europe.cfg.len);
+  const tooLong = Q.newSession(ALL, { mode: 'capital', zone: 'oceania', difficulty: 'medium', len: 25 }, 5);
+  check('a length longer than the pool is clipped to the pool',
+        tooLong.cfg.len === tooLong.pool.length && tooLong.cfg.lenWanted === 25,
+        tooLong.cfg.len + ' of ' + tooLong.pool.length);
+  check('the wanted length is kept for the record', allS.cfg.lenWanted === ALL.length);
+})();
+
 /* ---------- 4. difficulty is DISTANCE ---------- */
 function dists(q) {
   const a = (q.mode === 'capital' && q.answer.capLat != null)
@@ -206,10 +234,15 @@ check('flag options are all different flags', flagQ.every(q => {
   const sess = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 50 }, 4);
   check('session clamps and normalises its config',
         sess.cfg.len === 50 && sess.cfg.mode === 'country' && sess.cfg.difficulty === 'medium');
-  const bad = Q.newSession(ALL, { mode: 'nope', zone: 'nope', difficulty: 'nope', len: 0 }, 4);
+  /* `len: 0` is "All", not a bad value: the whole pool. A bad MODE / zone / difficulty
+     still falls back, and the length then follows the fallback's pool. */
+  const bad = Q.newSession(ALL, { mode: 'nope', zone: 'nope', difficulty: 'nope', len: 10 }, 4);
   check('a bad config falls back to world / country / normal',
         bad.cfg.mode === 'country' && bad.cfg.zone === 'world' && bad.cfg.difficulty === 'medium' &&
         bad.cfg.len === 10);
+  const all = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 0 }, 4);
+  check('len 0 means All: the whole pool, once', all.cfg.len === ALL.length && all.cfg.lenWanted === ALL.length,
+        all.cfg.len + ' / ' + ALL.length);
 
   const ids = {}, order = [];
   let q, n = 0;
@@ -257,11 +290,15 @@ check('flag options are all different flags', flagQ.every(q => {
 (function () {
   /* a six-country pool: every question uses all six, so the used-set must RESET
      rather than run dry */
+  /* a six-country pool cannot hold a 12-question round any more: the length is
+     resolved against the pool, so it is 6 and every country is asked once */
   const tiny = ALL.slice(0, 6);
   const sess = Q.newSession(tiny, { mode: 'country', zone: 'world', difficulty: 'hard', len: 12 }, 3);
   let n = 0, q;
   while ((q = Q.nextQuestion(sess))) { n++; if (q.options.length !== 6) break; }
-  check('a tiny pool still produces full questions', n === 12 && sess.asked.every(q => q.options.length === 6), n);
+  check('a 12-question round on a six-country pool is six questions',
+        sess.cfg.len === 6 && n === 6 && sess.asked.every(q => q.options.length === 6), n);
+  check('...and every question still has six options', sess.asked.every(q => q.options.length === 6));
   check('a pool smaller than six yields no question at all',
         Q.newSession(ALL.slice(0, 5), { mode: 'country', zone: 'world', difficulty: 'easy', len: 5 }, 3).pool.length === 5 &&
         Q.nextQuestion(Q.newSession(ALL.slice(0, 5), { mode: 'country', zone: 'world', difficulty: 'easy', len: 5 }, 3)) === null);
