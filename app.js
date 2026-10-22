@@ -77,7 +77,7 @@ var lastMoveT = 0, alignPrev = 0;
    prefers-reduced-motion kills it before it starts. */
 var driftOn = false;                  /* asked for by the quiz's menu screens */
 var driftT = 0, driftPrev = 0, driftStepAt = 0, driftAcc = 0;
-var DRIFT_LON_RATE = 0.5;             /* deg of longitude per second */
+var DRIFT_LON_RATE = 0.4;             /* deg of longitude per second */
 var DRIFT_STEP_MS = 100;              /* 10 centre moves a second: each one costs a
                                          geometry rebuild (see the cost note in
                                          recentered-projection-cost), so the drift is
@@ -85,7 +85,29 @@ var DRIFT_STEP_MS = 100;              /* 10 centre moves a second: each one cost
 var DRIFT_SWAY_AMP = 9;               /* deg of latitude either side of the base */
 var DRIFT_SWAY_PERIOD = 74;           /* s for a full latitude sway */
 var DRIFT_REST_MS = 1600;             /* the player moved the map: leave it alone */
+/* THE DRIFT IS ZOOMED IN. At the fitted world view the globe is a small disc floating
+   in its own ocean; the background reads as a picture of a map, not as the earth. At
+   twice the fit the land fills the screen and keeps filling it as it turns - which is
+   what makes it a background. The zoom eases in over ~a second rather than snapping,
+   and `?driftzoom=1` gives back the fitted view. */
+var DRIFT_ZOOM = 2.0;
 var driftBase = 12;                   /* deg: the middle of the sway */
+function driftZoomK() {
+  var m = /[?&]driftzoom=([0-9.]+)/.exec(urlSearch());
+  var z = m ? parseFloat(m[1]) : DRIFT_ZOOM;
+  if (!(z > 0)) z = 1;
+  return clampK(fitK * z);
+}
+/* the slow zoom, run every frame while the drift owns the map (not only on a drift
+   step: the zoom is one number, the geometry rebuild it needs is already scheduled by
+   setCenter on the next step) */
+function stepDriftZoom(dt) {
+  var goal = driftZoomK();
+  var d = goal - view.k;
+  if (Math.abs(d) < goal * 0.002) { if (view.k !== goal) { view.k = goal; scheduleReproject(); } return; }
+  view.k = view.k + d * Math.min(1, dt / 0.45);
+  scheduleReproject();
+}
 function driftAllowed() {
   if (!driftOn) return false;
   if (/[?&]drift=0/.test(urlSearch())) return false;
@@ -102,6 +124,7 @@ function stepDrift(now) {
   var dt = Math.min(0.4, Math.max(0, (now - driftPrev) / 1000));
   driftPrev = now;
   if (!driftT) driftT = now;
+  stepDriftZoom(dt);
   driftStepAt += dt * 1000;
   /* THE STEP CARRIES ALL THE TIME SINCE THE LAST ONE, not the last frame's delta: a
      step every 150 ms that moved by one frame's worth (16 ms) ran the drift at a tenth
@@ -167,6 +190,7 @@ C.rotMat(0, 0, FRAME);                  /* start canonical: identity */
 var projID = 'persp';
 var menuEl = document.getElementById('menu');
 var burgerEl = document.getElementById('burger');
+var mviewEl = document.getElementById('mview');
 var itemsEl = document.getElementById('items');
 
 /* the burger menu: closed it is only the burger, whose tag names the active
@@ -322,8 +346,14 @@ function buildMenu() {
   refreshBurger();
   refreshMenu();
 }
+/* THE BURGER IS A DISC, NOT A CHIP: one glyph, the same 36 px as the fullscreen
+   button on the other corner, as in Kwizzy. The name of the active view is not on it
+   any more - it is the first line INSIDE the sheet (`#mview`), where there is room
+   for it, and it is also what a screen reader hears. */
 function refreshBurger() {
-  burgerEl.innerHTML = '\u2630<span class="tag">' + burgerTag() + '</span>';
+  burgerEl.innerHTML = '\u2630';
+  if (mviewEl) mviewEl.textContent = burgerTag();
+  if (burgerEl.setAttribute) burgerEl.setAttribute('aria-label', 'Menu \u2014 ' + burgerTag());
 }
 
 /* the burger lives OUTSIDE the stage div, so its pointer events never reach the
@@ -430,22 +460,27 @@ var mouse = { x: 0, y: 0, inside: false };
 var canvasRect = { left: 0, top: 0 };
 
 var COL = {
-  ocean: '#1e4d75', oceanDeep: '#143456',
-  /* THE CHART IS THE APP'S: blues, whites and light greys. Land is a very light
-     grey-blue (paper over the ocean), the highlight is pure white, and every
-     LABEL is dark ink with a white halo - the reverse of the old "pale text on pale
-     land" pair, which was legible only because the land used to be mid-grey. */
-  land: '#e4ebf1', hover: '#ffffff', pick: '#ffffff',
-  edge: 'rgba(30, 65, 95, .42)', graticule: 'rgba(255, 255, 255, .13)', frame: 'rgba(255, 255, 255, .38)',
-  /* cities: a dark dot with a white ring, so it reads over land and over ocean alike */
-  city: 'rgba(19, 46, 70, .95)', cityRing: 'rgba(255, 255, 255, .9)',
-  cityPick: '#1e4d75', cityLabel: 'rgba(16, 41, 63, .95)',
+  ocean: '#173d5e', oceanDeep: '#0e2740',
+  /* THE MAP IS THE DARK GROUND of this app, and everything laid on it is smoked glass.
+     Land is a deep slate blue (dark enough to carry pale labels and a frosted panel,
+     light enough to read against the ocean), the highlight is the accent's pale blue,
+     and every label is PALE INK with a DARK halo - the reverse of the light chart,
+     where pale-on-pale needed a white halo to survive. */
+  /* the lit country is the brightest thing on the map that is not a label: a pale
+     blue-white, so "lit up" reads at a glance without turning the country into a
+     neon sign (the old pure-white fill was right on the light chart and is too
+     heavy on this one) */
+  land: '#2c4a66', hover: '#40678c', pick: '#c9dff2',
+  edge: 'rgba(10, 26, 42, .55)', graticule: 'rgba(190, 220, 245, .13)', frame: 'rgba(190, 220, 245, .34)',
+  /* cities: a pale dot with a dark ring, so it reads over the land and over the ocean */
+  city: 'rgba(232, 242, 252, .95)', cityRing: 'rgba(8, 22, 36, .85)',
+  cityPick: '#8ed0ff', cityLabel: 'rgba(234, 243, 251, .95)',
   /* three label voices, so the three kinds of name are never mistaken for each
-     other: countries are quiet (uppercase, tracked, muted ink), cities are plain
+     other: countries are quiet (uppercase, tracked, muted), cities are plain pale
      ink, capitals are the accent - bolder and larger, which is how an atlas does it */
-  countryLabel: 'rgba(30, 62, 90, .70)', countryHalo: 'rgba(255, 255, 255, .80)',
-  capitalLabel: 'rgba(12, 34, 54, .98)', capitalHalo: 'rgba(255, 255, 255, .92)',
-  capitalPick: '#1e4d75', capitalPickHalo: 'rgba(255, 255, 255, .95)'
+  countryLabel: 'rgba(206, 226, 244, .78)', countryHalo: 'rgba(9, 24, 40, .72)',
+  capitalLabel: 'rgba(255, 255, 255, .98)', capitalHalo: 'rgba(8, 22, 36, .92)',
+  capitalPick: '#8ed0ff', capitalPickHalo: 'rgba(6, 18, 30, .95)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -1474,7 +1509,13 @@ var LABEL_STYLE = {
   capitalSel: { font: '800 12.5px system-ui, -apple-system, sans-serif', track: 0.4, upper: false,
                 fill: 'capitalPick', halo: COL.capitalPickHalo, haloLw: 3.4, dy: -10 },
   city:    { font: '11px system-ui, -apple-system, sans-serif', track: 0, upper: false,
-             fill: 'cityLabel', halo: 'rgba(12,22,32,.8)', haloLw: 3, dy: -8 }
+             fill: 'cityLabel', halo: 'rgba(12,22,32,.8)', haloLw: 3, dy: -8 },
+  /* THE LIT COUNTRY'S OWN NAME, during a question. It is drawn ONLY where the name is
+     not the answer (capital and flag modes): in "find the country" it would spell out
+     the answer, so there it is never drawn at all. Bigger and paler than the background
+     voice, because here it is the subject of the question, not scenery. */
+  quizCountry: { font: '700 15px system-ui, -apple-system, sans-serif', track: 1.0, upper: true,
+                 fill: 'capitalLabel', halo: COL.capitalHalo, haloLw: 3.6, dy: -10 }
 };
 function labelStyle(kind) { return LABEL_STYLE[kind] || LABEL_STYLE.city; }
 function labelText(kind, name) { return labelStyle(kind).upper ? String(name).toUpperCase() : name; }
@@ -1505,10 +1546,32 @@ function drawTracked(txt, cx, cy, track, fill, halo, lw) {
   ctx.textAlign = prevAlign;
 }
 
+/* THE ONE NAME THE MAP MAY SAY DURING A QUESTION.
+   `quizLabels` is set by the quiz per mode: ON in capital and flag questions (where the
+   country's name is given, not asked), OFF in "find the country" (where it IS the
+   answer). Only the LIT country is named - the neighbours stay anonymous, or the
+   question turns into a map-reading exercise with the answers printed on it. */
+var quizLabels = false;
+function drawQuizLabel() {
+  if (!quizLabels || picked < 0 || !feats[picked]) return;
+  var i = picked, p = feats[i].props || {};
+  if (p.LABEL_X == null || p.LABEL_Y == null) return;
+  var ll = [p.LABEL_X, p.LABEL_Y];
+  if (!C.visibleAt(ll[0], ll[1], view.lon, view.lat, C.CUR, FRAME)) return;
+  var pl2 = projectLabel(ll[0], ll[1]);
+  var px = sx(pl2[0]), py = sy(pl2[1]);
+  if (px < -40 || py < -20 || px > W + 40 || py > H + 20) return;
+  var st = labelStyle('quizCountry');
+  var txt = labelText('quizCountry', countryName(p));
+  ctx.textBaseline = 'middle';
+  drawTracked(txt, px, py + st.dy, st.track, COL[st.fill], st.halo, st.haloLw);
+  ctx.textBaseline = 'alphabetic';
+  void i;
+}
 function drawLabels(z) {
   /* during a quiz this also drops the CITY labels, which are drawn further down in
      this same function: a capital's name next to its dot is the answer */
-  if (quizOn) return;
+  if (quizOn) { drawQuizLabel(); return; }
   ctx.textBaseline = 'middle';
   var placed = [], shown = 0;
   var stC = labelStyle('country');
@@ -2857,6 +2920,7 @@ window.MapApp = {
     deferLayer = null;
     if (layerName !== '50m') setLayer('50m');
     quizOn = true;
+    quizLabels = false;                 /* the quiz turns it on per mode (MapApp.labels) */
     hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
     refreshUI();
     return true;
@@ -2864,6 +2928,7 @@ window.MapApp = {
   /* Hand it back: the same layer as before, the panel live again. */
   exit: function () {
     quizOn = false;
+    quizLabels = false;
     hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
     var back = quizSavedLayer;
     quizSavedLayer = null;
@@ -2944,6 +3009,12 @@ window.MapApp = {
     return driftOn;
   },
   clear: function () { picked = -1; },
+  /* MAY THE MAP NAME THE LIT COUNTRY? The quiz turns it on for the modes whose answer
+     is not the name (capital, flag) and off for "find the country". It lives here
+     because the label is drawn by the map, from the map's own layer. */
+  labels: function (on) { quizLabels = !!on; return quizLabels; },
+  /* read-only, for the quiz's own tests */
+  labelsOn: function () { return quizLabels; },
   /* plane units per degree at a point, in the projection in play: the fit floor's own
      measurement, exposed so a test can state the visible window in degrees */
   planePerDeg: function (lon, lat) { return planePerDeg(lon, lat, C.CUR); },

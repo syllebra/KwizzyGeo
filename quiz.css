@@ -1,9 +1,9 @@
 /* KwizzyGeo quiz: the three screens.
    Same glass material as the rest of the app (the custom properties come from
    style.css), one accent per meaning and nothing else:
-     blue  #1e6ea8  the selection / the primary action (as in the viewer)
-     green #1f8f5f  a right answer
-     red   #c2453f  the wrong one that was picked
+     blue  #8ed0ff  the selection / the primary action (as in the viewer)
+     green #46d18e  a right answer
+     red   #ff8a8a  the wrong one that was picked
    The map stays the background of every screen, so the panels are built to leave
    the middle of the screen free: prompt at the top, answers at the bottom, and no
    full-width surface in between.
@@ -57,7 +57,7 @@ body.qz-playing #menu { display: none; }
   margin: 56px auto 40px;
   padding: 22px 22px 18px;
   border-radius: 18px;
-  background: rgba(252, 253, 255, .94);
+  background: rgba(9, 21, 34, .62);
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
   backdrop-filter: blur(16px) saturate(1.2);
   border: 1px solid var(--glass-border);
@@ -69,15 +69,15 @@ body.qz-playing #menu { display: none; }
 /* ---------- brand ---------- */
 .qz-brand h1 {
   margin: 0 0 2px; font: 600 30px/34px system-ui, sans-serif;
-  letter-spacing: -.02em; color: #10293f;
+  letter-spacing: -.02em; color: #eaf3fb;
 }
-.qz-brand h1 span { color: #1e6ea8; }
+.qz-brand h1 span { color: #8ed0ff; }
 .qz-brand p { margin: 0 0 18px; color: var(--ink-dim); font-size: 13px; }
 
 /* ---------- section headings ---------- */
 .qz-h {
   font: 9px/12px system-ui, sans-serif; text-transform: uppercase;
-  letter-spacing: .11em; color: rgba(96, 124, 150, .9);
+  letter-spacing: .11em; color: rgba(158, 186, 210, .90);
   margin: 16px 2px 7px;
 }
 .qz-card .qz-h:first-child { margin-top: 0; }
@@ -88,21 +88,21 @@ body.qz-playing #menu { display: none; }
   pointer-events: auto; cursor: pointer; text-align: left;
   display: flex; flex-direction: column; gap: 2px;
   padding: 11px 12px 12px; min-height: 76px;
-  border-radius: 12px; border: 1px solid rgba(16, 41, 63, .14);
-  background: rgba(30, 77, 117, .07); color: rgba(16, 41, 63, .85);
+  border-radius: 12px; border: 1px solid rgba(198, 224, 246, .14);
+  background: rgba(142, 208, 255, .08); color: rgba(234, 243, 251, .86);
   font: inherit; touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: background .12s linear, border-color .12s linear;
 }
-.qz-mode .ico { font-size: 17px; line-height: 20px; color: #1f6ea6; }
-.qz-mode .t { font: 600 14px/18px system-ui, sans-serif; color: #10293f; }
-.qz-mode .s { font: 11px/14px system-ui, sans-serif; color: rgba(90, 118, 144, .95); }
-.qz-mode:hover { background: rgba(30, 77, 117, .12); }
+.qz-mode .ico { font-size: 17px; line-height: 20px; color: #8ed0ff; }
+.qz-mode .t { font: 600 14px/18px system-ui, sans-serif; color: #eaf3fb; }
+.qz-mode .s { font: 11px/14px system-ui, sans-serif; color: rgba(160, 188, 212, .95); }
+.qz-mode:hover { background: rgba(142, 208, 255, .14); }
 .qz-mode.on {
-  background: rgba(30, 77, 117, .10); border-color: rgba(30, 77, 117, .45);
-  box-shadow: 0 1px 0 rgba(16, 41, 63, .10) inset, 0 0 0 1px rgba(30, 77, 117, .10);
+  background: rgba(142, 208, 255, .12); border-color: rgba(142, 208, 255, .50);
+  box-shadow: 0 1px 0 rgba(198, 224, 246, .10) inset, 0 0 0 1px rgba(142, 208, 255, .12);
 }
-.qz-mode.on .ico { color: #1e6ea8; }
+.qz-mode.on .ico { color: #8ed0ff; }
 .qz-mode.wait { opacity: .65; }
 
 /* ---------- zone and difficulty chips (reusing .chip / .chip.on) ---------- */
@@ -111,39 +111,52 @@ body.qz-playing #menu { display: none; }
 
 .qz-note {
   margin: 7px 2px 0; font: 11px/15px system-ui, sans-serif;
-  color: rgba(96, 124, 150, .95); min-height: 15px;
+  color: rgba(158, 186, 210, .95); min-height: 15px;
 }
 .qz-info:empty { display: none; }
 
 /* ---------- play ---------- */
 .qz-actions { display: flex; gap: 9px; margin-top: 18px; flex-wrap: wrap; }
+/* THE PRIMARY ACTION IS GLASS TOO, not a bright slab: a smoked pane with the accent in
+   its BORDER and in the WORD (an accent fill on a dark chart reads as a warning stripe,
+   and pale ink on it lost all contrast). Hover adds glass, not colour. */
 .qz-play, .qz-ghost, .qz-next {
   pointer-events: auto; cursor: pointer;
   font: 600 14px/18px system-ui, sans-serif; letter-spacing: .01em;
   padding: 12px 22px; min-height: 46px; border-radius: 12px;
-  border: 1px solid rgba(30, 77, 117, .40);
-  background: #1e4d75; color: #f6fafd;
+  color: #d8ecff;
+  background: linear-gradient(180deg, rgba(142, 208, 255, .20), rgba(142, 208, 255, .10));
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(142, 208, 255, .48);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .10) inset, 0 8px 20px rgba(3, 11, 20, .30);
   touch-action: manipulation;
-  transition: background .12s linear, opacity .12s linear;
+  transition: background .14s linear, border-color .14s linear, box-shadow .14s linear;
 }
-.qz-play:hover { background: rgba(31, 110, 166, .55); }
-.qz-play:disabled { opacity: .45; cursor: default; }
+.qz-play:hover, .qz-next:hover {
+  background: linear-gradient(180deg, rgba(142, 208, 255, .30), rgba(142, 208, 255, .16));
+  border-color: rgba(142, 208, 255, .70);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .16) inset, 0 10px 26px rgba(3, 11, 20, .38);
+}
+.qz-play:active, .qz-next:active { background: rgba(142, 208, 255, .34); }
+.qz-play:disabled { opacity: .40; cursor: default; box-shadow: none; }
 .qz-ghost {
-  background: rgba(30, 77, 117, .07); color: rgba(16, 41, 63, .88);
-  border-color: rgba(16, 41, 63, .15);
+  color: rgba(234, 243, 251, .90);
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(198, 224, 246, .20);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .07) inset;
 }
-.qz-ghost:hover { background: rgba(30, 77, 117, .12); }
+.qz-ghost:hover { background: rgba(255, 255, 255, .12); border-color: rgba(198, 224, 246, .34); }
 
 .qz-foot {
   display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
   margin-top: 16px; padding-top: 12px;
-  border-top: 1px solid rgba(16, 41, 63, .10);
-  font: 11px/15px system-ui, sans-serif; color: rgba(96, 124, 150, .95);
+  border-top: 1px solid rgba(198, 224, 246, .10);
+  font: 11px/15px system-ui, sans-serif; color: rgba(158, 186, 210, .95);
 }
 /* the two footer links need a gap between them: side by side they ran together
    ("Explore the map insteadSound & music") */
 .qz-links { display: inline-flex; flex-wrap: wrap; gap: 16px; }
-.qz-link { pointer-events: auto; cursor: pointer; color: #1e6ea8; text-decoration: none; }
+.qz-link { pointer-events: auto; cursor: pointer; color: #8ed0ff; text-decoration: none; }
 .qz-link:hover { text-decoration: underline; }
 
 /* ---------- the question screen ---------- */
@@ -156,7 +169,7 @@ body.qz-playing #menu { display: none; }
   pointer-events: auto; cursor: pointer;
   width: 38px; height: 38px; flex: 0 0 auto;
   border-radius: 11px; border: 1px solid var(--glass-border);
-  background: var(--glass-tint-strong); color: rgba(16, 41, 63, .9);
+  background: var(--glass-tint-strong); color: rgba(234, 243, 251, .90);
   font: 15px/36px system-ui, sans-serif; text-align: center;
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
@@ -176,13 +189,13 @@ body.qz-playing #menu { display: none; }
 .qz-prog {
   text-align: center;
   font: 11px/15px system-ui, sans-serif; letter-spacing: .08em;
-  text-transform: uppercase; color: rgba(40, 70, 96, .95);
+  text-transform: uppercase; color: rgba(190, 214, 234, .95);
   white-space: nowrap;
 }
 .qz-score {
   flex: 0 0 auto; text-align: center; white-space: nowrap;
-  font: 600 12px/15px system-ui, sans-serif; color: #1e6ea8;
-  padding-left: 9px; border-left: 1px solid rgba(16, 41, 63, .20);
+  font: 600 12px/15px system-ui, sans-serif; color: #8ed0ff;
+  padding-left: 9px; border-left: 1px solid rgba(198, 224, 246, .20);
 }
 
 /* CENTRED WITHOUT A TRANSFORM. It used `left:50% + translateX(-50%)`, and the
@@ -198,22 +211,35 @@ body.qz-playing #menu { display: none; }
   border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
   pointer-events: auto;
 }
-.qz-q { font: 600 19px/25px system-ui, sans-serif; color: #10293f; letter-spacing: -.01em; }
-.qz-q b { color: #1e6ea8; font-weight: 600; }
+.qz-q { font: 600 19px/25px system-ui, sans-serif; color: #eaf3fb; letter-spacing: -.01em; }
+.qz-q b { color: #8ed0ff; font-weight: 600; }
 .qz-sub {
   margin-top: 4px; font: 10px/14px system-ui, sans-serif; text-transform: uppercase;
-  letter-spacing: .1em; color: rgba(96, 124, 150, .95);
+  letter-spacing: .1em; color: rgba(158, 186, 210, .95);
 }
 
-/* the flag is the question: big enough to read its charges, but laid out BESIDE the
-   prompt, so the card stays short and the lit-up country behind it is not covered */
-.qz-flagrow { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; }
-.qz-flagwrap { line-height: 0; }
+/* THE PROMPT IS ALWAYS CENTRED, and the flag of the flag question sits BESIDE it
+   without pushing it off centre. It used to be a flex row (prompt + flag), so the row
+   was centred and the SENTENCE was not - on a 915 px viewport the prompt's own centre
+   sat 54 px left of the screen's, and 44 px on a phone. The flag is now absolutely
+   placed in the card's right-hand end and the text is given the same margin on both
+   sides, so it is centred in the card AND in the viewport. */
+.qz-flagrow { position: relative; padding: 0 84px; }
+.qz-flagwrap {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  line-height: 0;
+}
 .qz-bigflag {
-  font-size: 74px;
+  font-size: 64px;
   border-radius: 6px;
-  box-shadow: 0 0 0 1px rgba(16, 41, 63, .20), 0 6px 18px rgba(9, 26, 44, .30);
-  background-color: rgba(16, 41, 63, .08);
+  box-shadow: 0 0 0 1px rgba(198, 224, 246, .20), 0 6px 18px rgba(4, 14, 24, .45);
+  background-color: rgba(198, 224, 246, .08);
+}
+/* on a phone the flag shrinks with the room it has, and so does its margin */
+@media (max-width: 480px) {
+  .qz-flagrow { padding: 0 62px; }
+  .qz-bigflag { font-size: 48px; }
+  .qz-flagwrap { right: 4px; }
 }
 
 /* ---------- answers ---------- */
@@ -229,7 +255,7 @@ body.qz-playing #menu { display: none; }
   display: flex; align-items: center; gap: 10px;
   min-height: 52px; padding: 8px 12px;
   border-radius: 12px; border: 1px solid var(--glass-border);
-  background: var(--glass-tint-strong); color: #10293f;
+  background: var(--glass-tint-strong); color: #eaf3fb;
   font: 500 14px/18px system-ui, sans-serif;
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
@@ -238,11 +264,11 @@ body.qz-playing #menu { display: none; }
 }
 .qz-ans .n {
   flex: 0 0 auto; width: 18px; text-align: center;
-  font: 11px/18px ui-monospace, Menlo, monospace; color: rgba(96, 124, 150, .95);
+  font: 11px/18px ui-monospace, Menlo, monospace; color: rgba(158, 186, 210, .95);
 }
 .qz-ans .v { flex: 1 1 auto; }
-.qz-ans:hover { background: rgba(30, 77, 117, .14); }
-.qz-ans:active { background: rgba(30, 77, 117, .18); }
+.qz-ans:hover { background: rgba(142, 208, 255, .16); }
+.qz-ans:active { background: rgba(142, 208, 255, .20); }
 /* the verdict look itself lives in the ANIMATIONS section at the end of this file,
    where the green pop and the red flash are written together */
 .qz-ans.ok, .qz-ans.bad { color: #ffffff; }
@@ -262,12 +288,12 @@ body.qz-playing #menu { display: none; }
 .qz-answers-flags .qz-ans { flex-direction: column; gap: 4px; }
 .qz-answers-flags .qz-ans .cap {
   font: 10px/13px system-ui, sans-serif; letter-spacing: .02em;
-  color: rgba(40, 70, 96, .95); text-align: center;
+  color: rgba(190, 214, 234, .95); text-align: center;
 }
 .qz-optflag {
   font-size: 38px;                      /* .fi sizes off the font size */
   border-radius: 3px;
-  box-shadow: 0 0 0 1px rgba(16, 41, 63, .20), 0 2px 6px rgba(9, 26, 44, .24);
+  box-shadow: 0 0 0 1px rgba(198, 224, 246, .20), 0 2px 6px rgba(4, 14, 24, .38);
 }
 
 /* ---------- the verdict ---------- */
@@ -283,9 +309,9 @@ body.qz-playing #menu { display: none; }
 }
 .qz-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .qz-verdict { font: 600 13px/18px system-ui, sans-serif; white-space: nowrap; }
-.qz-verdict.good { color: #1f8f5f; }
+.qz-verdict.good { color: #46d18e; }
 .qz-verdict.bad { color: #b8403a; }
-.qz-facts { flex: 1 1 180px; font: 12px/17px system-ui, sans-serif; color: rgba(16, 41, 63, .9); }
+.qz-facts { flex: 1 1 180px; font: 12px/17px system-ui, sans-serif; color: rgba(234, 243, 251, .90); }
 .qz-head .qz-next { margin-left: auto; }
 
 /* THE DETAILS: the info panel's own rows, in the quiz's card. Same labels, same
@@ -293,41 +319,41 @@ body.qz-playing #menu { display: none; }
    rows on a phone without pushing the answers off the screen. */
 .qz-details {
   margin-top: 9px; padding-top: 8px;
-  border-top: 1px solid rgba(16, 41, 63, .12);
+  border-top: 1px solid rgba(198, 224, 246, .12);
   /* ~4 rows: enough to see what the country IS (name, capital, area, population)
      before scrolling, and short enough that the map above it - the picture the
      question was about - stays on screen */
   max-height: 152px; overflow-y: auto; overscroll-behavior: contain;
-  scrollbar-width: thin; scrollbar-color: rgba(96, 124, 150, .5) transparent;
+  scrollbar-width: thin; scrollbar-color: rgba(158, 186, 210, .55) transparent;
   font: 12px/17px system-ui, sans-serif;
 }
 .qz-details::-webkit-scrollbar { width: 5px; }
-.qz-details::-webkit-scrollbar-thumb { background: rgba(96, 124, 150, .5); border-radius: 3px; }
+.qz-details::-webkit-scrollbar-thumb { background: rgba(158, 186, 210, .55); border-radius: 3px; }
 .qz-details .row { display: grid; grid-template-columns: 82px 1fr; gap: 8px; margin-bottom: 5px; }
 .qz-details .row:last-child { margin-bottom: 0; }
 .qz-details .k {
-  color: rgba(90, 118, 144, .95); font-size: 10px; text-transform: uppercase;
+  color: rgba(160, 188, 212, .95); font-size: 10px; text-transform: uppercase;
   letter-spacing: .07em; padding-top: 2px;
 }
-.qz-details .v { position: relative; color: rgba(16, 41, 63, .95); }
+.qz-details .v { position: relative; color: rgba(234, 243, 251, .95); }
 .qz-details .v .nm { display: inline-block; padding-left: 26px; }
 .qz-details .v .fi {
   position: absolute; left: 0; top: .18em; width: 19px; height: 13px; border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(16, 41, 63, .14); background-size: cover;
+  box-shadow: 0 0 0 1px rgba(198, 224, 246, .14); background-size: cover;
 }
 .qz-details .links {
   display: flex; gap: 8px; margin-top: 8px; padding-top: 8px;
-  border-top: 1px solid rgba(16, 41, 63, .10);
+  border-top: 1px solid rgba(198, 224, 246, .10);
 }
 .qz-details .btn {
   pointer-events: auto; cursor: pointer; text-decoration: none;
-  font: 11px/15px system-ui, sans-serif; color: #1c5f96;
+  font: 11px/15px system-ui, sans-serif; color: #a8dcff;
   padding: 5px 10px; border-radius: 8px;
-  border: 1px solid rgba(30, 77, 117, .25); background: rgba(30, 77, 117, .08);
+  border: 1px solid rgba(142, 208, 255, .26); background: rgba(142, 208, 255, .09);
 }
-.qz-details .btn:hover { background: rgba(30, 77, 117, .16); }
-.qz-facts .fi { vertical-align: -3px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(16, 41, 63, .18); }
-.qz-dim { color: rgba(90, 118, 144, .95); }
+.qz-details .btn:hover { background: rgba(142, 208, 255, .18); }
+.qz-facts .fi { vertical-align: -3px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(198, 224, 246, .18); }
+.qz-dim { color: rgba(160, 188, 212, .95); }
 .qz-next { padding: 9px 18px; min-height: 38px; font-size: 13px; border-radius: 10px; }
 
 /* ---------- the score screen ---------- */
@@ -339,13 +365,13 @@ body.qz-playing #menu { display: none; }
   transform: translateY(-50%);
   margin: 0 auto;
 }
-.qz-endh { font: 600 54px/60px system-ui, sans-serif; letter-spacing: -.03em; color: #10293f; }
-.qz-endh span { font-size: 22px; color: rgba(90, 118, 144, .95); letter-spacing: 0; }
+.qz-endh { font: 600 54px/60px system-ui, sans-serif; letter-spacing: -.03em; color: #eaf3fb; }
+.qz-endh span { font-size: 22px; color: rgba(160, 188, 212, .95); letter-spacing: 0; }
 .qz-dots { display: flex; gap: 5px; justify-content: center; margin: 12px 0 2px; flex-wrap: wrap; }
 .qz-dot { width: 11px; height: 11px; border-radius: 50%; display: block; }
-.qz-dot.good { background: #1f8f5f; }
-.qz-dot.bad { background: #c2453f; opacity: .8; }
-.qz-endmsg { margin-top: 10px; font: 15px/21px system-ui, sans-serif; color: #10293f; }
+.qz-dot.good { background: #46d18e; }
+.qz-dot.bad { background: #ff8a8a; opacity: .8; }
+.qz-endmsg { margin-top: 10px; font: 15px/21px system-ui, sans-serif; color: #eaf3fb; }
 .qz-endcard .qz-actions { justify-content: center; }
 
 /* ---------- small screens ---------- */
@@ -416,7 +442,7 @@ body.qz-playing #menu { display: none; }
 .qz-halo {
   position: absolute; inset: -18% 2% auto 2%; height: 150px; z-index: -1;
   border-radius: 50%; pointer-events: none;
-  background: radial-gradient(closest-side, rgba(31, 110, 166, .26), rgba(30, 77, 117, .12) 58%, transparent 78%);
+  background: radial-gradient(closest-side, rgba(142, 208, 255, .28), rgba(142, 208, 255, .14) 58%, transparent 78%);
   filter: blur(24px);
   animation: pulseGlow 3.6s ease-in-out infinite;
 }
@@ -432,7 +458,7 @@ body.qz-playing #menu { display: none; }
 .qz-play { position: relative; overflow: hidden; }
 .qz-play::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: linear-gradient(100deg, transparent 30%, rgba(16, 41, 63, .24) 50%, transparent 70%);
+  background: linear-gradient(100deg, transparent 30%, rgba(198, 224, 246, .26) 50%, transparent 70%);
   transform: translateX(-120%); opacity: 0;
   animation: sheen 4.2s ease-in-out infinite;
 }
@@ -461,40 +487,40 @@ body.qz-playing #menu { display: none; }
    green reads as "washed out" rather than "that is the answer" - Kwizzy's fills could
    be translucent because its background is dark. The glow and the rings stay. */
 .qz-ans.ok {
-  background: linear-gradient(118deg, rgba(31, 143, 95, .97), rgba(24, 110, 78, .97));
-  border-color: rgba(84, 190, 150, .9);
+  background: linear-gradient(118deg, rgba(38, 150, 105, .97), rgba(28, 122, 88, .97));
+  border-color: rgba(120, 240, 190, .90);
   animation: rightPop .52s cubic-bezier(.2,1.5,.4,1) both, goodGlow 1.05s .16s ease-out both;
 }
 .qz-ans.ok::after {
   content: ""; position: absolute; inset: -5px; border-radius: 16px; pointer-events: none;
-  border: 2px solid rgba(31, 143, 95, .9);
+  border: 2px solid rgba(90, 230, 165, .90);
   animation: goodRing .66s cubic-bezier(.2,.9,.3,1) both;
 }
 @keyframes rightPop { 0% { transform: scale(1); } 45% { transform: scale(1.07); } 100% { transform: scale(1); } }
 @keyframes goodGlow {
-  0% { box-shadow: 0 0 8px rgba(31, 143, 95, .18); }
-  42% { box-shadow: 0 0 40px rgba(31, 143, 95, .60); }
-  100% { box-shadow: 0 0 18px rgba(31, 143, 95, .30); }
+  0% { box-shadow: 0 0 8px rgba(70, 209, 142, .20); }
+  42% { box-shadow: 0 0 40px rgba(70, 209, 142, .60); }
+  100% { box-shadow: 0 0 18px rgba(70, 209, 142, .32); }
 }
 @keyframes goodRing { 0% { opacity: 0; transform: scale(.88); } 32% { opacity: .95; } 100% { opacity: 0; transform: scale(1.18); } }
 
 .qz-ans.bad {
-  background: rgba(150, 50, 45, .96);
-  border-color: rgba(194, 69, 63, .90);
-  text-decoration: line-through; text-decoration-color: rgba(194, 69, 63, .85);
+  background: rgba(170, 58, 58, .96);
+  border-color: rgba(255, 150, 150, .90);
+  text-decoration: line-through; text-decoration-color: rgba(255, 140, 140, .85);
   animation: shake .42s cubic-bezier(.36,.07,.19,.97) both, badFlash .52s ease-out both;
 }
 .qz-ans.bad::after {
   content: ""; position: absolute; inset: -4px; border-radius: 15px; pointer-events: none;
-  border: 2px solid rgba(194, 69, 63, .80);
+  border: 2px solid rgba(255, 130, 130, .80);
   animation: badRing .5s cubic-bezier(.2,.9,.3,1) both;
 }
 /* the flash goes THROUGH the tile and settles back on its own colour (the last frame
    must be the resting look, or the tile would end up paler than every other one) */
 @keyframes badFlash {
-  0% { background-color: rgba(194, 69, 63, .98); box-shadow: 0 0 26px rgba(194, 69, 63, .55); }
-  48% { background-color: rgba(110, 36, 32, .96); box-shadow: 0 0 4px rgba(194, 69, 63, .10); }
-  100% { background-color: rgba(150, 50, 45, .96); box-shadow: 0 0 10px rgba(194, 69, 63, .26); }
+  0% { background-color: rgba(235, 90, 90, .98); box-shadow: 0 0 26px rgba(255, 111, 111, .60); }
+  48% { background-color: rgba(120, 40, 40, .96); box-shadow: 0 0 4px rgba(255, 111, 111, .14); }
+  100% { background-color: rgba(170, 58, 58, .96); box-shadow: 0 0 10px rgba(255, 111, 111, .30); }
 }
 @keyframes badRing { 0% { opacity: .9; transform: scale(1.14); } 60% { opacity: .25; } 100% { opacity: 0; transform: scale(.9); } }
 .qz-ans { position: relative; }
@@ -506,7 +532,7 @@ body.qz-playing #menu { display: none; }
 
 /* the score ticks up when it moves */
 .qz-score.bump { animation: scoreBump .45s cubic-bezier(.2,1.5,.4,1) both; }
-@keyframes scoreBump { 0% { transform: scale(1); } 45% { transform: scale(1.35); color: #1f8f5f; } 100% { transform: scale(1); } }
+@keyframes scoreBump { 0% { transform: scale(1); } 45% { transform: scale(1.35); color: #46d18e; } 100% { transform: scale(1); } }
 
 /* the score screen: the number lands big, the dots arrive one by one, a new best
    flashes gold three times */
@@ -516,7 +542,7 @@ body.qz-playing #menu { display: none; }
 @keyframes bestFlash { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .qz-dot { animation: rise .38s cubic-bezier(.2,.9,.25,1) both; animation-delay: calc(.25s + var(--i, 0) * 45ms); }
 @keyframes rise { from { opacity: 0; transform: translateY(12px) scale(.6); } to { opacity: 1; transform: none; } }
-.qz-best-new { color: #8a5f0a; }
+.qz-best-new { color: #ffd166; }
 
 /* the info line slides in like a toast */
 .qz-info:not(:empty) { animation: toastIn .34s cubic-bezier(.2,1.3,.4,1) both; }
@@ -526,7 +552,7 @@ body.qz-playing #menu { display: none; }
 .burst { position: fixed; inset: 0; z-index: 22; pointer-events: none; overflow: hidden; }
 .spark {
   position: absolute; width: 9px; height: 9px; border-radius: 3px;
-  background: #1e6ea8; opacity: 0;
+  background: #8ed0ff; opacity: 0;
   animation: sparkFly var(--dur, 760ms) cubic-bezier(.15,.75,.35,1) forwards;
 }
 @keyframes sparkFly {
@@ -544,7 +570,7 @@ body.qz-playing #menu { display: none; }
   width: min(420px, calc(100vw - 24px));
   max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
   padding: 18px 18px 14px; border-radius: 17px;
-  background: rgba(252, 253, 255, .97);
+  background: rgba(9, 21, 34, .72);
   -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2);
   border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
   font: 13px/18px system-ui, sans-serif; color: var(--ink);
@@ -555,45 +581,45 @@ body.qz-playing #menu { display: none; }
 .qz-set {
   display: flex; align-items: center; gap: 10px; cursor: pointer;
   padding: 11px 12px; margin-bottom: 6px; border-radius: 12px;
-  border: 1px solid rgba(16, 41, 63, .14); background: rgba(30, 77, 117, .07);
-  font: 13px/17px system-ui, sans-serif; color: rgba(16, 41, 63, .85);
+  border: 1px solid rgba(198, 224, 246, .14); background: rgba(142, 208, 255, .08);
+  font: 13px/17px system-ui, sans-serif; color: rgba(234, 243, 251, .86);
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .qz-set .lbl { flex: 1 1 auto; }
-.qz-set .why { font-size: 10px; color: rgba(90, 118, 144, .95); text-align: right; }
+.qz-set .why { font-size: 10px; color: rgba(160, 188, 212, .95); text-align: right; }
 /* the pill switch: a track with a knob that slides, and a filled track when on */
 .qz-set .sw {
   position: relative; flex: 0 0 auto; width: 38px; height: 22px; border-radius: 99px;
-  background: rgba(30, 77, 117, .16); border: 1px solid rgba(16, 41, 63, .22);
+  background: rgba(142, 208, 255, .18); border: 1px solid rgba(198, 224, 246, .22);
   transition: background .16s ease, border-color .16s ease;
 }
 .qz-set .sw::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
-  border-radius: 50%; background: rgba(16, 41, 63, .9);
+  border-radius: 50%; background: rgba(234, 243, 251, .90);
   transition: transform .16s cubic-bezier(.2,.9,.25,1.2);
 }
-.qz-set.on { color: #10293f; border-color: rgba(30, 77, 117, .35); background: rgba(30, 77, 117, .10); }
-.qz-set.on .sw { background: rgba(31, 143, 95, .55); border-color: rgba(84, 190, 150, .8); }
+.qz-set.on { color: #eaf3fb; border-color: rgba(142, 208, 255, .40); background: rgba(142, 208, 255, .12); }
+.qz-set.on .sw { background: rgba(70, 209, 142, .55); border-color: rgba(120, 230, 180, .80); }
 .qz-set.on .sw::after { transform: translateX(16px); background: #ffffff; }
 
 .qz-vol { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; padding: 0 2px; }
-.qz-vol .lbl { font-size: 12px; color: rgba(64, 92, 118, .95); white-space: nowrap; }
+.qz-vol .lbl { font-size: 12px; color: rgba(178, 202, 224, .95); white-space: nowrap; }
 .qz-vol input[type=range] {
   flex: 1 1 auto; -webkit-appearance: none; appearance: none; height: 22px;
   background: transparent; cursor: pointer;
 }
 .qz-vol input[type=range]::-webkit-slider-runnable-track {
-  height: 5px; border-radius: 99px; background: rgba(30, 77, 117, .18);
+  height: 5px; border-radius: 99px; background: rgba(142, 208, 255, .20);
 }
 .qz-vol input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5.5px;
-  border-radius: 50%; background: #1e6ea8; border: 0; box-shadow: 0 0 0 1px rgba(9, 26, 44, .20);
+  border-radius: 50%; background: #8ed0ff; border: 0; box-shadow: 0 0 0 1px rgba(4, 14, 24, .34);
 }
-.qz-vol input[type=range]::-moz-range-track { height: 5px; border-radius: 99px; background: rgba(30, 77, 117, .18); }
-.qz-vol input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: #1e6ea8; }
+.qz-vol input[type=range]::-moz-range-track { height: 5px; border-radius: 99px; background: rgba(142, 208, 255, .20); }
+.qz-vol input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: #8ed0ff; }
 .qz-vol .pill {
   font: 11px/15px ui-monospace, Menlo, monospace; min-width: 40px; text-align: right;
-  color: rgba(16, 41, 63, .95);
+  color: rgba(234, 243, 251, .95);
 }
 .qz-vol.off { opacity: .45; }
 .qz-sheet .qz-h:first-child { margin-top: 0; }
@@ -617,41 +643,41 @@ body.qz-playing #menu { display: none; }
 }
 .qz-shead {
   display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px 8px; border-bottom: 1px solid rgba(16, 41, 63, .10);
+  padding: 14px 16px 8px; border-bottom: 1px solid rgba(198, 224, 246, .10);
 }
 .qz-shead .qz-h { margin: 0; flex: 1 1 auto; }
 .qz-xs { width: 30px; height: 30px; font: 13px/28px system-ui, sans-serif; border-radius: 9px; }
 .qz-sbody { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 8px;
-            scrollbar-width: thin; scrollbar-color: rgba(96, 124, 150, .5) transparent; }
+            scrollbar-width: thin; scrollbar-color: rgba(158, 186, 210, .55) transparent; }
 .qz-sbody::-webkit-scrollbar { width: 5px; }
-.qz-sbody::-webkit-scrollbar-thumb { background: rgba(96, 124, 150, .5); border-radius: 3px; }
+.qz-sbody::-webkit-scrollbar-thumb { background: rgba(158, 186, 210, .55); border-radius: 3px; }
 .qz-sfoot {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 10px 16px 14px; border-top: 1px solid rgba(16, 41, 63, .10);
+  padding: 10px 16px 14px; border-top: 1px solid rgba(198, 224, 246, .10);
 }
 .qz-sfoot .qz-play, .qz-sfoot .qz-ghost { padding: 9px 16px; min-height: 40px; font-size: 13px; }
 .qz-figs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 6px; }
 .qz-figs .fig {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 9px 4px 8px; border-radius: 11px;
-  background: rgba(30, 77, 117, .07); border: 1px solid rgba(16, 41, 63, .14);
+  background: rgba(142, 208, 255, .08); border: 1px solid rgba(198, 224, 246, .14);
 }
-.qz-figs b { font: 600 19px/23px system-ui, sans-serif; color: #10293f; }
+.qz-figs b { font: 600 19px/23px system-ui, sans-serif; color: #eaf3fb; }
 .qz-figs span { font: 9px/12px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .07em;
-               color: rgba(90, 118, 144, .95); text-align: center; }
+               color: rgba(160, 188, 212, .95); text-align: center; }
 
 .qz-srow, .qz-crow {
   display: flex; align-items: baseline; gap: 8px; padding: 5px 2px;
-  border-bottom: 1px solid rgba(16, 41, 63, .08);
+  border-bottom: 1px solid rgba(198, 224, 246, .08);
   font: 12px/16px system-ui, sans-serif;
 }
 .qz-srow:last-child, .qz-crow:last-child { border-bottom: 0; }
-.qz-srow .k { flex: 1 1 auto; color: rgba(16, 41, 63, .92); }
-.qz-srow .v, .qz-crow .v { font: 600 12px/16px ui-monospace, Menlo, monospace; color: #1e6ea8; min-width: 38px; text-align: right; }
-.qz-srow .q, .qz-crow .q { font: 11px/16px ui-monospace, Menlo, monospace; color: rgba(90, 118, 144, .95); min-width: 42px; text-align: right; }
-.qz-srow .b { font: 10px/16px ui-monospace, Menlo, monospace; color: #1f8f5f; min-width: 66px; text-align: right; }
-.qz-crow .nm { flex: 1 1 auto; color: rgba(16, 41, 63, .92); }
-.qz-crow .fi { flex: 0 0 auto; border-radius: 2px; box-shadow: 0 0 0 1px rgba(16, 41, 63, .16); }
+.qz-srow .k { flex: 1 1 auto; color: rgba(234, 243, 251, .92); }
+.qz-srow .v, .qz-crow .v { font: 600 12px/16px ui-monospace, Menlo, monospace; color: #8ed0ff; min-width: 38px; text-align: right; }
+.qz-srow .q, .qz-crow .q { font: 11px/16px ui-monospace, Menlo, monospace; color: rgba(160, 188, 212, .95); min-width: 42px; text-align: right; }
+.qz-srow .b { font: 10px/16px ui-monospace, Menlo, monospace; color: #46d18e; min-width: 66px; text-align: right; }
+.qz-crow .nm { flex: 1 1 auto; color: rgba(234, 243, 251, .92); }
+.qz-crow .fi { flex: 0 0 auto; border-radius: 2px; box-shadow: 0 0 0 1px rgba(198, 224, 246, .16); }
 
 /* ═══════════════ reduced motion ═══════════════
    Kwizzy's ADR 0004, taken literally: movement goes, the look and every word stay.
@@ -674,10 +700,10 @@ body.qz-playing #menu { display: none; }
    A title, then one screen per question of the set-up - what to find, where,
    how hard - then the round. Every one of them is a full-viewport page with the
    map live behind it (the map drifts; see app.js stepDrift), so the page itself
-   is a COLUMN of paper over the ocean, never a full-width surface.
+   is a COLUMN of smoked glass over the ocean, never a full-width opaque surface.
 
-   The chart: the map's own blues (ocean #143456 / #1e4d75), paper whites and
-   light greys for every surface, and one accent - the map's selection blue.
+   The chart: the map's own blues (ocean #143456, selection #8ed0ff) and smoked glass
+   for every surface.
    The only other hues in the whole game are the verdict's green and red, and
    they exist because a right and a wrong answer must never look alike.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -687,7 +713,7 @@ body.qz-playing #menu { display: none; }
 .qz-scrim-soft {
   background:
     radial-gradient(120% 95% at 50% 40%, rgba(14, 38, 62, .18), rgba(9, 26, 44, .68) 82%),
-    rgba(9, 26, 44, .16);
+    rgba(4, 14, 24, .28);
   -webkit-backdrop-filter: blur(3px) saturate(1.05);
   backdrop-filter: blur(3px) saturate(1.05);
 }
@@ -724,7 +750,7 @@ body.qz-playing #menu { display: none; }
   cursor: pointer; touch-action: manipulation;
   transition: background .12s linear, transform .12s ease;
 }
-.qz-back:hover { background: #ffffff; }
+.qz-back:hover { background: rgba(22, 44, 66, .72); }
 .qz-back:active { transform: scale(.94); }
 .qz-titles { flex: 1 1 auto; min-width: 0; }
 /* ON A PHONE the step title drops to its own line rather than being ellipsised into
@@ -734,7 +760,7 @@ body.qz-playing #menu { display: none; }
   .qz-topbar { flex-wrap: wrap; row-gap: 2px; padding-left: 52px; padding-right: 50px; }
   .qz-titles { flex: 1 1 100%; order: 3; }
   .qz-steps { order: 2; margin-left: auto; }
-  .qz-title { white-space: normal; font-size: 19px; line-height: 24px; }
+  .qz-steptitle { white-space: normal; font-size: 19px; line-height: 24px; }
 }
 /* THE TOP BAR SITS ON THE MAP, not on a card: its words are white with a dark halo,
    like the title screen's - ink on the ocean would be unreadable, and giving the bar
@@ -745,7 +771,10 @@ body.qz-playing #menu { display: none; }
   color: rgba(255, 255, 255, .72);
   text-shadow: 0 1px 8px rgba(9, 26, 44, .85);
 }
-.qz-title {
+/* NAMED `.qz-steptitle` ON PURPOSE: `#quiz` carries `qz-title` as its SCREEN marker,
+   so a `.qz-title` heading rule also styled the full-screen container (its nowrap and
+   overflow:hidden leaked into the whole title page). Screen markers are qz-<screen>. */
+.qz-steptitle {
   margin: 0; font: 600 21px/26px system-ui, sans-serif;
   letter-spacing: -.015em; color: #ffffff;
   text-shadow: 0 2px 14px rgba(9, 26, 44, .8);
@@ -756,7 +785,7 @@ body.qz-playing #menu { display: none; }
 .qz-stepd {
   width: 7px; height: 7px; border-radius: 50%; display: block;
   background: rgba(255, 255, 255, .42);
-  box-shadow: 0 0 0 1px rgba(16, 41, 63, .18);
+  box-shadow: 0 0 0 1px rgba(198, 224, 246, .18);
   transition: background .2s linear, transform .2s ease;
 }
 .qz-stepd.done { background: rgba(255, 255, 255, .85); }
@@ -767,7 +796,7 @@ body.qz-playing #menu { display: none; }
   display: flex; flex-direction: column; gap: 14px;
   padding: 20px 8px 10px;
   overflow-y: auto; overscroll-behavior: contain;
-  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .35) transparent;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .10) transparent;
 }
 .qz-pagefoot {
   flex: 0 0 auto;
@@ -803,21 +832,21 @@ body.qz-playing #menu { display: none; }
   font: inherit; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
   transition: background .13s linear, border-color .13s linear, box-shadow .13s linear;
 }
-.qz-choice:hover { background: #ffffff; }
-.qz-choice-ico { font-size: 19px; line-height: 22px; color: #1f6ea6; }
-.qz-choice-t { font: 600 15px/20px system-ui, sans-serif; color: #10293f; }
-.qz-choice-s { font: 11.5px/16px system-ui, sans-serif; color: rgba(64, 92, 118, .95); }
+.qz-choice:hover { background: rgba(22, 44, 66, .72); }
+.qz-choice-ico { font-size: 19px; line-height: 22px; color: #8ed0ff; }
+.qz-choice-t { font: 600 15px/20px system-ui, sans-serif; color: #eaf3fb; }
+.qz-choice-s { font: 11.5px/16px system-ui, sans-serif; color: rgba(178, 202, 224, .95); }
 .qz-choice.on {
-  background: #ffffff;
-  border-color: rgba(30, 77, 117, .55);
-  box-shadow: 0 0 0 1px rgba(30, 77, 117, .35), 0 12px 26px rgba(9, 26, 44, .18);
+  background: rgba(22, 44, 66, .78);
+  border-color: rgba(142, 208, 255, .60);
+  box-shadow: 0 0 0 1px rgba(142, 208, 255, .40), 0 12px 26px rgba(4, 14, 24, .30);
 }
-.qz-choice.on .qz-choice-ico { color: #1e4d75; }
+.qz-choice.on .qz-choice-ico { color: #8ed0ff; }
 /* the tick: an empty ring until the card is the pick, then the accent fills it */
 .qz-tick {
   position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
   width: 20px; height: 20px; border-radius: 50%;
-  border: 1.5px solid rgba(16, 41, 63, .22);
+  border: 1.5px solid rgba(198, 224, 246, .22);
   background: transparent;
   transition: background .13s linear, border-color .13s linear;
 }
@@ -827,9 +856,10 @@ body.qz-playing #menu { display: none; }
   font: 700 12px/1 system-ui, sans-serif; color: transparent;
 }
 .qz-choice.on .qz-tick, .qz-zcard.on .qz-tick {
-  background: #1e4d75; border-color: #1e4d75;
+  background: #8ed0ff; border-color: #8ed0ff;
+  box-shadow: 0 0 12px rgba(142, 208, 255, .45);
 }
-.qz-choice.on .qz-tick::after, .qz-zcard.on .qz-tick::after { color: #ffffff; }
+.qz-choice.on .qz-tick::after, .qz-zcard.on .qz-tick::after { color: #06121e; }
 
 /* ---------- the zones: a small grid, not three rows of text ---------- */
 .qz-zones { grid-template-columns: repeat(2, 1fr); }
@@ -843,12 +873,12 @@ body.qz-playing #menu { display: none; }
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
-  color: #10293f; font: 600 14px/19px system-ui, sans-serif;
+  color: #eaf3fb; font: 600 14px/19px system-ui, sans-serif;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
   transition: background .13s linear, border-color .13s linear;
 }
-.qz-zcard:hover { background: #ffffff; }
-.qz-zcard.on { background: #ffffff; border-color: rgba(30, 77, 117, .55); }
+.qz-zcard:hover { background: rgba(22, 44, 66, .72); }
+.qz-zcard.on { background: rgba(22, 44, 66, .78); border-color: rgba(142, 208, 255, .60); }
 .qz-zcard .qz-tick { right: 11px; width: 18px; height: 18px; }
 
 /* ---------- the title screen ---------- */
@@ -893,13 +923,13 @@ body.qz-playing #menu { display: none; }
    corners, or the ink of a ghost button would vanish over pale land */
 .qz-creditsbtn {
   justify-content: center;
-  background: rgba(252, 253, 255, .92);
-  color: #10293f;
-  border-color: rgba(16, 41, 63, .24);
+  background: rgba(12, 28, 44, .66);
+  color: #eaf3fb;
+  border-color: rgba(198, 224, 246, .26);
   box-shadow: var(--glass-shadow);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
 }
-.qz-creditsbtn:hover { background: #ffffff; }
+.qz-creditsbtn:hover { background: rgba(22, 44, 66, .72); }
 .qz-page-title .qz-foot {
   margin-top: 22px; display: flex; flex-direction: column; gap: 6px; align-items: center;
 }
@@ -930,14 +960,14 @@ body.qz-playing #menu { display: none; }
 /* ---------- credits & memory ---------- */
 .qz-credrow {
   display: flex; align-items: baseline; gap: 10px;
-  padding: 7px 2px; border-bottom: 1px solid rgba(16, 41, 63, .08);
+  padding: 7px 2px; border-bottom: 1px solid rgba(198, 224, 246, .08);
   font: 12.5px/18px system-ui, sans-serif;
 }
 .qz-credrow:last-of-type { border-bottom: 0; }
-.qz-credrow .k { flex: 0 0 auto; font-weight: 600; color: #10293f; }
-.qz-credrow .k a { color: #1c5f96; text-decoration: none; border-bottom: 1px solid rgba(28, 95, 150, .35); }
+.qz-credrow .k { flex: 0 0 auto; font-weight: 600; color: #eaf3fb; }
+.qz-credrow .k a { color: #a8dcff; text-decoration: none; border-bottom: 1px solid rgba(142, 208, 255, .40); }
 .qz-credrow .k a:hover { border-bottom-color: currentColor; }
-.qz-credrow .v { color: rgba(64, 92, 118, .95); }
+.qz-credrow .v { color: rgba(178, 202, 224, .95); }
 
 /* the entrance, shared with the game's own screens */
 #quiz.anim-in .qz-choice, #quiz.anim-in .qz-zcard { animation: popIn .42s cubic-bezier(.2,.9,.25,1.05) both; }

@@ -503,6 +503,34 @@ async function afterLoad() {
         !bodyEl.classList.contains('qz-playing') && !bodyEl.classList.contains('qz-owning'));
   Qz.open();
 
+  /* ---------- 6b. WHICH QUESTIONS MAY BE PRINTED ON THE MAP ----------
+     The map can name the lit country (MapApp.labels). That is a SPOILER in "find the
+     country" - the name IS the answer - and a help in capital and "country -> flag"
+     questions, where the country is given. The flag mode then has one half of each, so
+     the rule follows the QUESTION, not the mode. */
+  Qz.set({ mode: 'country', zone: 'europe', difficulty: 'easy', len: 10 });
+  Qz.start();
+  check('find-the-country: the map does NOT name the lit country', M().labelsOn() === false);
+  Qz.choose(Z().question.correct);
+  check('...until it is answered, when the name stops being a secret', M().labelsOn() === true);
+  Qz.quit();
+
+  Qz.set({ mode: 'capital', zone: 'europe', difficulty: 'easy' });
+  Qz.start();
+  check('capital questions DO name the lit country on the map', M().labelsOn() === true);
+  Qz.quit();
+
+  Qz.set({ mode: 'flag', zone: 'europe', difficulty: 'easy', variant: 'flags' });
+  Qz.start();
+  check('country -> flag names the lit country (the flag is the answer)', M().labelsOn() === true);
+  Qz.quit();
+
+  Qz.set({ mode: 'flag', zone: 'europe', difficulty: 'easy', variant: 'name' });
+  Qz.start();
+  check('flag -> country keeps the map anonymous (the name is the answer)', M().labelsOn() === false);
+  Qz.quit();
+  Qz.open();
+
   /* ---------- 7. the other two modes ---------- */
   Qz.set({ mode: 'capital', zone: 'europe', difficulty: 'hard' });
   check('a capital session starts', Qz.start() === true);

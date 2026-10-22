@@ -1,10 +1,13 @@
 /* ---------- GLASS ----------
-   Every floating panel (HUD, help, info panel, menu sheet, scrim) is the same
-   material: a translucent WHITE tint that frosts the map under it, a hairline
-   blue-grey border and a soft shadow. That is the app's chart in one place: the
-   map stays the deep ocean blue, and every surface over it is paper - blues,
-   whites and light greys, no other hue. Defined once here as custom properties so
-   the pieces cannot drift apart.
+   Every floating panel (HUD, help, info panel, menu sheet, the quiz's cards) is the
+   same material: a SMOKED GLASS - a translucent dark blue tint that FROSTS whatever
+   is under it (a real backdrop blur, not a flat alpha), a hairline light border and
+   a soft shadow. The map reads through every surface, which is what makes the UI feel
+   laid on the world rather than cut into it.
+
+   One hue only: the map's own blue. Pale ink for the text, one accent (#8ed0ff) for
+   the selection, and the verdict's green/red - the only two colours that carry a
+   meaning of their own.
 
    Two practical notes:
    * backdrop-filter is prefixed for Safari, and where it is unsupported the tint
@@ -13,18 +16,21 @@
      a lot of fill rate on a phone GPU for a difference nobody sees over a map.
    */
 :root {
-  --glass-tint: rgba(250, 252, 255, .82);
-  --glass-tint-strong: rgba(252, 253, 255, .94);
-  --glass-border: rgba(16, 41, 63, .14);
-  --glass-border-hi: rgba(16, 41, 63, .24);
-  --glass-blur: blur(14px) saturate(1.12);
-  --glass-shadow: 0 10px 30px rgba(9, 26, 44, .20), 0 1px 0 rgba(255, 255, 255, .70) inset;
+  --glass-tint: rgba(9, 23, 37, .62);
+  --glass-tint-strong: rgba(7, 19, 32, .74);
+  --glass-border: rgba(198, 224, 246, .16);
+  --glass-border-hi: rgba(198, 224, 246, .28);
+  /* 18 px: enough to read as frosted glass over the map's coastlines and labels,
+     still cheap on a phone GPU (the note below is the old 14 px measurement) */
+  --glass-blur: blur(18px) saturate(1.25);
+  --glass-shadow: 0 14px 34px rgba(3, 11, 20, .42), 0 1px 0 rgba(255, 255, 255, .07) inset;
   --glass-radius: 14px;
-  --ink: #10293f;
-  --ink-dim: rgba(64, 92, 118, .95);
-  /* one accent for the whole app, and it is the map's own: the deep ocean blue */
-  --accent: #1e4d75;
-  --accent-2: #1f6ea6;
+  --ink: #eaf3fb;
+  --ink-dim: rgba(178, 202, 224, .95);
+  /* one accent for the whole app, and it is the map's own: the light blue that reads
+     on smoked glass (the deep ocean blue is the SURFACE, not the accent) */
+  --accent: #8ed0ff;
+  --accent-2: #8ed0ff;
   --accent-pale: #8ed0ff;
 }
 
@@ -36,7 +42,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 
 .hud {
   position: fixed; left: 14px; bottom: 14px; pointer-events: none;
-  font: 11px/14px ui-monospace, Menlo, monospace; color: rgba(16, 41, 63, .88);
+  font: 11px/14px ui-monospace, Menlo, monospace; color: rgba(234, 243, 251, .88);
   /* The text sits over the map, and on the 10m layer the land is light grey: pale
      text on pale land was invisible. A soft dark plate (plus the shadow) keeps it
      readable over ocean, land and glint alike; the plate is only as wide as the
@@ -47,7 +53,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
-  text-shadow: 0 1px 2px rgba(255,255,255,.75);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, .10);
   white-space: pre;
 }
 .help {
@@ -65,7 +71,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
-  text-shadow: 0 1px 2px rgba(255,255,255,.72); text-align: right;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, .10); text-align: right;
 }
 
 .panel {
@@ -87,18 +93,18 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 /* the links row: real anchors, and the ONE part of the panel that takes the pointer
    (the panel itself is pointer-events:none so the map stays draggable under it) */
 .panel .links { display: flex; gap: 8px; margin-top: 11px; padding-top: 10px;
-                border-top: 1px solid rgba(16, 41, 63, .10); }
+                border-top: 1px solid rgba(198, 224, 246, .10); }
 .panel .btn, .spot .btn {
   pointer-events: auto; cursor: pointer;
   font: 11px/15px system-ui, sans-serif;
-  color: #1c5f96; text-decoration: none;
+  color: #a8dcff; text-decoration: none;
   padding: 5px 10px; border-radius: 8px;
-  border: 1px solid rgba(30, 77, 117, .25);
-  background: rgba(30, 77, 117, .08);
+  border: 1px solid rgba(142, 208, 255, .26);
+  background: rgba(142, 208, 255, .09);
   transition: background .1s linear;
 }
-.panel .btn:hover, .spot .btn:hover { background: rgba(30, 77, 117, .16); }
-.panel .btn:active, .spot .btn:active { background: rgba(30, 77, 117, .20); }
+.panel .btn:hover, .spot .btn:hover { background: rgba(142, 208, 255, .18); }
+.panel .btn:active, .spot .btn:active { background: rgba(142, 208, 255, .22); }
 
 .panel .k { color: var(--ink-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; padding-top: 2px; }
 .panel .v { color: var(--ink); }
@@ -120,7 +126,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .panel .v .fi {
   position: absolute; left: 0; top: 0.18em;
   width: 19px; height: 13px; border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(16, 41, 63, .14);
+  box-shadow: 0 0 0 1px rgba(198, 224, 246, .14);
   background-size: cover;
 }
 
@@ -161,7 +167,8 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
        no Esc)
      * touch-action: manipulation, so a tap is delivered without the 300 ms
        double-tap-zoom delay
-   Closed it is only the burger, whose tag names the active projection. */
+   Closed it is a 36 px disc with one glyph; the active view is named on the sheet's
+   first line when it opens (`#mview`). */
 #scrim {
   position: fixed; inset: 0; z-index: 15;
   background: rgba(10, 30, 50, .42);
@@ -171,36 +178,50 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 #scrim.on { opacity: 1; pointer-events: auto; }
 
 #menu {
-  /* TOP RIGHT, and the fullscreen button is the mirror of it on the top left: the two
-     fixed corners of the app, on every screen. The info panel moved below it (see
-     .panel), because a panel that opens under the burger is a panel you cannot reach. */
+  /* TOP RIGHT, the mirror of the fullscreen disc on the top left: the two fixed
+     corners of the app, on every screen. A 36 px SQUARE with one glyph in it, as in
+     Kwizzy - the name of the active view lives INSIDE the sheet (#mview), because a
+     tag beside the burger made the corner 160 px wide on a 390 px phone.
+     The info panel sits below it (see .panel): a panel that opens under the burger is
+     a panel you cannot reach. */
   position: fixed; right: 10px; top: max(10px, env(safe-area-inset-top)); z-index: 20;
-  min-height: 44px; max-height: calc(100vh - 28px);
-  display: flex; align-items: center; gap: 10px;
+  width: 36px; height: 36px; max-height: calc(100vh - 28px);
+  display: flex; align-items: center; justify-content: center; gap: 10px;
   font: 12px/17px system-ui, sans-serif; color: var(--ink);
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border-hi);
-  border-radius: var(--glass-radius); padding: 9px 12px;
+  border-radius: 12px; padding: 0;
   box-shadow: var(--glass-shadow);
   pointer-events: auto;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition: width .16s ease, height .16s ease, border-radius .16s ease;
 }
+/* OPEN: the disc becomes the sheet. Width is animated so the corner does not jump. */
 #menu.open {
-  flex-wrap: wrap; align-content: start;
-  width: 320px; max-width: calc(100vw - 20px);
-  border-radius: var(--glass-radius);
-  background: rgba(252, 253, 255, .96);
+  flex-wrap: wrap; align-content: start; justify-content: flex-start;
+  width: 330px; max-width: calc(100vw - 20px);
+  height: auto; min-height: 36px;
+  border-radius: var(--glass-radius); padding: 8px 10px 10px;
+  background: var(--glass-tint-strong);
+}
+/* the active view's name: hidden on the closed disc, the sheet's first line when open */
+.mview { display: none; }
+#menu.open .mview {
+  display: block; flex: 1 1 auto; min-width: 0;
+  font: 9px/13px system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .11em; color: rgba(158, 186, 210, .95);
+  text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  align-self: center;
 }
 #burger {
   pointer-events: auto; cursor: pointer;
-  display: flex; align-items: center; gap: 7px;
-  min-height: 26px;
-  font: 20px/20px system-ui, sans-serif; color: rgba(16, 41, 63, .9);
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+  font: 19px/19px system-ui, sans-serif; color: var(--ink);
   white-space: nowrap;
 }
-#burger .tag { font: 10px/13px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .07em; color: rgba(90, 118, 144, .95); }
 #items { display: none; }
 #menu.open #items {
   display: block; flex: 1 1 100%;
@@ -210,17 +231,17 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   /* a thin, dark scrollbar: the browser default is a bright grey bar that looks
      like a bug on a dark sheet */
   scrollbar-width: thin;
-  scrollbar-color: rgba(96, 124, 150, .45) transparent;
+  scrollbar-color: rgba(158, 186, 210, .50) transparent;
 }
 #menu.open #items::-webkit-scrollbar { width: 6px; }
-#menu.open #items::-webkit-scrollbar-thumb { background: rgba(96, 124, 150, .45); border-radius: 3px; }
+#menu.open #items::-webkit-scrollbar-thumb { background: rgba(158, 186, 210, .50); border-radius: 3px; }
 #menu.open #items::-webkit-scrollbar-track { background: transparent; }
 
 .mgroup { margin: 0 0 10px; }
 .mgroup:last-child { margin-bottom: 2px; }
 .mtitle {
   font: 9px/12px system-ui, sans-serif; text-transform: uppercase;
-  letter-spacing: .1em; color: rgba(96, 124, 150, .90);
+  letter-spacing: .1em; color: rgba(158, 186, 210, .90);
   margin: 0 2px 5px;
 }
 /* in 3D the projection rows cannot apply: dim them rather than hide them, so the
@@ -231,9 +252,9 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   pointer-events: auto; cursor: pointer;
   display: flex; align-items: center; gap: 9px;
   min-height: 30px; margin-bottom: 4px;
-  padding: 5px 10px; border: 1px solid rgba(16, 41, 63, .14); border-radius: 9px;
-  background: rgba(30, 77, 117, .07);
-  color: rgba(16, 41, 63, .85);
+  padding: 5px 10px; border: 1px solid rgba(198, 224, 246, .14); border-radius: 9px;
+  background: rgba(142, 208, 255, .08);
+  color: rgba(234, 243, 251, .86);
   font: 12px/16px system-ui, sans-serif;
   white-space: nowrap;
   touch-action: manipulation;
@@ -247,17 +268,17 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
    label does not shift when the selection moves */
 .menuitem::after {
   content: '\2713'; font: 12px/12px system-ui, sans-serif;
-  color: rgba(30, 77, 117, 0); margin-left: auto;
+  color: rgba(142, 208, 255, 0); margin-left: auto;
 }
 .menuitem.on {
-  color: #10293f;
-  background: rgba(30, 77, 117, .10);
-  border-color: rgba(30, 77, 117, .35);
-  box-shadow: 0 1px 0 rgba(16, 41, 63, .10) inset, 0 0 0 1px rgba(30, 77, 117, .08);
+  color: #eaf3fb;
+  background: rgba(142, 208, 255, .12);
+  border-color: rgba(142, 208, 255, .40);
+  box-shadow: 0 1px 0 rgba(198, 224, 246, .10) inset, 0 0 0 1px rgba(142, 208, 255, .09);
 }
-.menuitem.on::after { color: #1e6ea8; }
-.menuitem:hover { background: rgba(30, 77, 117, .12); }
-.menuitem:active { background: rgba(30, 77, 117, .18); }
+.menuitem.on::after { color: #8ed0ff; }
+.menuitem:hover { background: rgba(142, 208, 255, .14); }
+.menuitem:active { background: rgba(142, 208, 255, .20); }
 
 /* ---------- language chips ----------
    A wrapping row of small chips instead of 18 full-width rows: the sheet stays
@@ -268,43 +289,43 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   pointer-events: auto; cursor: pointer;
   display: inline-flex; align-items: center; gap: 7px;
   padding: 5px 10px; border-radius: 999px;
-  border: 1px solid rgba(16, 41, 63, .14);
-  background: rgba(30, 77, 117, .07);
-  color: rgba(16, 41, 63, .85);
+  border: 1px solid rgba(198, 224, 246, .14);
+  background: rgba(142, 208, 255, .08);
+  color: rgba(234, 243, 251, .86);
   font: 12px/16px system-ui, sans-serif;
   white-space: nowrap;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: background .1s linear;
 }
-.chip:hover { background: rgba(30, 77, 117, .12); }
-.chip:active { background: rgba(30, 77, 117, .18); }
+.chip:hover { background: rgba(142, 208, 255, .14); }
+.chip:active { background: rgba(142, 208, 255, .20); }
 /* the flag on a chip is a SQUARE (fis) and smaller than the type: a 4:3 rectangle
    at text width overpowers a two-word label */
 .chip .fi {
   width: 1em; height: 1em; border-radius: 50%;
   background-size: cover;
-  box-shadow: 0 0 0 1px rgba(16, 41, 63, .18);
+  box-shadow: 0 0 0 1px rgba(198, 224, 246, .18);
   flex: 0 0 auto;
 }
 .chip .nm { line-height: 1; }
 .chip.on {
-  color: #10293f;
-  background: rgba(30, 77, 117, .10);
-  border-color: rgba(30, 77, 117, .40);
-  box-shadow: 0 1px 0 rgba(16, 41, 63, .10) inset;
+  color: #eaf3fb;
+  background: rgba(142, 208, 255, .12);
+  border-color: rgba(142, 208, 255, .45);
+  box-shadow: 0 1px 0 rgba(198, 224, 246, .10) inset;
 }
 
 /* the data credit, pinned at the bottom of the sheet: small and quiet, but a real
    link - Natural Earth is public domain and this is the whole map's provenance */
 .mfoot {
   margin: 12px 2px 0; padding-top: 9px;
-  border-top: 1px solid rgba(16, 41, 63, .10);
+  border-top: 1px solid rgba(198, 224, 246, .10);
   font: 10px/14px system-ui, sans-serif;
-  color: rgba(96, 124, 150, .90);
+  color: rgba(158, 186, 210, .90);
   letter-spacing: .02em;
 }
-.mfoot a { color: #1e6ea8; text-decoration: none; pointer-events: auto; }
+.mfoot a { color: #8ed0ff; text-decoration: none; pointer-events: auto; }
 .mfoot a:hover { text-decoration: underline; }
 
 /* a coarse pointer (finger) needs bigger rows: 44 px is the usual minimum, and
@@ -329,22 +350,10 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   .panel { width: min(240px, calc(100vw - 24px)); right: 10px; top: 58px; }
 }
 @media (pointer: coarse), (max-width: 700px) {
-  /* a SQUARE, the exact mirror of the fullscreen button on the other corner */
-  #menu {
-    right: 8px; top: max(8px, env(safe-area-inset-top));
-    width: 34px; height: 34px; min-height: 0; padding: 0;
-    border-radius: 11px; justify-content: center;
-  }
-  #menu.open { width: min(340px, calc(100vw - 16px)); height: auto; padding: 8px 10px; justify-content: flex-start; }
-  #burger { min-height: 0; font-size: 19px; }
-  /* ON A PHONE THE BURGER IS JUST THE BURGER: the tag naming the active view made the
-     corner 160 px wide, which on a 390 px screen ate the whole top right and pushed
-     the quiz's own top bar off-centre. The view's name is inside the sheet anyway. */
-  #burger .tag { display: none; }
+  /* the same disc, a hair smaller, exactly mirroring the fullscreen button */
+  #menu { right: 8px; top: max(8px, env(safe-area-inset-top)); width: 34px; height: 34px; border-radius: 11px; }
+  #menu.open { width: min(340px, calc(100vw - 16px)); height: auto; padding: 8px 10px 10px; }
   #burger { font-size: 20px; }
-  #menu.open { width: min(340px, calc(100vw - 20px)); }
-  #burger { min-height: 30px; font-size: 22px; }
-  #burger .tag { font-size: 11px; }
   .menuitem { min-height: 44px; font-size: 14px; padding: 9px 12px; gap: 11px; }
   .chip { min-height: 34px; padding: 8px 13px; font-size: 13px; }
   .menuitem .mi-ico { font-size: 17px; width: 20px; }
@@ -366,7 +375,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   position: fixed; left: 10px; top: max(10px, env(safe-area-inset-top)); z-index: 26;
   width: 36px; height: 36px; border-radius: 11px;
   display: inline-flex; align-items: center; justify-content: center;
-  color: #10293f;
+  color: #eaf3fb;
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border-hi);
@@ -375,10 +384,10 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   -webkit-tap-highlight-color: transparent;
   transition: color .16s ease, border-color .16s ease, transform .12s ease, background .16s ease;
 }
-.fsbtn:hover { background: #ffffff; }
+.fsbtn:hover { background: rgba(22, 44, 66, .72); }
 .fsbtn:active { transform: scale(.92); }
 .fsbtn svg { display: block; }
-.fsbtn.on { color: #ffffff; background: #1e4d75; border-color: rgba(255, 255, 255, .35); }
+.fsbtn.on { color: #06121e; background: #8ed0ff; border-color: rgba(255, 255, 255, .22); }
 @media (pointer: coarse), (max-width: 700px) {
   .fsbtn { left: 8px; top: max(8px, env(safe-area-inset-top)); width: 34px; height: 34px; }
 }

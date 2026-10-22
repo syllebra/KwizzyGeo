@@ -141,6 +141,15 @@ setTimeout(function () {
     return d / (120 * 0.016);
   })();
   check('...slowly: about 0.5 deg/s', rate > 0.30 && rate < 0.80, rate.toFixed(2) + ' deg/s');
+  /* THE BACKGROUND IS ZOOMED IN: at the fitted view the globe is a small disc floating
+     in its own ocean and it reads as a picture of a map, not as the earth. The drift
+     eases to twice the fit (DRIFT_ZOOM), measured on the view's own k rather than
+     trusted from the constant. */
+  const vs = global.window.ViewState;
+  const ratio = vs.k() / vs.fitK();
+  check('...and it is zoomed in about x2 on the fitted world view',
+        ratio > 1.8 && ratio < 2.2, 'k=' + vs.k().toFixed(1) + ' fitK=' + vs.fitK().toFixed(1) +
+        ' ratio=' + ratio.toFixed(2));
   check('...and it sways in latitude rather than sitting on one parallel',
         Math.abs(c3[1] - c1[1]) > 0.05 || Math.abs(centre()[1]) <= 46.0001, c1[1] + ' -> ' + c3[1]);
 

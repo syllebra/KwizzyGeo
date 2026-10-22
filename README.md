@@ -158,16 +158,27 @@ title ──▶ 1 what to find ──▶ 2 where ──▶ 3 how hard ──▶ 
 ```
 
 Every screen is a full-viewport page over the **live map**, which drifts behind it:
-a slow turn of the centre of projection, ~0.5° a second, so the background is a
-moving world and not a screenshot (`stepDrift` in `app.js`, `MapApp.cinema()`). The
-drift stands down the moment the player touches the map, while a flight runs, and
+a slow turn of the centre of projection, 0.4° a second, so the background is a moving
+world and not a screenshot (`stepDrift` in `app.js`, `MapApp.cinema()`). It is
+**zoomed to twice the fitted world view** (`DRIFT_ZOOM`), eased in over about a
+second: at the fit the globe is a small disc floating in its own ocean and reads as a
+picture of a map; at 2× the land fills the screen and keeps filling it as it turns.
+The drift stands down the moment the player touches the map, while a flight runs, and
 whenever the quiz has a **question** up — there the map is the question's picture.
-`?drift=0`, or `prefers-reduced-motion`, keeps it still.
+`?drift=0` keeps it still, `?driftzoom=1` gives back the fitted view, and
+`prefers-reduced-motion` kills the motion before it starts.
 
 **Two fixed corners, on every screen:** fullscreen top-left (`#fsbtn`), the burger —
-the menu, the layers, and the 18 languages — top-right. Both are glass discs over the
-map, and both stay put during a round (a player may want the screen filled, or the
-sound off, mid-question).
+the menu, the layers, and the 18 languages — top-right. Both are the same 36 px glass
+disc, as in Kwizzy: the burger carries no text, and the name of the active view is the
+sheet's first line when it opens (`#mview`). Both stay put during a round (a player
+may want the screen filled, or the sound off, mid-question).
+
+**The map names the lit country during a question — except where the name is the
+answer.** `MapApp.labels(on)` is set per question: off in *find the country* and in
+*flag → country* (the name is what is asked), on in *capital* and *country → flag*
+(the country is given, and the shape beside its name is the point). Once the player
+answers, the name is no secret any more and the label comes on in every mode.
 
 The settings survive a reload (`localStorage`), and the best score per mode + zone +
 difficulty with them.
@@ -366,8 +377,8 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | script | what it pins |
 |---|---|
 | `tests/quizcore_test.js` | 60 checks on a synthetic lattice: the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
-| `tests/quiz_test.js` | 197 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back arrow, the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
-| `tests/drift_test.js` | 24 checks on the menu's living background and the two corners: still at boot, moving east at ~0.5°/s when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off" |
+| `tests/quiz_test.js` | 202 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back arrow, the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), the keyboard, and the map handed back on quit |
+| `tests/drift_test.js` | 25 checks on the menu's living background and the two corners: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off" |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
 | `tests/i18n_test.js` | 218 checks: the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
@@ -741,20 +752,28 @@ line and the chip follows.
 
 ## Glass
 
-Every floating surface — HUD, help line, info panel, menu sheet, scrim — is the same
-material, defined once as CSS custom properties (`--glass-tint`, `--glass-blur`,
-`--glass-border`, `--glass-shadow`) so the pieces cannot drift apart: they used to
-have four slightly different alphas, which read as "unstyled" next to each other.
-A translucent dark tint, a real `backdrop-filter` that frosts whatever is under it, a
-hairline light border and a soft shadow.
+Every floating surface — HUD, help line, info panel, menu sheet, scrim, every quiz
+card and every button — is the same material, defined once as CSS custom properties
+(`--glass-tint`, `--glass-blur`, `--glass-border`, `--glass-shadow`) so the pieces
+cannot drift apart: they used to have four slightly different alphas, which read as
+"unstyled" next to each other. A smoked, translucent dark-blue pane, a real
+`backdrop-filter` that frosts whatever is under it, a hairline light border and a soft
+shadow. The primary action is glass too — the accent lives in its border and its word,
+not in a bright slab, which on a dark chart reads as a warning stripe.
+
+The map underneath is the dark ground of the whole chart: land a deep slate blue, pale
+ink with a dark halo for every label, one accent (`#8ed0ff`) for the selection. The
+only other hues in the app are the verdict's green and red, and they exist because a
+right and a wrong answer must never look alike.
 
 Two decisions worth knowing:
 
-* the tint stays at **.55–.72 alpha**, not .25: `backdrop-filter` is still missing on
-  some builds, and where it is the tint alone has to keep pale text legible over pale
-  land.
-* the blur radius stays at **14 px**. A larger radius on a full-screen surface costs a
-  lot of fill rate on a phone GPU for a difference nobody can see over a map.
+* the tint stays at **.62–.74 alpha**, not .25: `backdrop-filter` is still missing on
+  some builds, and where it is, the tint alone has to keep pale text legible over the
+  map.
+* the blur radius is **18 px**. It is the one number that makes the material read as
+  FROSTED GLASS rather than as a flat panel with an alpha; below ~12 px the coastlines
+  under a card stay sharp enough to be distracting.
 
 ## Two idle animations
 
@@ -882,7 +901,7 @@ directory does not matter). All seventeen exit 0: the fifteen asserting ones end
 | `links_test.js` | the capital rule (South Africa → Pretoria, all three seats listed, Johannesburg excluded; Bolivia/Netherlands/Malaysia/Japan; Lagos and New York rejected), every `CAPIN` value parses, both URL builders, and the spot menu open/place/flip/close plus the long press (56 checks) |
 | `flags_test.js` | every code the app can ask for has an SVG and a CSS rule (driven by the two tables, parsed out of `app.js` so they cannot drift); every `url()` resolves; the licence ships; and Somaliland / Northern Cyprus / Siachen stay deliberately flagless (106 checks) |
 | `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
-| `labels_test.js` | the three kinds of name are drawn differently — case, font, ink strength, tracking, and the capital's exemption from the rank cut (19 checks) |
+| `labels_test.js` | the three kinds of name are drawn differently — case, font, ink strength, tracking, and the capital's exemption from the rank cut (20 checks) |
 | `drift_test.js` | the menu's living background: still at boot, moving east at ~0.5°/s when the quiz asks for it, stopped by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; and the fullscreen corner (its two names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` not being read as "off") (24 checks) |
 
 The measurement probes quoted in this document (`recenter_cost.js`,

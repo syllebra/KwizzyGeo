@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#0e141b">
 <title>KwizzyGeo — the geographical quiz</title>
 <link rel="stylesheet" href="flags.css?v=1">
-<link rel="stylesheet" href="style.css?v=26">
-<link rel="stylesheet" href="quiz.css?v=22">
+<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="quiz.css?v=26">
 </head>
 <body>
 <div id="stage"><canvas id="map"></canvas></div>
@@ -22,7 +22,7 @@
           stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
   </svg>
 </button>
-<div id="menu" class="menu"><div id="burger" class="burger" role="button" tabindex="0" aria-label="Pick a view">&#9776;<span class="tag">view</span></div><div id="items" class="items"></div></div>
+<div id="menu" class="menu"><div id="burger" class="burger" role="button" tabindex="0" aria-label="Pick a view">&#9776;</div><!-- the name of the active view: INSIDE the sheet, never on the closed button -     the corner is a 36 px disc, as in Kwizzy, and a tag beside it made it 160 px     wide, which on a phone ate the whole top right --><div id="mview" class="mview"></div><div id="items" class="items"></div></div>
 <div id="panel" class="panel"></div>
 <!-- right-click / long-press menu for the geographic point under the cursor -->
 <div id="spot" class="spot"></div>
@@ -41,7 +41,7 @@
 <!-- the particle bursts (juice.js). Decorative and empty: each spark removes itself -->
 <div id="burst" class="burst" aria-hidden="true"></div>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=83"></script>
+<script src="app.js?v=86"></script>
 <script src="quizcore.js?v=3"></script>
 <!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
      source, so what a player hears is what the test checks -->
@@ -51,6 +51,6 @@
 <!-- the quiz's UI strings in the map's 18 languages: one table, keyed by the same codes
      the burger's language chips use -->
 <script src="i18n.js?v=3"></script>
-<script src="quiz.js?v=14"></script>
+<script src="quiz.js?v=17"></script>
 </body>
 </html>

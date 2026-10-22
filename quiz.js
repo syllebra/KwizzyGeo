@@ -150,13 +150,19 @@ function shellHTML(o) {
   h += '<div class="qz-page' + (o.cls ? ' ' + o.cls : '') + '">';
   /* THE TOP BAR IS ON EVERY STEPPED PAGE, and on a page that is not a step of the walk
      (the credits) it keeps the back arrow and the title and drops the dots - a page
-     with no way back and no name is a page you are stuck on. */
+     with no way back and no name is a page you are stuck on.
+
+     THE TITLE IS `.qz-steptitle`, NOT `.qz-title`: #quiz itself carries `qz-title` as
+     its SCREEN marker (`class="qz-on qz-title"`), so a `.qz-title` rule styling the
+     heading also hit the whole full-screen container - its `white-space: nowrap`
+     inherited all the way down the title screen and stopped the tagline wrapping.
+     Every screen class is `qz-<screen>`, so no component class may be named that way. */
   if (o.title) {
     h += '<div class="qz-topbar">' +
          '<button class="qz-back" data-act="back" aria-label="' + esc(T('back')) + '">\u2190</button>' +
          '<div class="qz-titles">' +
          (o.step ? '<span class="qz-kicker">' + esc(T('step_of', { i: o.step, n: o.steps })) + '</span>' : '') +
-         '<h2 class="qz-title">' + esc(o.title) + '</h2></div>' +
+         '<h2 class="qz-steptitle">' + esc(o.title) + '</h2></div>' +
          (o.step ? stepDots(o.step, o.steps) : '') + '</div>';
   }
   h += '<div class="qz-pagebody">' + o.body + '</div>';
@@ -780,6 +786,16 @@ function nextQuestion() {
   /* EVERY mode flies to the country and lights it up, the flag ones included: the
      flag says what the country looks like, the map says where it is, and both
      variants of the flag question end on the same picture. */
+  /* THE MAP MAY NAME THE COUNTRY, except where the name IS the answer:
+       find the country        the name IS the answer            -> no label
+       flag -> country         the name IS the answer            -> no label
+       capital                 the CAPITAL is asked, the country
+                               is given                          -> label
+       country -> flag         the country is given, the flag is
+                               the answer                        -> label
+     So the label follows the QUESTION, not the mode: the same flag mode has one half
+     that may say the name and one that may not. */
+  if (M.labels) M.labels(q.mode === 'capital' || (q.mode === 'flag' && q.variant === 'flags'));
   M.show(q.answer.id);
   render();
 }
@@ -791,6 +807,10 @@ function choose(i) {
   answered = true;
   chosen = i;
   bumped = res.ok;
+  /* ONCE ANSWERED, THE NAME IS NOT A SECRET ANY MORE: the verdict card prints it, so the
+     map may name the country too - which is the moment a player wants the two pictures
+     (the shape and the name) to be the same thing. */
+  if (M.labels) M.labels(true);
   if (S()) S().answer(q, res.ok, q.answer);
   render();
   bumped = false;
