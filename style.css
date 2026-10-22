@@ -1,10 +1,10 @@
 /* ---------- GLASS ----------
    Every floating panel (HUD, help, info panel, menu sheet, scrim) is the same
-   material: a translucent dark tint, a REAL backdrop blur that frosts whatever is
-   under it, a hairline light border and a soft drop shadow. Defined once here as
-   custom properties so the pieces cannot drift apart - the panel and the menu used
-   to have four slightly different alphas, which read as "unstyled" next to each
-   other.
+   material: a translucent WHITE tint that frosts the map under it, a hairline
+   blue-grey border and a soft shadow. That is the app's chart in one place: the
+   map stays the deep ocean blue, and every surface over it is paper - blues,
+   whites and light greys, no other hue. Defined once here as custom properties so
+   the pieces cannot drift apart.
 
    Two practical notes:
    * backdrop-filter is prefixed for Safari, and where it is unsupported the tint
@@ -13,15 +13,19 @@
      a lot of fill rate on a phone GPU for a difference nobody sees over a map.
    */
 :root {
-  --glass-tint: rgba(12, 22, 34, .58);
-  --glass-tint-strong: rgba(10, 18, 29, .72);
-  --glass-border: rgba(190, 220, 245, .22);
-  --glass-border-hi: rgba(205, 232, 255, .38);
-  --glass-blur: blur(14px) saturate(1.15);
-  --glass-shadow: 0 10px 30px rgba(0, 0, 0, .38), 0 1px 0 rgba(255, 255, 255, .06) inset;
+  --glass-tint: rgba(250, 252, 255, .82);
+  --glass-tint-strong: rgba(252, 253, 255, .94);
+  --glass-border: rgba(16, 41, 63, .14);
+  --glass-border-hi: rgba(16, 41, 63, .24);
+  --glass-blur: blur(14px) saturate(1.12);
+  --glass-shadow: 0 10px 30px rgba(9, 26, 44, .20), 0 1px 0 rgba(255, 255, 255, .70) inset;
   --glass-radius: 14px;
-  --ink: rgba(238, 246, 253, .93);
-  --ink-dim: rgba(190, 210, 228, .72);
+  --ink: #10293f;
+  --ink-dim: rgba(64, 92, 118, .95);
+  /* one accent for the whole app, and it is the map's own: the deep ocean blue */
+  --accent: #1e4d75;
+  --accent-2: #1f6ea6;
+  --accent-pale: #8ed0ff;
 }
 
 /* fullscreen stage: one map canvas; the stage div carries the pointer handlers */
@@ -32,7 +36,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 
 .hud {
   position: fixed; left: 14px; bottom: 14px; pointer-events: none;
-  font: 11px/14px ui-monospace, Menlo, monospace; color: rgba(220,235,245,.88);
+  font: 11px/14px ui-monospace, Menlo, monospace; color: rgba(16, 41, 63, .88);
   /* The text sits over the map, and on the 10m layer the land is light grey: pale
      text on pale land was invisible. A soft dark plate (plus the shadow) keeps it
      readable over ocean, land and glint alike; the plate is only as wide as the
@@ -43,7 +47,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
-  text-shadow: 0 1px 2px rgba(0,0,0,.85);
+  text-shadow: 0 1px 2px rgba(255,255,255,.75);
   white-space: pre;
 }
 .help {
@@ -61,11 +65,13 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
-  text-shadow: 0 1px 2px rgba(0,0,0,.8); text-align: right;
+  text-shadow: 0 1px 2px rgba(255,255,255,.72); text-align: right;
 }
 
 .panel {
-  position: fixed; right: 16px; top: 16px; width: 312px;
+  /* under the burger (10 + 44 + 8): the panel appears on a pick, and the burger must
+     stay reachable while it is open */
+  position: fixed; right: 16px; top: 62px; width: 312px;
   display: none; pointer-events: none;
   font: 12px/17px system-ui, sans-serif;
   color: var(--ink);
@@ -81,18 +87,18 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 /* the links row: real anchors, and the ONE part of the panel that takes the pointer
    (the panel itself is pointer-events:none so the map stays draggable under it) */
 .panel .links { display: flex; gap: 8px; margin-top: 11px; padding-top: 10px;
-                border-top: 1px solid rgba(180, 205, 225, .12); }
+                border-top: 1px solid rgba(16, 41, 63, .10); }
 .panel .btn, .spot .btn {
   pointer-events: auto; cursor: pointer;
   font: 11px/15px system-ui, sans-serif;
-  color: rgba(180, 222, 255, .95); text-decoration: none;
+  color: #1c5f96; text-decoration: none;
   padding: 5px 10px; border-radius: 8px;
-  border: 1px solid rgba(160, 205, 240, .22);
-  background: rgba(60, 110, 160, .22);
+  border: 1px solid rgba(30, 77, 117, .25);
+  background: rgba(30, 77, 117, .08);
   transition: background .1s linear;
 }
-.panel .btn:hover, .spot .btn:hover { background: rgba(80, 140, 200, .38); }
-.panel .btn:active, .spot .btn:active { background: rgba(100, 165, 225, .5); }
+.panel .btn:hover, .spot .btn:hover { background: rgba(30, 77, 117, .16); }
+.panel .btn:active, .spot .btn:active { background: rgba(30, 77, 117, .20); }
 
 .panel .k { color: var(--ink-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; padding-top: 2px; }
 .panel .v { color: var(--ink); }
@@ -114,7 +120,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .panel .v .fi {
   position: absolute; left: 0; top: 0.18em;
   width: 19px; height: 13px; border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.16);
+  box-shadow: 0 0 0 1px rgba(16, 41, 63, .14);
   background-size: cover;
 }
 
@@ -158,14 +164,17 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
    Closed it is only the burger, whose tag names the active projection. */
 #scrim {
   position: fixed; inset: 0; z-index: 15;
-  background: rgba(4, 10, 18, .42);
+  background: rgba(10, 30, 50, .42);
   opacity: 0; pointer-events: none; transition: opacity .16s ease-out;
   -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 }
 #scrim.on { opacity: 1; pointer-events: auto; }
 
 #menu {
-  position: fixed; left: 16px; top: 14px; z-index: 20;
+  /* TOP RIGHT, and the fullscreen button is the mirror of it on the top left: the two
+     fixed corners of the app, on every screen. The info panel moved below it (see
+     .panel), because a panel that opens under the burger is a panel you cannot reach. */
+  position: fixed; right: 10px; top: max(10px, env(safe-area-inset-top)); z-index: 20;
   min-height: 44px; max-height: calc(100vh - 28px);
   display: flex; align-items: center; gap: 10px;
   font: 12px/17px system-ui, sans-serif; color: var(--ink);
@@ -180,18 +189,18 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 }
 #menu.open {
   flex-wrap: wrap; align-content: start;
-  width: 320px; max-width: calc(100vw - 32px);
+  width: 320px; max-width: calc(100vw - 20px);
   border-radius: var(--glass-radius);
-  background: rgba(9, 17, 27, .82);
+  background: rgba(252, 253, 255, .96);
 }
 #burger {
   pointer-events: auto; cursor: pointer;
   display: flex; align-items: center; gap: 7px;
   min-height: 26px;
-  font: 20px/20px system-ui, sans-serif; color: rgba(225,240,252,.92);
+  font: 20px/20px system-ui, sans-serif; color: rgba(16, 41, 63, .9);
   white-space: nowrap;
 }
-#burger .tag { font: 10px/13px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .07em; color: rgba(150,170,190,.9); }
+#burger .tag { font: 10px/13px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .07em; color: rgba(90, 118, 144, .95); }
 #items { display: none; }
 #menu.open #items {
   display: block; flex: 1 1 100%;
@@ -201,17 +210,17 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   /* a thin, dark scrollbar: the browser default is a bright grey bar that looks
      like a bug on a dark sheet */
   scrollbar-width: thin;
-  scrollbar-color: rgba(120,150,180,.45) transparent;
+  scrollbar-color: rgba(96, 124, 150, .45) transparent;
 }
 #menu.open #items::-webkit-scrollbar { width: 6px; }
-#menu.open #items::-webkit-scrollbar-thumb { background: rgba(120,150,180,.45); border-radius: 3px; }
+#menu.open #items::-webkit-scrollbar-thumb { background: rgba(96, 124, 150, .45); border-radius: 3px; }
 #menu.open #items::-webkit-scrollbar-track { background: transparent; }
 
 .mgroup { margin: 0 0 10px; }
 .mgroup:last-child { margin-bottom: 2px; }
 .mtitle {
   font: 9px/12px system-ui, sans-serif; text-transform: uppercase;
-  letter-spacing: .1em; color: rgba(140,162,182,.75);
+  letter-spacing: .1em; color: rgba(96, 124, 150, .90);
   margin: 0 2px 5px;
 }
 /* in 3D the projection rows cannot apply: dim them rather than hide them, so the
@@ -222,9 +231,9 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   pointer-events: auto; cursor: pointer;
   display: flex; align-items: center; gap: 9px;
   min-height: 30px; margin-bottom: 4px;
-  padding: 5px 10px; border: 1px solid rgba(180,205,225,.16); border-radius: 9px;
-  background: rgba(38, 60, 84, .34);
-  color: rgba(205,222,238,.8);
+  padding: 5px 10px; border: 1px solid rgba(16, 41, 63, .14); border-radius: 9px;
+  background: rgba(30, 77, 117, .07);
+  color: rgba(16, 41, 63, .85);
   font: 12px/16px system-ui, sans-serif;
   white-space: nowrap;
   touch-action: manipulation;
@@ -238,17 +247,17 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
    label does not shift when the selection moves */
 .menuitem::after {
   content: '\2713'; font: 12px/12px system-ui, sans-serif;
-  color: rgba(150,210,255,0); margin-left: auto;
+  color: rgba(30, 77, 117, 0); margin-left: auto;
 }
 .menuitem.on {
-  color: #f6fafd;
-  background: rgba(96, 150, 196, .38);
-  border-color: rgba(190, 215, 235, .45);
-  box-shadow: 0 1px 0 rgba(255,255,255,.10) inset, 0 0 0 1px rgba(140,200,255,.08);
+  color: #10293f;
+  background: rgba(30, 77, 117, .10);
+  border-color: rgba(30, 77, 117, .35);
+  box-shadow: 0 1px 0 rgba(16, 41, 63, .10) inset, 0 0 0 1px rgba(30, 77, 117, .08);
 }
-.menuitem.on::after { color: rgba(175,225,255,.95); }
-.menuitem:hover { background: rgba(56, 88, 120, .55); }
-.menuitem:active { background: rgba(80, 124, 164, .7); }
+.menuitem.on::after { color: #1e6ea8; }
+.menuitem:hover { background: rgba(30, 77, 117, .12); }
+.menuitem:active { background: rgba(30, 77, 117, .18); }
 
 /* ---------- language chips ----------
    A wrapping row of small chips instead of 18 full-width rows: the sheet stays
@@ -259,43 +268,43 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   pointer-events: auto; cursor: pointer;
   display: inline-flex; align-items: center; gap: 7px;
   padding: 5px 10px; border-radius: 999px;
-  border: 1px solid rgba(180, 205, 225, .16);
-  background: rgba(38, 60, 84, .34);
-  color: rgba(205, 222, 238, .8);
+  border: 1px solid rgba(16, 41, 63, .14);
+  background: rgba(30, 77, 117, .07);
+  color: rgba(16, 41, 63, .85);
   font: 12px/16px system-ui, sans-serif;
   white-space: nowrap;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: background .1s linear;
 }
-.chip:hover { background: rgba(56, 88, 120, .55); }
-.chip:active { background: rgba(80, 124, 164, .7); }
+.chip:hover { background: rgba(30, 77, 117, .12); }
+.chip:active { background: rgba(30, 77, 117, .18); }
 /* the flag on a chip is a SQUARE (fis) and smaller than the type: a 4:3 rectangle
    at text width overpowers a two-word label */
 .chip .fi {
   width: 1em; height: 1em; border-radius: 50%;
   background-size: cover;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.22);
+  box-shadow: 0 0 0 1px rgba(16, 41, 63, .18);
   flex: 0 0 auto;
 }
 .chip .nm { line-height: 1; }
 .chip.on {
-  color: #f6fafd;
-  background: rgba(96, 150, 196, .42);
-  border-color: rgba(190, 215, 235, .5);
-  box-shadow: 0 1px 0 rgba(255,255,255,.10) inset;
+  color: #10293f;
+  background: rgba(30, 77, 117, .10);
+  border-color: rgba(30, 77, 117, .40);
+  box-shadow: 0 1px 0 rgba(16, 41, 63, .10) inset;
 }
 
 /* the data credit, pinned at the bottom of the sheet: small and quiet, but a real
    link - Natural Earth is public domain and this is the whole map's provenance */
 .mfoot {
   margin: 12px 2px 0; padding-top: 9px;
-  border-top: 1px solid rgba(180, 205, 225, .12);
+  border-top: 1px solid rgba(16, 41, 63, .10);
   font: 10px/14px system-ui, sans-serif;
-  color: rgba(150, 172, 192, .75);
+  color: rgba(96, 124, 150, .90);
   letter-spacing: .02em;
 }
-.mfoot a { color: rgba(150, 210, 255, .95); text-decoration: none; pointer-events: auto; }
+.mfoot a { color: #1e6ea8; text-decoration: none; pointer-events: auto; }
 .mfoot a:hover { text-decoration: underline; }
 
 /* a coarse pointer (finger) needs bigger rows: 44 px is the usual minimum, and
@@ -317,10 +326,22 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
     white-space: pre-wrap;
     max-width: 100%;
   }
-  .panel { width: min(240px, calc(100vw - 24px)); right: 10px; top: 10px; }
+  .panel { width: min(240px, calc(100vw - 24px)); right: 10px; top: 58px; }
 }
 @media (pointer: coarse), (max-width: 700px) {
-  #menu { left: 10px; top: 10px; padding: 8px 10px; border-radius: 11px; }
+  /* a SQUARE, the exact mirror of the fullscreen button on the other corner */
+  #menu {
+    right: 8px; top: max(8px, env(safe-area-inset-top));
+    width: 34px; height: 34px; min-height: 0; padding: 0;
+    border-radius: 11px; justify-content: center;
+  }
+  #menu.open { width: min(340px, calc(100vw - 16px)); height: auto; padding: 8px 10px; justify-content: flex-start; }
+  #burger { min-height: 0; font-size: 19px; }
+  /* ON A PHONE THE BURGER IS JUST THE BURGER: the tag naming the active view made the
+     corner 160 px wide, which on a 390 px screen ate the whole top right and pushed
+     the quiz's own top bar off-centre. The view's name is inside the sheet anyway. */
+  #burger .tag { display: none; }
+  #burger { font-size: 20px; }
   #menu.open { width: min(340px, calc(100vw - 20px)); }
   #burger { min-height: 30px; font-size: 22px; }
   #burger .tag { font-size: 11px; }
@@ -334,4 +355,30 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   /* landscape phone: the sheet must not be taller than the screen */
   .menuitem { min-height: 36px; padding: 6px 10px; }
   .mgroup { margin-bottom: 7px; }
+}
+
+/* ---------- FULLSCREEN (top left) ----------
+   The mirror of the burger: same size, same glass, same corner geometry, so the two
+   corners read as one pair. `position: fixed` + a high z-index keeps it above the
+   quiz's screens, which is the point: filling the screen is something a player asks
+   for from anywhere, including mid-question. */
+.fsbtn {
+  position: fixed; left: 10px; top: max(10px, env(safe-area-inset-top)); z-index: 26;
+  width: 36px; height: 36px; border-radius: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #10293f;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-hi);
+  box-shadow: var(--glass-shadow);
+  cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color .16s ease, border-color .16s ease, transform .12s ease, background .16s ease;
+}
+.fsbtn:hover { background: #ffffff; }
+.fsbtn:active { transform: scale(.92); }
+.fsbtn svg { display: block; }
+.fsbtn.on { color: #ffffff; background: #1e4d75; border-color: rgba(255, 255, 255, .35); }
+@media (pointer: coarse), (max-width: 700px) {
+  .fsbtn { left: 8px; top: max(8px, env(safe-area-inset-top)); width: 34px; height: 34px; }
 }

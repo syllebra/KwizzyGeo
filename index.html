@@ -6,14 +6,22 @@
 <meta name="theme-color" content="#0e141b">
 <title>KwizzyGeo — the geographical quiz</title>
 <link rel="stylesheet" href="flags.css?v=1">
-<link rel="stylesheet" href="style.css?v=23">
-<link rel="stylesheet" href="quiz.css?v=15">
+<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="quiz.css?v=22">
 </head>
 <body>
 <div id="stage"><canvas id="map"></canvas></div>
 <!-- the scrim closes the menu on a tap anywhere outside it: on a phone there is
      no Esc key and no guaranteed click outside the panel -->
 <div id="scrim"></div>
+<!-- Fullscreen: top-left, above every screen, exactly like the burger on the other
+     corner. Corners drawn in SVG so no glyph can be missing from a font. -->
+<button id="fsbtn" class="fsbtn" aria-label="Fullscreen">
+  <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+    <path d="M3 9V3H9 M15 3H21V9 M21 15V21H15 M9 21H3V15" fill="none"
+          stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+  </svg>
+</button>
 <div id="menu" class="menu"><div id="burger" class="burger" role="button" tabindex="0" aria-label="Pick a view">&#9776;<span class="tag">view</span></div><div id="items" class="items"></div></div>
 <div id="panel" class="panel"></div>
 <!-- right-click / long-press menu for the geographic point under the cursor -->
@@ -33,7 +41,7 @@
 <!-- the particle bursts (juice.js). Decorative and empty: each spark removes itself -->
 <div id="burst" class="burst" aria-hidden="true"></div>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=81"></script>
+<script src="app.js?v=83"></script>
 <script src="quizcore.js?v=3"></script>
 <!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
      source, so what a player hears is what the test checks -->
@@ -42,7 +50,7 @@
 <script src="stats.js?v=1"></script>
 <!-- the quiz's UI strings in the map's 18 languages: one table, keyed by the same codes
      the burger's language chips use -->
-<script src="i18n.js?v=2"></script>
-<script src="quiz.js?v=12"></script>
+<script src="i18n.js?v=3"></script>
+<script src="quiz.js?v=14"></script>
 </body>
 </html>

@@ -56,6 +56,79 @@ var ALIGN_DELAY = 0.14;          /* s of stillness before it starts */
 var ALIGN_POLE = 89.4;           /* deg: at the pole "up" is undefined (see the FRAME comment) */
 var lastMoveT = 0, alignPrev = 0;
 
+/* ---------- THE SLOW DRIFT (the menu's background) ----------
+   The title and the three choice screens sit over the map, and the map is not a
+   screenshot: it travels. A slow eastward turn of the CENTRE OF PROJECTION plus a
+   gentle sway of latitude, so the perspective view keeps opening new ground behind
+   the card. Everything the rest of the app believes stays true - the centre is
+   still a geographic point, the frame is still re-aimed by setCenter, north is
+   still up - it is the same movement a drag makes, only slower and unstoppable.
+
+   Why it is stepped and not smooth: every centre move REBUILDS the geometry
+   (rings, frame, graticule), so this is the one animation in the app with a real
+   cost per frame. It is therefore issued in steps (~6 a second) big enough to cost
+   little and small enough that the world reads as creeping: 0.5 deg per second is
+   a full turn in twelve minutes, and one step is a tenth of a pixel on screen at
+   the world fit.
+
+   It stands down whenever the player touches the map (they are looking at
+   something), while a flight runs, and whenever the quiz has a QUESTION up: there
+   the map is the question's picture and must hold still. `?drift=0` kills it, and
+   prefers-reduced-motion kills it before it starts. */
+var driftOn = false;                  /* asked for by the quiz's menu screens */
+var driftT = 0, driftPrev = 0, driftStepAt = 0, driftAcc = 0;
+var DRIFT_LON_RATE = 0.5;             /* deg of longitude per second */
+var DRIFT_STEP_MS = 100;              /* 10 centre moves a second: each one costs a
+                                         geometry rebuild (see the cost note in
+                                         recentered-projection-cost), so the drift is
+                                         stepped rather than continuous */
+var DRIFT_SWAY_AMP = 9;               /* deg of latitude either side of the base */
+var DRIFT_SWAY_PERIOD = 74;           /* s for a full latitude sway */
+var DRIFT_REST_MS = 1600;             /* the player moved the map: leave it alone */
+var driftBase = 12;                   /* deg: the middle of the sway */
+function driftAllowed() {
+  if (!driftOn) return false;
+  if (/[?&]drift=0/.test(urlSearch())) return false;
+  if (typeof window.matchMedia === 'function') {
+    var m = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (m && m.matches) return false;
+  }
+  return feats.length > 0;
+}
+function stepDrift(now) {
+  if (!driftAllowed() || fly || drag || touch || inertia.on) { driftPrev = now; return; }
+  if (now - lastMoveT < DRIFT_REST_MS) { driftPrev = now; return; }
+  if (!driftPrev) driftPrev = now;
+  var dt = Math.min(0.4, Math.max(0, (now - driftPrev) / 1000));
+  driftPrev = now;
+  if (!driftT) driftT = now;
+  driftStepAt += dt * 1000;
+  /* THE STEP CARRIES ALL THE TIME SINCE THE LAST ONE, not the last frame's delta: a
+     step every 150 ms that moved by one frame's worth (16 ms) ran the drift at a tenth
+     of its speed, which is how this was found (0.05 deg/s instead of 0.5). */
+  driftAcc += dt;
+  if (driftStepAt < DRIFT_STEP_MS) return;
+  driftStepAt = 0;
+  var stepS = driftAcc;
+  driftAcc = 0;
+  var t = (now - driftT) / 1000;
+  var lon = view.lon + DRIFT_LON_RATE * stepS;
+  var lat = driftBase + DRIFT_SWAY_AMP * Math.sin(t * 2 * Math.PI / DRIFT_SWAY_PERIOD);
+  /* the pole is a singular centre in every cone projection: the sway never gets
+     near it, and the lon wraps inside setCenter */
+  setCenter(lon, lat);
+}
+/* where the drift resumes from after the player has taken the map: their own centre,
+   lifted back onto the sway's own latitude band, so turning the drift back on does
+   not jump */
+function driftRebase() {
+  driftT = 0;
+  driftStepAt = 0;
+  driftAcc = 0;
+  driftPrev = 0;
+  driftBase = Math.max(-46, Math.min(46, view.lat));
+}
+
 /* ---------- FLY-TO (double click) ----------
    "Dezoom, translate, zoom": one 950 ms timeline with three overlapping phases, so
    the target country stays in view while the world turns under it:
@@ -358,25 +431,21 @@ var canvasRect = { left: 0, top: 0 };
 
 var COL = {
   ocean: '#1e4d75', oceanDeep: '#143456',
-  land: '#c9c9c7', hover: '#edf0e9', pick: '#ffffff',
-  edge: 'rgba(22,36,50,.5)', graticule: 'rgba(210,228,240,.16)', frame: 'rgba(232,242,252,.5)',
-  /* cities: a bright dot with a dark ring, so it reads over land (light grey) and
-     over ocean (mid blue) alike; the picked one takes the accent */
-  city: 'rgba(255,255,255,.95)', cityRing: 'rgba(14,26,38,.85)',
-  cityPick: '#ffd166', cityLabel: 'rgba(255,255,255,.96)',
+  /* THE CHART IS THE APP'S: blues, whites and light greys. Land is a very light
+     grey-blue (paper over the ocean), the highlight is pure white, and every
+     LABEL is dark ink with a white halo - the reverse of the old "pale text on pale
+     land" pair, which was legible only because the land used to be mid-grey. */
+  land: '#e4ebf1', hover: '#ffffff', pick: '#ffffff',
+  edge: 'rgba(30, 65, 95, .42)', graticule: 'rgba(255, 255, 255, .13)', frame: 'rgba(255, 255, 255, .38)',
+  /* cities: a dark dot with a white ring, so it reads over land and over ocean alike */
+  city: 'rgba(19, 46, 70, .95)', cityRing: 'rgba(255, 255, 255, .9)',
+  cityPick: '#1e4d75', cityLabel: 'rgba(16, 41, 63, .95)',
   /* three label voices, so the three kinds of name are never mistaken for each
-     other: countries are quiet background (uppercase, tracked, muted), cities are
-     plain white, capitals are the accent - gold, bolder, and with a ring around
-     their dot */
-  countryLabel: 'rgba(226,238,248,.72)', countryHalo: 'rgba(12,22,32,.62)',
-  /* The capital used to be GOLD, and gold was the wrong voice: it read as a
-     warning/accent colour competing with the selection highlight, and on a map with
-     a dozen capitals on screen it turned into confetti. A capital is now simply
-     BOLDER and slightly larger - typographic emphasis, which is how an atlas does
-     it - and the accent colour is kept for ONE meaning: the capital of the country
-     you have selected. */
-  capitalLabel: 'rgba(255,255,255,.98)', capitalHalo: 'rgba(10,18,28,.9)',
-  capitalPick: '#8ed0ff', capitalPickHalo: 'rgba(4,22,38,.92)'
+     other: countries are quiet (uppercase, tracked, muted ink), cities are plain
+     ink, capitals are the accent - bolder and larger, which is how an atlas does it */
+  countryLabel: 'rgba(30, 62, 90, .70)', countryHalo: 'rgba(255, 255, 255, .80)',
+  capitalLabel: 'rgba(12, 34, 54, .98)', capitalHalo: 'rgba(255, 255, 255, .92)',
+  capitalPick: '#1e4d75', capitalPickHalo: 'rgba(255, 255, 255, .95)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -1054,6 +1123,61 @@ function useLayer(id) {
   refreshUI();
 }
 
+/* ---------- FULLSCREEN ----------
+   The BROWSER's own fill-screen (documentElement.requestFullscreen), not a wider CSS
+   column: only the API takes the browser's chrome away. The two halves of the API do
+   not live on the same object - requestFullscreen is on the ELEMENT, exitFullscreen on
+   the DOCUMENT - and calling the wrong one is why toggles become one-way doors.
+   The browser can also leave fullscreen without asking us (Esc, a phone gesture), so
+   the `fullscreenchange` event is followed rather than fought; Chromium leaves
+   documentElement.isFullscreen UNDEFINED there, so a read-back that is not a boolean
+   is ignored (our own belief stands) instead of being read as "off". */
+/* DECLARED HERE, ABOVE ITS FIRST USE, and not a line lower: `var` hoists but its
+   INITIALISER runs where it is written, so a wireFs() called before this line reads
+   `fsOn` as undefined - and classList.toggle('on', undefined) TOGGLES instead of
+   setting, which is how the button came up looking "on" on a page that was not in
+   fullscreen. (Same trap as deferLayer in this file: source order matters.) */
+var fsBtn = null, fsOn = false;
+function fsSupported() {
+  var de = document.documentElement || {};
+  var canIn = typeof de.requestFullscreen === 'function' || typeof de.webkitRequestFullscreen === 'function';
+  var canOut = typeof document.exitFullscreen === 'function' || typeof document.webkitExitFullscreen === 'function';
+  return !!(canIn && canOut);
+}
+function fsAsk(on) {
+  var de = document.documentElement || {};
+  try {
+    if (on) { if (de.requestFullscreen) de.requestFullscreen(); else de.webkitRequestFullscreen(); }
+    else { if (document.exitFullscreen) document.exitFullscreen(); else document.webkitExitFullscreen(); }
+    return true;
+  } catch (e) { return false; }
+}
+function fsPaint() {
+  if (!fsBtn) return;
+  fsBtn.classList.toggle('on', !!fsOn);
+  fsBtn.setAttribute('aria-pressed', fsOn ? 'true' : 'false');
+  /* the label says which state the button is IN, not only what it does */
+  fsBtn.setAttribute('aria-label', fsOn ? 'Leave fullscreen' : 'Fullscreen');
+  fsBtn.setAttribute('title', fsOn ? 'Leave fullscreen' : 'Fullscreen');
+}
+function wireFs() {
+  fsBtn = document.getElementById('fsbtn');
+  if (!fsBtn) return;
+  if (!fsSupported()) { fsBtn.style.display = 'none'; return; }
+  document.addEventListener('fullscreenchange', function () {
+    var v = (document.documentElement || {}).isFullscreen;
+    if (v !== true && v !== false) return;
+    fsOn = v;
+    fsPaint();
+  });
+  fsBtn.addEventListener('click', function () {
+    if (fsAsk(!fsOn)) { fsOn = !fsOn; fsPaint(); }
+    else fsPaint();
+  });
+  fsPaint();
+}
+
+wireFs();         /* the top-left corner, live before the map lands */
 buildMenu();      /* before loadAll: the burger is readable even if the fetch fails */
 loadAll();
 
@@ -2528,6 +2652,7 @@ function loop(now) {
   stepInertia(now);
   stepFly(now);
   stepAlign(now);
+  stepDrift(now);
   keyStep();
   draw();
   requestAnimationFrame(loop);
@@ -2806,6 +2931,18 @@ window.MapApp = {
     return ci < 0 ? '' : placePanelHTML(ci);
   },
   pickedFeature: function () { return picked; },
+  /* THE MENU'S BACKGROUND ANIMATION: on for the title and the choice screens, off for
+     a question, where the map is the question's own picture. Turning it back on
+     re-bases the sway on the centre the player is looking at NOW, so a drift that is
+     resumed after a round does not jump back to where the previous one stopped. */
+  cinema: function (on) {
+    if (on === undefined) return driftOn;        /* read-only form, for the tests */
+    var want = !!on;
+    if (want === driftOn) return driftOn;
+    driftOn = want;
+    if (want) driftRebase();
+    return driftOn;
+  },
   clear: function () { picked = -1; },
   /* plane units per degree at a point, in the projection in play: the fit floor's own
      measurement, exposed so a test can state the visible window in degrees */

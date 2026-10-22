@@ -115,6 +115,14 @@ setTimeout(function () {
   }
   const W = words();
   const any = t => W.find(w => w.text === t);
+  /* A drawn colour is a CSS string; the assertions below are about how DARK it is and
+     how strong, which is what makes ink readable on this map's pale land. */
+  function ink(colour) {
+    const m = /rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([0-9.]+))?\s*\)/.exec(colour || '');
+    if (!m) return null;
+    const r = +m[1], g = +m[2], b = +m[3], a = m[4] == null ? 1 : +m[4];
+    return { r: r, g: g, b: b, a: a, lum: (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 };
+  }
   const byText = {};
   for (const w of W) byText[w.text] = w;
 
@@ -123,8 +131,11 @@ setTimeout(function () {
   check('a country name is drawn', !!country, W.map(w => w.text).slice(0, 12).join(' | '));
   if (country) {
     check('country names are UPPERCASE', country.text === country.text.toUpperCase(), country.text);
-    check('country names are the quiet colour, not white',
-          country.colour !== 'rgba(255,255,255,.96)' && /226,238,248|\.72/.test(country.colour), country.colour);
+    /* the chart flipped with the map: land is pale now, so every label is INK with a
+       white halo, and "quiet" means a lighter, lower-alpha ink than the capitals' */
+    const cInk = ink(country.colour);
+    check('country names are ink, not white',
+          cInk && cInk.lum < 0.45 && cInk.a < 0.9, country.colour);
     check('country names are small', /9\.5px|10\.5px/.test(country.font), country.font);
   }
   /* tracking: the drawn characters are separate calls, so the string was placed
@@ -143,8 +154,11 @@ setTimeout(function () {
        dozen capitals into confetti. A capital is emphasis by WEIGHT, and the accent
        colour is reserved for the one thing you selected. */
     check('capital names are not gold', !/ffd166|255,209,102/.test(cap.colour), cap.colour);
-    check('capital names are white, brighter than the country voice',
-          /255,255,255/.test(cap.colour), cap.colour);
+    /* stronger than the country voice, not paler: a capital is the same ink at full
+       alpha and a bigger, bolder size (typographic emphasis, as an atlas does it) */
+    const kap = ink(cap.colour), ctry = ink(country ? country.colour : 'rgba(30,62,90,.7)');
+    check('capital names are stronger than the country voice',
+          kap && ctry && kap.a > ctry.a && kap.lum <= ctry.lum, cap.colour + ' vs ' + (country && country.colour));
     check('capital names are bold', /700|bold/.test(cap.font), cap.font);
     check('capital names are bigger than cities',
           parseFloat(cap.font) > 11, cap.font);

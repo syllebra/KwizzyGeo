@@ -153,33 +153,74 @@ const M = () => global.window.MapApp;
 setTimeout(function () { afterLoad(); }, 500);
 
 async function afterLoad() {
+  /* the app must be SILENT at boot; taken here because walking the menu screens (the
+     next thing this test does) correctly plays a "screen" swell each time */
+  const playedAtLoad = played.slice();
   check('the three scripts loaded without throwing', errors.length === 0, errors.join(' | '));
   const Qz = global.window.Quizzy;
   check('the quiz API is exported', !!Qz);
   check('the map API is exported', !!M());
   check('the quiz logic is exported', !!global.window.QuizCore);
 
-  /* ---------- 1. the first page on load ---------- */
-  check('the start page is what is on screen at load', Z().screen === 'start', Z().screen);
-  check('the start page is visible (#quiz has a screen class)',
-        /qz-on/.test(els.quiz.className) && /qz-start/.test(els.quiz.className), els.quiz.className);
+  /* ---------- 1. the walk: title -> what -> where -> how hard ----------
+     Kwizzy's shape, one question per screen. The checks below walk it exactly as a
+     player does (Qz.go is the same entry point the buttons use), screen by screen. */
+  check('the TITLE is what is on screen at load', Z().screen === 'title', Z().screen);
+  check('the title is visible (#quiz has a screen class)',
+        /qz-on/.test(els.quiz.className) && /qz-title/.test(els.quiz.className), els.quiz.className);
+  const hTitle = Qz.html();
+  check('the title carries the wordmark (or the logo slot)', /qz-brand/.test(hTitle));
+  check('the title has the big Play button', /data-act="play"/.test(hTitle));
+  check('Play is enabled once the map is loaded', !/data-act="play" disabled/.test(hTitle));
+  check('the title offers the credits', /data-act="about"/.test(hTitle));
+  check('the title links to the map viewer', /data-act="explore"/.test(hTitle));
+  check('the title links to the sound drawer and the stats',
+        /data-act="snd-open"/.test(hTitle) && /data-act="stats-open"/.test(hTitle));
+  check('the title offers to drift the map behind it (cinema on)',
+        M().cinema() === true, M().cinema());
+
+  check('Play goes to the first step', (Qz.go('mode'), Z().screen === 'mode'), Z().screen);
   const h = Qz.html();
-  check('the start page offers the three modes',
+  check('the first step is step 1 of 3',
+        /qz-stepd/.test(h) && /Step 1 of 3/.test(h), (h.match(/qz-kicker">[^<]*/) || [''])[0]);
+  check('the mode screen offers the three modes',
         /data-mode="country"/.test(h) && /data-mode="capital"/.test(h) && /data-mode="flag"/.test(h));
-  check('the start page offers every zone',
-        global.window.QuizCore.ZONES.every(z => h.indexOf('data-zone="' + z.id + '"') >= 0));
-  check('the start page offers the three difficulties',
-        /data-diff="easy"/.test(h) && /data-diff="medium"/.test(h) && /data-diff="hard"/.test(h));
+  check('the mode screen has a Continue button', /data-act="go" data-to="zone"/.test(h));
+  check('a top bar with a Back arrow', /qz-back/.test(h) && /data-act="back"/.test(h));
+
+  Qz.go('zone');
+  const hz = Qz.html();
+  check('the zone screen offers every zone',
+        global.window.QuizCore.ZONES.every(z => hz.indexOf('data-zone="' + z.id + '"') >= 0));
   check('World is the default zone', Z().zone === 'world');
-  check('the start page has a Play button', /data-act="play"/.test(h));
+  check('the zone screen is step 2 of 3', /Step 2 of 3/.test(hz));
+
+  Qz.go('diff');
+  const hd = Qz.html();
+  check('the difficulty screen offers the three difficulties',
+        /data-diff="easy"/.test(hd) && /data-diff="medium"/.test(hd) && /data-diff="hard"/.test(hd));
   /* the round length: 10, 25 or the whole zone */
-  check('the start page offers three round lengths',
-        /data-len="10"/.test(h) && /data-len="25"/.test(h) && /data-len="0"/.test(h));
+  check('...and the three round lengths',
+        /data-len="10"/.test(hd) && /data-len="25"/.test(hd) && /data-len="0"/.test(hd));
   check('10 questions is the default', Z().len === 10);
-  check('the length note says what the round will be', /A short round/.test(h),
-        (h.match(/class="qz-note">[^<]*/) || [''])[0]);
-  check('Play is enabled once the map is loaded', !/data-act="play" disabled/.test(h));
-  check('the start page links to the map viewer', /data-act="explore"/.test(h));
+  check('the length note says what the round will be', /A short round/.test(hd),
+        (hd.match(/class="qz-note">[^<]*/) || [''])[0]);
+  check('the last step is the one that starts the round', /data-act="start"/.test(hd));
+
+  /* the arrows walk both ways */
+  check('Back goes to the previous step', (Qz.back(), Z().screen === 'zone'), Z().screen);
+  check('...and back again', (Qz.back(), Z().screen === 'mode'), Z().screen);
+  Qz.go('diff');
+
+  /* the credits page: its own screen, the data's provenance on it */
+  Qz.go('about');
+  const hab = Qz.html();
+  check('the credits screen names Natural Earth', /Natural Earth/.test(hab) && /naturalearthdata\.com/.test(hab));
+  check('the credits screen credits the flags', /flag-icons/.test(hab));
+  check('the credits screen says where the memory lives', /this browser/.test(hab));
+  check('the credits screen can be left', /data-act="back"/.test(hab));
+  check('a menu screen keeps the map drifting behind it', M().cinema() === true);
+  Qz.go('diff');
 
   /* ---------- 2. the country list, from the real layer ---------- */
   check('the map is ready', M().ready() && M().placesReady());
@@ -300,7 +341,7 @@ async function afterLoad() {
   check('the sound assets are shipped', ['tap', 'select', 'screen', 'start', 'correct', 'wrong'].every(n =>
         fs.existsSync(__dirname + '/../media/sfx/' + n + '.wav')));
   check('the music rules are the playlist module', JU && JU.tracks().length === 5);
-  check('nothing has played yet at load', played.length === 0, played.join(','));
+  check('nothing has played yet at load', playedAtLoad.length === 0, playedAtLoad.join(','));
 
   /* ---------- 5. a session, end to end ---------- */
   Qz.set({ mode: 'country', zone: 'world', difficulty: 'easy' });
@@ -448,12 +489,14 @@ async function afterLoad() {
   Qz.quit();
 
   /* ---------- 6. quit gives the map back ---------- */
-  check('quit goes back to the start page', Z().screen === 'start');
+  check('quit goes back to the title', Z().screen === 'title', Z().screen);
+  check('...and the map stops drifting while nothing is played',
+        M().cinema() === true, 'the title is a menu screen');
   check('the map is handed back', M().quizOn() === false);
   /* back on the START page: the burger (the language selector) is back, the HUD and
      the help line are not - the start page is a quiz screen too. They only return when
      the quiz is dismissed altogether ("explore the map instead"). */
-  check('the burger is back on the start page', !bodyEl.classList.contains('qz-playing') &&
+  check('the burger is back on the title', !bodyEl.classList.contains('qz-playing') &&
         bodyEl.classList.contains('qz-owning'));
   Qz.close();
   check('dismissing the quiz gives the whole viewer back',
@@ -552,7 +595,8 @@ async function afterLoad() {
   L['win:keydown']({ key: 'Enter', preventDefault() {} });
   check('Enter goes to the next question', Z().index === 2, Z().index);
   L['win:keydown']({ key: 'Escape', preventDefault() {} });
-  check('Escape leaves the quiz', Z().screen === 'start' && M().quizOn() === false);
+  check('Escape leaves the quiz', Z().screen === 'title' && M().quizOn() === false,
+        Z().screen);
 
   /* ---------- 7d. the UI follows the MAP's language ---------- */
   /* One language setting for the whole app: the burger's chips call app.js's setLang,
@@ -572,14 +616,25 @@ async function afterLoad() {
   check('the code changes immediately', V.lang() === 'fr', V.lang());
   await sleep(120);
   check('the map told the quiz once, after the names were rebuilt', hookFired === 1, hookFired);
-  const hFr = Qz.html();
   check('the language is the map\'s', Qz.lang() === 'fr', Qz.lang());
-  check('the start page is in French', /Trouver le pays/.test(hFr) && /Difficulté/.test(hFr) &&
-        /Jouer/.test(hFr) && /Explorer la carte/.test(hFr), hFr.slice(0, 160));
-  check('...and the zone chips too', /Amérique du Nord/.test(hFr) && /Océanie/.test(hFr));
-  check('...and the lengths', /Toutes/.test(hFr));
-  check('no English left on the start page',
+  /* THE WALK, in French: the screens are separate now, so the language is read on
+     every one of them rather than on a single start page */
+  check('the title is what the language change re-rendered', Z().screen === 'title', Z().screen);
+  const hFrTitle = Qz.html();
+  check('the title is in French', /Jouer/.test(hFrTitle) && /Explorer la carte/.test(hFrTitle) &&
+        /Crédits et mémoire/.test(hFrTitle), hFrTitle.slice(0, 160));
+  Qz.go('mode');
+  const hFr = Qz.html();
+  check('the mode screen is in French', /Trouver le pays/.test(hFr) && /Continuer/.test(hFr), hFr.slice(0, 160));
+  check('no English left on the mode screen',
         !/Find the country|Difficulty|Explore the map|Sound & music|Stats</.test(hFr));
+  Qz.go('zone');
+  check('...and the zone chips too', /Amérique du Nord/.test(Qz.html()) && /Océanie/.test(Qz.html()));
+  Qz.go('diff');
+  check('...and the difficulties and the lengths',
+        /Difficile/.test(Qz.html()) && /Toutes/.test(Qz.html()));
+  const hFrDiff = Qz.html();
+  check('the last step starts the round, in French', /data-act="start"/.test(hFrDiff) && /Jouer/.test(hFrDiff));
 
   /* a French QUESTION: the words, and the country names from the layer */
   Qz.start();
@@ -633,8 +688,14 @@ async function afterLoad() {
         global.window.document.getElementById('quiz').getAttribute('dir'));
   check('the sound drawer follows the direction',
         global.window.document.getElementById('qz-sound').getAttribute('dir') === 'rtl');
+  check('the title screen is in Arabic', /العب/.test(Qz.html()) && /الشكر والذاكرة/.test(Qz.html()),
+        Qz.html().slice(0, 120));
+  Qz.go('mode');
   const hAr = Qz.html();
-  check('the start page is in Arabic', /اعثر على/.test(hAr) && /العب/.test(hAr) && /الصعوبة/.test(hAr));
+  check('the mode screen is in Arabic', /اعثر على/.test(hAr) && /ما الذي تريد أن تجد/.test(hAr) || /ماذا تريد أن تجد/.test(hAr),
+        hAr.slice(0, 160));
+  Qz.go('diff');
+  check('the difficulty screen is in Arabic', /الصعوبة|كيف/.test(Qz.html()), Qz.html().slice(0, 160));
   Qz.start();
   check('an Arabic question is in Arabic', /أي دولة مضيئة/.test(Qz.html()),
         (Qz.html().match(/class="qz-q">[^<]*/) || [''])[0]);
@@ -644,12 +705,16 @@ async function afterLoad() {
   await sleep(120);
   check('English restores ltr', Qz.dir() === 'ltr' &&
         global.window.document.getElementById('quiz').getAttribute('dir') === 'ltr');
-  check('...and the English strings', /Find the country/.test(Qz.html()));
+  Qz.go('diff');
+  check('...and the English strings', /data-act="start"/.test(Qz.html()) &&
+        /data-diff="easy"/.test(Qz.html()), Qz.html().slice(0, 120));
 
   /* a language the tables do not have cannot happen (app.js validates), but the quiz
      must survive one anyway */
   check('an unknown language falls back to English, not to blank', (function () {
+    Qz.go('mode');
     const before = Qz.html();
+    Qz.go('diff');
     return /Find the country/.test(before);
   })());
 
@@ -664,7 +729,8 @@ async function afterLoad() {
   const quizRow = findRow(els.items, 'quiz');
   check('the menu has a quiz row', !!quizRow);
   L['menu:click']({ target: quizRow, clientX: 0, clientY: 0 });
-  check('the quiz row reopens the start page', Z().screen === 'start' && /qz-on/.test(els.quiz.className));
+  check('the quiz row reopens the title', Z().screen === 'title' && /qz-on/.test(els.quiz.className),
+        Z().screen);
 
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   if (errors.length) console.log('errors: ' + errors.join(' | '));

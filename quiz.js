@@ -78,7 +78,11 @@ function storeCfg() {
   try { window.localStorage.setItem(STORE, JSON.stringify(cfg)); } catch (e) {}
 }
 
-var screen = 'start';        /* start | question | end */
+/* THE SCREENS, in the order the arrows walk them (Kwizzy's own shape: a title, then
+   one question per screen, then the run). `question` and `end` are the game; the rest
+   are the menu the player walks through before a round. */
+var STEPS = ['title', 'mode', 'zone', 'diff'];
+var screen = 'title';        /* title | mode | zone | diff | about | question | end */
 var soundOpen = false;       /* the sound & music drawer, over whichever screen */
 var soundEl = document.getElementById('qz-sound');   /* a SIBLING of #quiz, so a screen
                                                        re-render cannot wipe the drawer */
@@ -106,6 +110,16 @@ function modeLabel(id) { return K_MODE[id] ? T(K_MODE[id]) : id; }
 function modeSub(id) { return K_MODE_SUB[id] ? T(K_MODE_SUB[id]) : ''; }
 function variantLabel(id) { return K_VARIANT[id] ? T(K_VARIANT[id]) : id; }
 function variantSub(id) { return K_VARIANT_SUB[id] ? T(K_VARIANT_SUB[id]) : ''; }
+/* THE LOGO SLOT. The final mark drops in as media/logo.png; until that file exists the
+   wordmark is the logo. Probed ONCE at boot rather than put in the markup with an
+   onerror, so a missing file is a quiet 404 in the network log and never a broken
+   image flashing on the title. */
+var logoOK = false;
+try {
+  var logoProbe = new window.Image();
+  logoProbe.onload = function () { logoOK = true; if (screen === 'title') render(); };
+  logoProbe.src = 'media/logo.png';
+} catch (e) { /* no Image() (node): the wordmark stays */ }
 function flagsReady() { return M.ready(); }
 function capsReady() { return M.placesReady(); }
 /* THE BEST SCORE OF THIS CONFIG comes from stats.js, which compares by RATIO (so a
@@ -121,75 +135,181 @@ function bestOf() {
 }
 
 /* ---------- screen 1: the first page ---------- */
-function startHTML() {
-  var ready = flagsReady();
+/* ---------- the chrome the four menu screens share ----------
+   Kwizzy's shape: a top bar with a back arrow and the step's own title, a body, and
+   one primary action pinned under the thumb. Everything is a full-viewport page with
+   the map visible behind it (the map is the background of the whole game). */
+function stepDots(i, n) {
+  var h = '<span class="qz-steps" aria-hidden="true">';
+  for (var k = 1; k <= n; k++) h += '<span class="qz-stepd' + (k < i ? ' done' : k === i ? ' on' : '') + '"></span>';
+  return h + '</span>';
+}
+function shellHTML(o) {
   var h = '';
   h += '<div class="qz-scrim"></div>';
-  h += '<div class="qz-card">';
-  /* the halo breathes behind the name, exactly as Kwizzy's title does: the one
-     pulsing light of the app, and it is decorative only (aria-hidden) */
-  h += '<div class="qz-brand"><span class="qz-halo" aria-hidden="true"></span>' +
-       '<h1>Kwizzy<span>Geo</span></h1>' +
-       '<p>' + esc(T('tagline')) + '</p></div>';
-
-  h += '<div class="qz-h">' + esc(T('h_find')) + '</div><div class="qz-modes">';
-  for (var i = 0; i < Q.MODES.length; i++) {
-    var md = Q.MODES[i];
-    var waitCap = (md.id === 'capital' && !capsReady());
-    h += '<button class="qz-mode' + (cfg.mode === md.id ? ' on' : '') + (waitCap ? ' wait' : '') +
-         '" data-mode="' + md.id + '">' +
-         '<span class="ico">' + md.ico + '</span>' +
-         '<span class="t">' + esc(modeLabel(md.id)) + '</span>' +
-         '<span class="s">' + (waitCap ? esc(T('loading_capitals_short')) : esc(modeSub(md.id))) + '</span>' +
-         '</button>';
+  h += '<div class="qz-page' + (o.cls ? ' ' + o.cls : '') + '">';
+  /* THE TOP BAR IS ON EVERY STEPPED PAGE, and on a page that is not a step of the walk
+     (the credits) it keeps the back arrow and the title and drops the dots - a page
+     with no way back and no name is a page you are stuck on. */
+  if (o.title) {
+    h += '<div class="qz-topbar">' +
+         '<button class="qz-back" data-act="back" aria-label="' + esc(T('back')) + '">\u2190</button>' +
+         '<div class="qz-titles">' +
+         (o.step ? '<span class="qz-kicker">' + esc(T('step_of', { i: o.step, n: o.steps })) + '</span>' : '') +
+         '<h2 class="qz-title">' + esc(o.title) + '</h2></div>' +
+         (o.step ? stepDots(o.step, o.steps) : '') + '</div>';
   }
-  h += '</div>';
+  h += '<div class="qz-pagebody">' + o.body + '</div>';
+  if (o.foot) h += '<div class="qz-pagefoot">' + o.foot + '</div>';
+  return h + '</div>';
+}
+/* one card of a choice row: icon, name, one line, and a tick when it is the pick */
+function choiceHTML(attr, id, ico, title, sub, on, extra) {
+  return '<button class="qz-choice' + (on ? ' on' : '') + '" data-' + attr + '="' + id + '"' +
+         (extra || '') + '>' +
+         '<span class="qz-choice-ico" aria-hidden="true">' + ico + '</span>' +
+         '<span class="qz-choice-t">' + esc(title) + '</span>' +
+         (sub ? '<span class="qz-choice-s">' + esc(sub) + '</span>' : '') +
+         '<span class="qz-tick" aria-hidden="true"></span></button>';
+}
+function loaderHTML() {
+  return '<div class="qz-loader" role="status" aria-live="polite">' +
+         '<span class="qz-ring" aria-hidden="true"></span>' +
+         '<span class="qz-loadnote">' + esc(T('loading_map')) + '</span></div>';
+}
 
-  /* THE FLAG QUESTION HAS TWO HALVES: name the country from the flag, or pick the
-     flag of a named country. The row only exists while the flag mode is picked, so
-     the page does not grow a permanent setting that is meaningless for the others. */
-  if (cfg.mode === 'flag') {
-    h += '<div class="qz-h">' + esc(T('h_flag')) + '</div><div class="chips qz-row">';
-    for (var v = 0; v < Q.FLAG_ASK.length; v++) {
-      h += '<button class="chip' + (cfg.variant === Q.FLAG_ASK[v].id ? ' on' : '') + '" data-variant="' +
-           Q.FLAG_ASK[v].id + '">' + esc(variantLabel(Q.FLAG_ASK[v].id)) + '</button>';
-    }
-    h += '</div><div class="qz-note">' + esc(variantSub(cfg.variant)) + '</div>';
-  }
+/* ---------- screen 1: the title ---------- */
+function titleHTML() {
+  var ready = flagsReady();
+  var h = '';
+  h += '<div class="qz-scrim qz-scrim-soft"></div>';
+  h += '<div class="qz-page qz-page-title"><div class="qz-titlewrap">';
+  /* THE HALO breathes behind the name, exactly as Kwizzy's title does: the one pulsing
+     light of the app, and it is decorative only. */
+  h += '<div class="qz-brand"><span class="qz-halo" aria-hidden="true"></span>';
+  /* THE LOGO SLOT. The final mark drops in as media/logo.png; while that file is not
+     there the wordmark below IS the logo (quiz.js probes the file once at boot, so a
+     missing logo never shows a broken image). */
+  if (logoOK) h += '<img class="qz-logomark" src="media/logo.png" alt="KwizzyGeo">';
+  else h += '<h1>Kwizzy<span>Geo</span></h1>';
+  h += '<p class="qz-tagline">' + esc(T('tagline')) + '</p></div>';
 
-  h += '<div class="qz-h">' + esc(T('h_zone')) + '</div><div class="chips qz-row">';
-  for (var z = 0; z < Q.ZONES.length; z++) {
-    h += '<button class="chip' + (cfg.zone === Q.ZONES[z].id ? ' on' : '') + '" data-zone="' +
-         Q.ZONES[z].id + '">' + esc(zoneLabel(Q.ZONES[z].id)) + '</button>';
-  }
-  h += '</div>';
-
-  h += '<div class="qz-h">' + esc(T('h_len')) + '</div><div class="chips qz-row">';
-  for (var L = 0; L < Q.LENS.length; L++) {
-    h += '<button class="chip' + (cfg.len === Q.LENS[L].id ? ' on' : '') + '" data-len="' +
-         Q.LENS[L].id + '">' + esc(Q.LENS[L].id ? String(Q.LENS[L].id) : T('all_tracks')) + '</button>';
-  }
-  h += '</div><div class="qz-note">' + esc(lenSub()) + '</div>';
-
-  h += '<div class="qz-h">' + esc(T('h_diff')) + '</div><div class="chips qz-row">';
-  for (var d = 0; d < Q.DIFFS.length; d++) {
-    h += '<button class="chip' + (cfg.difficulty === Q.DIFFS[d].id ? ' on' : '') + '" data-diff="' +
-         Q.DIFFS[d].id + '">' + esc(diffLabel(Q.DIFFS[d].id)) + '</button>';
-  }
-  h += '</div>';
-  h += '<div class="qz-note">' + esc(diffSub(cfg.difficulty)) + '</div>';
-
-  h += '<div class="qz-actions"><button class="qz-play" data-act="play"' +
-       (ready ? '' : ' disabled') + '>' + (ready ? esc(T('play')) : esc(T('loading_map'))) + '</button></div>';
-  h += '<div class="qz-note qz-info">' + esc(infoMsg || defaultInfo()) + '</div>';
+  if (!ready) h += loaderHTML();
+  h += '<div class="qz-titleacts">' +
+       '<button class="qz-play qz-xl" data-act="play"' + (ready ? '' : ' disabled') + '>' +
+       esc(ready ? T('play') : T('loading_map')) + '</button>' +
+       '<button class="qz-ghost qz-creditsbtn" data-act="about">' + esc(T('ab_title')) + '</button>' +
+       '</div>';
   h += '<div class="qz-foot">' +
        '<span class="qz-links"><a class="qz-link" data-act="explore">' + esc(T('explore')) + '</a>' +
        '<a class="qz-link" data-act="snd-open">' + esc(T('sound_music')) + '</a>' +
        '<a class="qz-link" data-act="stats-open">' + esc(T('stats')) + '</a></span>' +
        '<span class="qz-best">' + bestText() + '</span></div>';
-  h += '</div>';
-  return h;
+  h += '<div class="qz-note qz-info">' + esc(infoMsg || defaultInfo()) + '</div>';
+  return h + '</div></div>';
 }
+
+/* ---------- screen 2: what to find ---------- */
+function modeHTML() {
+  var b = '<div class="qz-choices qz-choices-row">';
+  for (var i = 0; i < Q.MODES.length; i++) {
+    var md = Q.MODES[i];
+    var waitCap = (md.id === 'capital' && !capsReady());
+    b += choiceHTML('mode', md.id, md.ico, modeLabel(md.id),
+                    waitCap ? T('loading_capitals_short') : modeSub(md.id),
+                    cfg.mode === md.id, waitCap ? ' aria-disabled="true"' : '');
+  }
+  b += '</div>';
+  /* THE FLAG QUESTION HAS TWO HALVES: name the country from the flag, or pick the flag
+     of a named country. The row only exists while the flag mode is picked, so the page
+     never grows a setting that is meaningless for the other two modes. */
+  if (cfg.mode === 'flag') {
+    b += '<div class="qz-block"><div class="qz-h">' + esc(T('h_flag')) + '</div>' +
+         '<div class="chips qz-row">';
+    for (var v = 0; v < Q.FLAG_ASK.length; v++) {
+      b += '<button class="chip' + (cfg.variant === Q.FLAG_ASK[v].id ? ' on' : '') + '" data-variant="' +
+           Q.FLAG_ASK[v].id + '">' + esc(variantLabel(Q.FLAG_ASK[v].id)) + '</button>';
+    }
+    b += '</div><div class="qz-note">' + esc(variantSub(cfg.variant)) + '</div></div>';
+  }
+  return shellHTML({
+    step: 1, steps: 3, title: T('h_pick_mode'), body: b,
+    foot: '<button class="qz-play" data-act="go" data-to="zone">' + esc(T('cont')) + '</button>'
+  });
+}
+
+/* ---------- screen 3: which part of the world ---------- */
+function zoneHTML() {
+  var b = '<div class="qz-choices qz-zones">';
+  for (var i = 0; i < Q.ZONES.length; i++) {
+    var z = Q.ZONES[i];
+    b += '<button class="qz-zcard' + (cfg.zone === z.id ? ' on' : '') + '" data-zone="' + z.id + '">' +
+         '<span class="qz-zname">' + esc(zoneLabel(z.id)) + '</span>' +
+         '<span class="qz-tick" aria-hidden="true"></span></button>';
+  }
+  b += '</div>';
+  return shellHTML({
+    step: 2, steps: 3, title: T('h_pick_zone'), body: b,
+    foot: '<button class="qz-play" data-act="go" data-to="diff">' + esc(T('cont')) + '</button>'
+  });
+}
+
+/* ---------- screen 4: how hard, and how long ---------- */
+function diffHTML() {
+  var b = '<div class="qz-choices qz-choices-row">';
+  for (var d = 0; d < Q.DIFFS.length; d++) {
+    var df = Q.DIFFS[d];
+    b += choiceHTML('diff', df.id, '', diffLabel(df.id), diffSub(df.id), cfg.difficulty === df.id);
+  }
+  b += '</div>';
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('h_len')) + '</div><div class="chips qz-row">';
+  for (var L = 0; L < Q.LENS.length; L++) {
+    b += '<button class="chip' + (cfg.len === Q.LENS[L].id ? ' on' : '') + '" data-len="' +
+         Q.LENS[L].id + '">' + esc(Q.LENS[L].id ? String(Q.LENS[L].id) : T('all_tracks')) + '</button>';
+  }
+  b += '</div><div class="qz-note">' + esc(lenSub()) + '</div></div>';
+  var best = bestText();
+  if (best) b += '<div class="qz-note qz-bestline">' + esc(best) + '</div>';
+  return shellHTML({
+    step: 3, steps: 3, title: T('h_pick_diff'), body: b,
+    foot: '<button class="qz-play qz-xl" data-act="start"' + (flagsReady() ? '' : ' disabled') + '>' +
+          esc(flagsReady() ? T('play') : T('loading_map')) + '</button>'
+  });
+}
+
+/* ---------- screen 5: credits and memory ---------- */
+/* The two things a player should be able to find without reading the README: what the
+   map is made of (and whose it is), and what this device remembers about them. The
+   memory half is the stats sheet's own content, rendered by the same builder. */
+function creditRow(name, what, href) {
+  var n = href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(name) + '</a>'
+               : esc(name);
+  return '<div class="qz-credrow"><span class="k">' + n + '</span>' +
+         '<span class="v">' + esc(what) + '</span></div>';
+}
+function aboutHTML() {
+  var b = '';
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_data')) + '</div>' +
+       creditRow('Natural Earth', T('ab_ne'), 'https://www.naturalearthdata.com/') +
+       '<div class="qz-note">' + esc(T('ab_layers_v')) + '</div></div>';
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_flags')) + '</div>' +
+       creditRow('flag-icons', T('ab_fi'), 'https://github.com/lipis/flag-icons') + '</div>';
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_map')) + '</div>' +
+       creditRow('KwizzyGeo', T('ab_code')) +
+       '<div class="qz-note">' + esc(T('ab_map_note')) + '</div></div>';
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('snd_title')) + '</div>' +
+       '<div class="qz-note">' + esc(T('ab_music_note')) + '</div></div>';
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_memory')) + '</div>' +
+       '<div class="qz-note">' + esc(T('ab_memory_note')) + '</div>' +
+       '<div class="qz-actions"><button class="qz-ghost" data-act="stats-open">' + esc(T('stats')) +
+       '</button><button class="qz-ghost" data-act="snd-open">' + esc(T('sound_music')) +
+       '</button></div></div>';
+  return shellHTML({
+    title: T('ab_title'), body: b, cls: 'qz-page-about',
+    foot: '<button class="qz-play" data-act="back">' + esc(T('done')) + '</button>'
+  });
+}
+
 /* the note under the length chips: "All" needs to say how many that actually is, and
    a zone smaller than the asked length says so instead of silently repeating */
 function lenSub() {
@@ -211,7 +331,7 @@ function bestText() {
   if (!b.len) return '';
   /* the length is printed with the score: it is what makes two bests comparable */
   return T('best_here', { score: b.score, len: b.len }) +
-         (b.played > 1 ? ' · ' + T('best_n', { n: b.played }) : '');
+         (b.played > 1 ? ' \u00b7 ' + T('best_n', { n: b.played }) : '');
 }
 
 /* ---------- screen 2: a question ---------- */
@@ -589,7 +709,11 @@ function applyDir() {
 function render() {
   if (!quizEl) return;
   applyDir();
-  if (screen === 'start') quizEl.innerHTML = startHTML();
+  if (screen === 'title') quizEl.innerHTML = titleHTML();
+  else if (screen === 'mode') quizEl.innerHTML = modeHTML();
+  else if (screen === 'zone') quizEl.innerHTML = zoneHTML();
+  else if (screen === 'diff') quizEl.innerHTML = diffHTML();
+  else if (screen === 'about') quizEl.innerHTML = aboutHTML();
   else if (screen === 'question') quizEl.innerHTML = questionHTML();
   else quizEl.innerHTML = endHTML();
   quizEl.className = 'qz-on qz-' + screen;
@@ -607,8 +731,14 @@ function render() {
   }
   soundRender();
   statsRender();
+  /* THE MAP DRIFTS BEHIND THE MENU. A slow, self-running travel of the perspective
+     view - it is what makes the background alive rather than a screenshot - and it is
+     switched off the moment a question is up, where the map is the QUESTION's picture
+     and must hold still. */
+  if (M.cinema) M.cinema(isMenu());
 }
-function info(msg) { infoMsg = msg || ''; if (screen === 'start') render(); }
+function isMenu() { return STEPS.indexOf(screen) >= 0 || screen === 'about'; }
+function info(msg) { infoMsg = msg || ''; if (isMenu()) render(); }
 
 /* ---------- the flow ---------- */
 function startSession() {
@@ -689,9 +819,11 @@ function endScreen() {
   render();
   screenSfx('question');
 }
+/* the ✕ during a round: the map goes back to the viewer and the player lands on the
+   title, where a run starts */
 function quit() {
   session = null; q = null; answered = false; chosen = -1;
-  screen = 'start';
+  screen = 'title';
   infoMsg = '';
   M.exit();
   render();
@@ -699,10 +831,30 @@ function quit() {
 }
 function open() {
   if (screen === 'question' && session) return;
-  screen = 'start';
+  screen = 'title';
   session = null; q = null; answered = false;
   M.exit();
   render();
+}
+/* WALK THE STEPS. `go` moves forward (and back through `back`), so the arrows, the
+   keyboard and the tests all take one path. A step that is left clears the run: the
+   screens own the config, never a session. */
+function go(to) {
+  if (to !== 'about' && STEPS.indexOf(to) < 0) return false;
+  if (to === 'question' || to === 'end') return false;
+  var was = screen;
+  session = null; q = null; answered = false; chosen = -1;
+  screen = to;
+  infoMsg = '';
+  render();
+  screenSfx(was);
+  return true;
+}
+function back() {
+  if (screen === 'about') return go('title');
+  var i = STEPS.indexOf(screen);
+  if (i <= 0) return false;
+  return go(STEPS[i - 1]);
 }
 function hide() {
   if (M.quizOn()) M.exit();
@@ -728,10 +880,17 @@ function onQuizClick(e) {
     if (el) {
       var act = el.getAttribute('data-act');
       if (act !== 'snd-close') tapSfx();          /* closing the drawer is not a press */
-      if (act === 'play' || act === 'again') startSession();
+      /* the flow's own words: play/again start a round, go/back walk the menu, start
+         is the Play of the last step (kept separate from play so the title's big
+         button cannot start a round from a screen that has no difficulty yet) */
+      if (act === 'start' || act === 'again') startSession();
+      else if (act === 'play') go('mode');
+      else if (act === 'go') go(el.getAttribute('data-to'));
+      else if (act === 'back') back();
+      else if (act === 'about') go('about');
       else if (act === 'next') next();
       else if (act === 'quit') quit();
-      else if (act === 'menu') quit();
+      else if (act === 'menu') go('diff');
       else if (act === 'explore') hide();
       else if (act === 'snd-open') soundToggle(true);
       else if (act === 'snd-close') soundToggle(false);
@@ -836,6 +995,16 @@ function switchToggle(which) {
   }
   soundRender();
 }
+/* THE KEYBOARD WALKS THE SAME STEPS as the buttons: Enter goes on, Escape goes back -
+   one key each, so a player who never touches the mouse can still play. During a
+   question the digits answer and Enter takes the next one, as before. */
+function stepForward() {
+  if (screen === 'title') return go('mode');
+  if (screen === 'mode') return go('zone');
+  if (screen === 'zone') return go('diff');
+  if (screen === 'diff') return startSession();
+  return false;
+}
 window.addEventListener('keydown', function (e) {
   if (!quizEl || !quizEl.className) return;      /* the quiz is not on screen */
   if (screen === 'question') {
@@ -847,10 +1016,14 @@ window.addEventListener('keydown', function (e) {
     }
   } else if (screen === 'end') {
     if (e.key === 'Enter') { startSession(); e.preventDefault(); return; }
-    if (e.key === 'Escape') { quit(); return; }
-  } else if (screen === 'start') {
-    if (e.key === 'Escape' && (soundOpen || statsOpen)) { soundToggle(false); statsToggle(false); return; }
-    if (e.key === 'Enter') { startSession(); e.preventDefault(); }
+    if (e.key === 'Escape') { go('diff'); return; }
+  } else if (isMenu()) {
+    if (e.key === 'Escape') {
+      if (soundOpen || statsOpen) { soundToggle(false); statsToggle(false); return; }
+      if (screen === 'title') hide(); else back();
+      return;
+    }
+    if (e.key === 'Enter') { stepForward(); e.preventDefault(); }
   }
 });
 
@@ -863,7 +1036,7 @@ function watchReady() {
   if (readyTimer) return;
   readyTimer = setInterval(function () {
     if (!flagsReady()) return;
-    if (screen !== 'start') { clearInterval(readyTimer); readyTimer = null; return; }
+    if (!isMenu()) { clearInterval(readyTimer); readyTimer = null; return; }
     if (cfg.mode === 'capital' && !capsReady() && infoMsg) return;
     render();
     clearInterval(readyTimer); readyTimer = null;
@@ -922,9 +1095,11 @@ window.Quizzy = {
     if (patch.variant) cfg.variant = patch.variant;
     if (patch.len !== undefined) cfg.len = patch.len | 0;
     storeCfg();
-    if (screen === 'start') render();
+    if (isMenu()) render();
   },
   start: function () { return startSession(); },
+  go: function (to) { return go(to); },
+  back: function () { return back(); },
   choose: function (i) { return choose(i); },
   next: function () { return next(); },
   quit: function () { quit(); },
