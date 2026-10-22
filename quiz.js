@@ -23,7 +23,7 @@ var bodyEl = document.body;
 
 /* the config survives a reload; a private-mode browser simply forgets it */
 var STORE = 'kwizzy.quiz.cfg';
-var cfg = { mode: 'country', zone: 'world', difficulty: 'medium', len: 10 };
+var cfg = { mode: 'country', zone: 'world', difficulty: 'medium', len: 10, variant: 'name' };
 try {
   var saved = window.localStorage.getItem(STORE);
   if (saved) {
@@ -32,6 +32,7 @@ try {
       if (Q.MODES.length) for (var i0 = 0; i0 < Q.MODES.length; i0++) if (o.mode === Q.MODES[i0].id) cfg.mode = o.mode;
       for (var i1 = 0; i1 < Q.ZONES.length; i1++) if (o.zone === Q.ZONES[i1].id) cfg.zone = o.zone;
       for (var i2 = 0; i2 < Q.DIFFS.length; i2++) if (o.difficulty === Q.DIFFS[i2].id) cfg.difficulty = o.difficulty;
+      for (var i3 = 0; i3 < Q.FLAG_ASK.length; i3++) if (o.variant === Q.FLAG_ASK[i3].id) cfg.variant = o.variant;
     }
   }
 } catch (e) { /* private mode: keep the defaults */ }
@@ -59,6 +60,10 @@ function zoneLabel(id) {
 function diffLabel(id) {
   for (var i = 0; i < Q.DIFFS.length; i++) if (Q.DIFFS[i].id === id) return Q.DIFFS[i].label;
   return id;
+}
+function variantSub(id) {
+  for (var i = 0; i < Q.FLAG_ASK.length; i++) if (Q.FLAG_ASK[i].id === id) return Q.FLAG_ASK[i].sub;
+  return '';
 }
 function modeLabel(id) {
   for (var i = 0; i < Q.MODES.length; i++) if (Q.MODES[i].id === id) return Q.MODES[i].label;
@@ -99,6 +104,18 @@ function startHTML() {
          '</button>';
   }
   h += '</div>';
+
+  /* THE FLAG QUESTION HAS TWO HALVES: name the country from the flag, or pick the
+     flag of a named country. The row only exists while the flag mode is picked, so
+     the page does not grow a permanent setting that is meaningless for the others. */
+  if (cfg.mode === 'flag') {
+    h += '<div class="qz-h">Flag question</div><div class="chips qz-row">';
+    for (var v = 0; v < Q.FLAG_ASK.length; v++) {
+      h += '<button class="chip' + (cfg.variant === Q.FLAG_ASK[v].id ? ' on' : '') + '" data-variant="' +
+           Q.FLAG_ASK[v].id + '">' + esc(Q.FLAG_ASK[v].label) + '</button>';
+    }
+    h += '</div><div class="qz-note">' + esc(variantSub(cfg.variant)) + '</div>';
+  }
 
   h += '<div class="qz-h">Zone</div><div class="chips qz-row">';
   for (var z = 0; z < Q.ZONES.length; z++) {
@@ -147,17 +164,29 @@ function askHTML() {
   } else if (q.mode === 'capital') {
     h += '<div class="qz-q">What is the capital of <b>' + esc(q.answer.name) + '</b>?</div>' +
          '<div class="qz-sub">' + esc(zoneLabel(q.zone)) + ' · ' + esc(diffLabel(q.difficulty)) + '</div>';
+  } else if (q.variant === 'flags') {
+    /* the country is NAMED and lit up on the map, with its capital: the flag is the
+       answer, so it must not be anywhere on screen */
+    var bits = [];
+    if (q.answer.cap) bits.push('capital ' + esc(q.answer.cap));
+    if (q.answer.cont) bits.push(esc(q.answer.cont));
+    h += '<div class="qz-q">Which flag is <b>' + esc(q.answer.name) + '</b>&rsquo;s?</div>' +
+         '<div class="qz-sub">' + (bits.length ? bits.join(' · ') : esc(zoneLabel(q.zone))) + '</div>';
   } else {
-    h += '<div class="qz-q">Whose flag is this?</div>' +
-         '<div class="qz-flagwrap">' + flagSpan(q.answer.flag, 'qz-bigflag') + '</div>';
+    /* the prompt and the flag on ONE row: the country is centred on the map behind
+       this card, and a stack of title + 100 px flag covered the top third of it */
+    h += '<div class="qz-flagrow"><span class="qz-q">Whose flag is this?</span>' +
+         '<span class="qz-flagwrap">' + flagSpan(q.answer.flag, 'qz-bigflag') + '</span></div>';
   }
   return h;
 }
 function optionLabel(it) {
   return q.mode === 'capital' ? it.cap : it.name;
 }
+function flagsAsOptions() { return q.mode === 'flag' && q.variant === 'flags'; }
 function answersHTML() {
-  var h = '<div class="qz-answers">';
+  var asFlags = flagsAsOptions();
+  var h = '<div class="qz-answers' + (asFlags ? ' qz-answers-flags' : '') + '">';
   for (var i = 0; i < q.options.length; i++) {
     var cls = 'qz-ans';
     if (answered) {
@@ -166,25 +195,60 @@ function answersHTML() {
       else cls += ' off';
     }
     h += '<button class="' + cls + '" data-i="' + i + '"' + (answered ? ' disabled' : '') + '>' +
-         '<span class="n">' + (i + 1) + '</span>' +
-         '<span class="v">' + esc(optionLabel(q.options[i])) + '</span></button>';
+         '<span class="n">' + (i + 1) + '</span>';
+    if (asFlags) {
+      /* the flag IS the option: no label, and `aria-label` carries the country name
+         for a screen reader (and for the headless test) */
+      h += '<span class="fl" aria-label="' + esc(q.options[i].name) + '">' +
+           flagSpan(q.options[i].flag, 'qz-optflag') + '</span>';
+      /* ONCE ANSWERED the flags get their countries' names: a wrong option that
+         stays anonymous teaches nothing, and the names were the whole reason the
+         flags were hidden before. */
+      if (answered) h += '<span class="cap">' + esc(q.options[i].name) + '</span>';
+    } else {
+      h += '<span class="v">' + esc(optionLabel(q.options[i])) + '</span>';
+    }
+    h += '</button>';
   }
   return h + '</div>';
 }
 function revealHTML() {
   var a = q.answer;
-  var facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(a.name) + '</b>';
-  var bits = [];
-  if (a.cap) bits.push('capital ' + esc(a.cap));
-  if (a.cont) bits.push(esc(a.cont));
-  if (bits.length) facts += ' <span class="qz-dim">· ' + bits.join(' · ') + '</span>';
+  /* THE VERDICT IS THE VERDICT, and the line beside it is the ANSWER. Printing the
+     right answer inside the verdict as well ("✕ Trinidad and Tobago" next to
+     "Trinidad and Tobago") said the same thing twice and read like a bug. */
+  var facts;
+  if (q.mode === 'capital') {
+    /* the question was about the CITY, so the answer line leads with the city */
+    facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(a.cap) + '</b>' +
+            ' <span class="qz-dim">· capital of ' + esc(a.name) +
+            (a.cont ? ' · ' + esc(a.cont) : '') + '</span>';
+  } else {
+    facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(a.name) + '</b>';
+    var bits = [];
+    if (a.cap) bits.push('capital ' + esc(a.cap));
+    if (a.cont) bits.push(esc(a.cont));
+    if (bits.length) facts += ' <span class="qz-dim">· ' + bits.join(' · ') + '</span>';
+  }
+  /* THE DETAILS. Answering a question should teach something, so the verdict comes
+     with the same panel a click on the map opens: the country's own facts, or - when
+     the question was about a capital - the CITY's. Rendered by app.js
+     (MapApp.countryPanel / capitalPanel), i.e. by the one builder the info panel
+     uses, so the two cannot disagree about a country's area or its second capital. */
+  var details = '';
+  try {
+    details = (q.mode === 'capital') ? M.capitalPanel(a.id) : M.countryPanel(a.id);
+  } catch (e) { details = ''; }
   var last = (session.i >= session.cfg.len);
   return '<div class="qz-reveal">' +
-    '<div class="qz-verdict ' + (q.ok ? 'good' : 'bad') + '">' +
-    (q.ok ? '\u2713 Correct' : '\u2715 ' + esc(optionLabel(q.options[q.correct]))) + '</div>' +
-    '<div class="qz-facts">' + facts + '</div>' +
+    '<div class="qz-head">' +
+    '<span class="qz-verdict ' + (q.ok ? 'good' : 'bad') + '">' +
+    (q.ok ? '\u2713 Correct' : '\u2715 Wrong') + '</span>' +
+    '<span class="qz-facts">' + facts + '</span>' +
     '<button class="qz-next" data-act="next">' + (last ? 'Results \u2192' : 'Next \u2192') +
-    '</button></div>';
+    '</button></div>' +
+    (details ? '<div class="qz-details">' + details + '</div>' : '') +
+    '</div>';
 }
 function questionHTML() {
   var h = '';
@@ -193,7 +257,8 @@ function questionHTML() {
        '<div class="qz-mid"><span class="qz-prog">Question ' + session.i + ' / ' + session.cfg.len +
        '</span><span class="qz-score">' + session.score + ' \u2713</span></div>' +
        '</div>';
-  h += '<div class="qz-ask">' + askHTML() + '</div>';
+  h += '<div class="qz-ask' + (q.mode === 'flag' && q.variant === 'name' ? ' qz-ask-flag' : '') + '">' +
+       askHTML() + '</div>';
   h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
   return h;
 }
@@ -264,10 +329,10 @@ function nextQuestion() {
   answered = false;
   chosen = -1;
   if (!q) { endScreen(); return; }
-  /* the map is the question in two of the three modes; the flag one gets the world,
-     because the flag is the question and the map would only be decoration */
-  if (q.mode === 'flag') M.world();
-  else M.show(q.answer.id);
+  /* EVERY mode flies to the country and lights it up, the flag ones included: the
+     flag says what the country looks like, the map says where it is, and both
+     variants of the flag question end on the same picture. */
+  M.show(q.answer.id);
   render();
 }
 function choose(i) {
@@ -333,6 +398,8 @@ if (quizEl && quizEl.addEventListener) {
     if (el) { cfg.mode = el.getAttribute('data-mode'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'zone');
     if (el) { cfg.zone = el.getAttribute('data-zone'); storeCfg(); info(''); render(); return; }
+    el = attrUp(e.target, 'variant');
+    if (el) { cfg.variant = el.getAttribute('data-variant'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'diff');
     if (el) { cfg.difficulty = el.getAttribute('data-diff'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'i');
@@ -379,10 +446,11 @@ window.Quizzy = {
     return {
       screen: screen,
       mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty, len: cfg.len,
+      variant: cfg.variant,
       index: session ? session.i : 0, score: session ? session.score : 0,
       answered: answered, chosen: chosen,
       question: q ? {
-        mode: q.mode, correct: q.correct,
+        mode: q.mode, variant: q.variant, correct: q.correct,
         answer: q.answer.name, answerId: q.answer.id, flag: q.answer.flag,
         capital: q.answer.cap,
         options: q.options.map(function (it) { return { name: it.name, cap: it.cap, flag: it.flag, id: it.id }; })
@@ -390,12 +458,15 @@ window.Quizzy = {
       info: infoMsg
     };
   },
-  config: function () { return { mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty }; },
+  config: function () {
+    return { mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty, variant: cfg.variant };
+  },
   set: function (patch) {
     if (!patch) return;
     if (patch.mode) cfg.mode = patch.mode;
     if (patch.zone) cfg.zone = patch.zone;
     if (patch.difficulty) cfg.difficulty = patch.difficulty;
+    if (patch.variant) cfg.variant = patch.variant;
     storeCfg();
     if (screen === 'start') render();
   },

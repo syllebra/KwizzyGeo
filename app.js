@@ -1614,6 +1614,15 @@ function refreshMenu() {
 /* the city panel: the same .row markup as a country, so it inherits the styling.
    Everything shown comes from the point table; nothing is invented. */
 function showPlacePanel(i) {
+  panel.innerHTML = placePanelHTML(i);
+  panel.classList.add('show');
+  hud.textContent = hudText();
+}
+/* The panel's MARKUP, with no side effects: refreshUI renders it into #panel, and
+   the quiz renders the same rows into its answer card (a quiz answer ends with
+   "here is what that country actually is"). One builder, so the two can never
+   drift apart. */
+function placePanelHTML(i) {
   var P = places[i];
   var loc = cityName(i);
   var base = P.n;
@@ -1637,16 +1646,19 @@ function showPlacePanel(i) {
     ['Wikipedia', wikiURL(P.e || P.n)],
     ['Google Maps', googleMapsURL(P.lat, P.lon, zoomLevel())]
   ])]);
+  return panelRowsHTML(rows);
+}
+function panelRowsHTML(rows) {
   var s = '';
   for (var k2 = 0; k2 < rows.length; k2++) {
     var val = rows[k2][1];
     if (!val || val === '') continue;
     if (!rows[k2][0]) { s += '<div class="links">' + val + '</div>'; continue; }
+    /* every row is `position: relative` - cheap, and it keeps the flag's absolute
+       position defined whether or not this particular row has one */
     s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
   }
-  panel.innerHTML = s;
-  panel.classList.add('show');
-  hud.textContent = hudText();
+  return s;
 }
 
 function refreshUI() {
@@ -1660,6 +1672,15 @@ function refreshUI() {
     hud.textContent = hudText();
     return;
   }
+  panel.innerHTML = countryPanelHTML(idx);
+  panel.classList.add('show');
+  hud.textContent = hudText();
+}
+
+/* the country panel's markup - see placePanelHTML */
+function countryPanelHTML(idx) {
+  var f = feats[idx];
+  if (!f) return '';
   var p = f.props, km2 = f.areaSr * C.SR_TO_KM2;
   /* "also": the same country in the other languages, minus the one already shown,
      English first because it is the common denominator on a map of this kind */
@@ -1709,18 +1730,7 @@ function refreshUI() {
     ['Google Maps', googleMapsURL(p.LABEL_Y != null ? p.LABEL_Y : view.lat,
                                   p.LABEL_X != null ? p.LABEL_X : view.lon, zoomLevel())]
   ])]);
-  var s = '';
-  for (var k2 = 0; k2 < rows.length; k2++) {
-    var val = rows[k2][1];
-    if (!val || val === '') continue;
-    if (!rows[k2][0]) { s += '<div class="links">' + val + '</div>'; continue; }
-    /* every row is `position: relative` - cheap, and it keeps the flag's absolute
-       position defined whether or not this particular row has one */
-    s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
-  }
-  panel.innerHTML = s;
-  panel.classList.add('show');
-  hud.textContent = hudText();
+  return panelRowsHTML(rows);
 }
 /* a row of external links, always opening in a new tab */
 function linkRow(list) {
@@ -2607,11 +2617,6 @@ function quizKm(lon0, lat0, lon1, lat1) {
           Math.cos(la0) * Math.cos(la1) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
-/* how much of the viewport the country's box may fill: a fit at 6 % pad (the
-   double-click default) fills the screen with one shape, which kills the
-   neighbours' context - and on a quiz the neighbours ARE the clue. 15 % a side
-   leaves the country at 70 % of one axis and a ring of ocean and neighbours. */
-var QUIZ_FIT_PAD = 0.15;
 var quizSavedLayer = null;
 
 function quizIndexOf(key) {
@@ -2654,32 +2659,49 @@ window.MapApp = {
     refreshUI();
     return true;
   },
-  /* Light one country up and fly to it. The flight is the double-click one, made
-     shorter: a quiz does not wait a second for its picture. */
+  /* Light one country up and fly to it - with the DOUBLE CLICK's OWN flight, in
+     every respect: flyTo() at its default duration (FLY_DUR, 950 ms), the same
+     zoom-out-then-in dip (kMin), the same untwisting, and the same fitted zoom
+     (FLY_PAD, 6 % a side, 88 % of the viewport). A shorter flight was tried and it
+     read as a jump cut: the dip has no time to happen, so the map looks like it
+     teleports. The quiz travels exactly like free exploration. */
   show: function (key) {
     var i = quizIndexOf(key);
     if (i < 0) return false;
     picked = i;
     hover = -1; hoverPlace = -1; pickedPlace = -1;
-    var t = fitTargetForFeature(i, null, QUIZ_FIT_PAD, coreFeature(feats[i]));
-    if (t) { flyTo(t.lon, t.lat, t.k); if (fly) fly.dur = 520; }
+    var t = fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]));
+    if (t) flyTo(t.lon, t.lat, t.k);
     return true;
+  },
+  /* the flight in progress, read-only: the quiz's travel is supposed to be the
+     double click's travel, and a test that can only see the canvas cannot tell a
+     520 ms jump cut from the 950 ms flight with its dip. */
+  flight: function () {
+    return fly ? { dur: fly.dur, k0: fly.k0, k1: fly.k1, kMin: fly.kMin,
+                   lon1: fly.lon1, lat1: fly.lat1 } : null;
   },
   /* the destination show() flies to, without flying: {lon, lat, k, e} */
   fitTarget: function (key) {
     var i = quizIndexOf(key);
     if (i < 0) return null;
-    return fitTargetForFeature(i, null, QUIZ_FIT_PAD, coreFeature(feats[i]));
+    return fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]));
+  },
+  /* THE DETAILS of the country, and of its capital city, as the info panel renders
+     them - the same builder, so a quiz answer and a click on the map say the same
+     thing. '' when the layer has no such country. */
+  countryPanel: function (key) {
+    var i = quizIndexOf(key);
+    return i < 0 ? '' : countryPanelHTML(i);
+  },
+  capitalPanel: function (key) {
+    var i = quizIndexOf(key);
+    if (i < 0) return '';
+    var ci = capitalOf(i);
+    return ci < 0 ? '' : placePanelHTML(ci);
   },
   pickedFeature: function () { return picked; },
   clear: function () { picked = -1; },
-  /* the neutral view a flag question sits on: the whole world, north-up, centred */
-  world: function () {
-    setCenterFresh(0, 0);
-    view.k = fitK;
-    fly = null;
-    picked = -1;
-  },
   coreRings: function (key) {
     var i = quizIndexOf(key);
     if (i < 0) return 0;

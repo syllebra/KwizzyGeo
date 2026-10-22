@@ -29,7 +29,7 @@ var R_KM = 6371.0088;
 var MODES = [
   { id: 'country', label: 'Find the country', sub: 'A country is lit up: name it.', ico: '\u25C9' },
   { id: 'capital', label: 'Find the capital', sub: 'Pick the capital city.', ico: '\u2605' },
-  { id: 'flag',    label: 'Find the flag',    sub: 'Whose flag is this?', ico: '\u2691' }
+  { id: 'flag',    label: 'Find the flag',    sub: 'a flag, or the country of a flag', ico: '\u2691' }
 ];
 
 /* The zone list is the CONTINENT vocabulary of the layers, minus the two that are
@@ -44,6 +44,15 @@ var ZONES = [
   { id: 'north-america', label: 'North America', cont: 'North America' },
   { id: 'south-america', label: 'South America', cont: 'South America' },
   { id: 'oceania',       label: 'Oceania',       cont: 'Oceania' }
+];
+
+/* FLAG MODE HAS TWO HALVES, and they are the same question read from the two ends:
+   the flag is given and the country must be named, or the country is named (and lit
+   up on the map, with its capital) and the flag must be picked. The options follow
+   the question, so one shows six country names and the other six flags. */
+var FLAG_ASK = [
+  { id: 'name',  label: 'Flag \u2192 country', sub: 'a flag is shown: name the country' },
+  { id: 'flags', label: 'Country \u2192 flag', sub: 'a country is named: pick its flag' }
 ];
 
 var DIFFS = [
@@ -220,6 +229,7 @@ function question(sess, r) {
   }
   return {
     mode: mode, zone: cfg.zone, difficulty: cfg.difficulty,
+    variant: cfg.variant || null,
     answer: answer, options: options, correct: correct,
     /* the share of wrong answers that sit in the intended distance band - what the
        tests assert on, and what the difficulty really means */
@@ -236,8 +246,12 @@ function newSession(items, cfg, seed) {
     mode: (byId(MODES, cfg.mode) || MODES[0]).id,
     zone: (byId(ZONES, cfg.zone) || ZONES[0]).id,
     difficulty: (byId(DIFFS, cfg.difficulty) || DIFFS[1]).id,
-    len: Math.max(1, Math.min(50, cfg.len | 0 || 10))
+    len: Math.max(1, Math.min(50, cfg.len | 0 || 10)),
+    /* only meaningful in flag mode; null elsewhere so a session cannot carry a
+       setting that does not apply to it */
+    variant: null
   };
+  if (c.mode === 'flag') c.variant = (byId(FLAG_ASK, cfg.variant) || FLAG_ASK[0]).id;
   return {
     cfg: c, pool: poolFor(items, c.zone, c.mode),
     used: {}, i: 0, score: 0, asked: [],
@@ -264,7 +278,7 @@ function answerQuestion(sess, q, chosen) {
 }
 
 var QUIZCORE = {
-  N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS,
+  N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK,
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,
   /* exposed for the tests, and for nothing else */

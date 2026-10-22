@@ -236,6 +236,8 @@ function afterLoad() {
   check('the answer is locked', Z().answered === true && Qz.choose(0) === false);
   check('the right answer is revealed', /qz-ans ok/.test(Qz.html()) && /qz-verdict bad/.test(Qz.html()));
   check('the verdict names the right country', Qz.html().indexOf(st.question.options[st.question.correct].name) >= 0);
+  check('a country answer reveals the country details',
+        /qz-details/.test(Qz.html()) && /area/.test(Qz.html()) && /codes/.test(Qz.html()));
   check('Next is offered', /data-act="next"/.test(Qz.html()));
 
   /* then answer everything else right */
@@ -272,19 +274,78 @@ function afterLoad() {
           const it = items.filter(x => x.id === o.id)[0];
           return QC.zoneOf(it) === 'Europe';
         }));
+  /* answering a CAPITAL question shows the CITY's details, not the country's */
+  const capAnswer = st.question.capital;
+  Qz.choose(st.question.correct);
+  check('the capital answer reveals the city details',
+        /qz-details/.test(Qz.html()) && /time zone/.test(Qz.html()) &&
+        Qz.html().indexOf(capAnswer) >= 0, (Qz.html().match(/qz-details[\s\S]{0,200}/) || [''])[0]);
+  check('the city details are the place panel',
+        Qz.html().indexOf(M().capitalPanel(st.question.answerId).slice(0, 60)) >= 0);
   Qz.quit();
 
-  Qz.set({ mode: 'flag', zone: 'oceania', difficulty: 'medium' });
+  /* ---------- 7b. flag mode, variant "flag -> country" (the default) ---------- */
+  Qz.set({ mode: 'flag', zone: 'oceania', difficulty: 'medium', variant: 'name' });
   check('a flag session starts', Qz.start() === true);
   st = Z();
+  check('the question records its variant', st.question.variant === 'name');
   check('the flag question names a flag', /^[a-z]{2}$/.test(st.question.flag));
   check('the flag is shown big', /qz-bigflag/.test(Qz.html()));
   check('no flag is printed next to the options (that would be the answer)',
         (Qz.html().match(/class="fi fi-/g) || []).length === 1, (Qz.html().match(/class="fi fi-/g) || []).length);
   check('flag options are country names, never capitals',
         st.question.options.every(o => o.name && o.id));
+  /* the flag question also travels: the country is lit up and the map flies there */
+  check('the flag question lights its country up', M().pickedFeature() >= 0);
+  check('the flag question flies to the country', !!M().flight() && M().flight().dur === 950,
+        M().flight() && M().flight().dur);
+  check('the country is fitted like a double click (88 % of the viewport)',
+        (function () {
+          const f = M().flight();
+          if (!f) return false;
+          const t = M().fitTarget(st.question.answerId);
+          return t && Math.abs(f.k1 - t.k) < 1e-9 && Math.abs(f.k1 - global.window.ViewState.fitK()) > 1;
+        })());
+  /* and answering it shows the details */
+  Qz.choose(st.question.correct);
+  check('the flag answer reveals the country details',
+        /qz-details/.test(Qz.html()) && /population/.test(Qz.html()) && /ISO/.test(Qz.html()));
+  check('the details are the same rows the map panel shows',
+        Qz.html().indexOf(M().countryPanel(st.question.answerId).slice(0, 60)) >= 0);
+  Qz.quit();
 
-  /* keyboard: 1-6 answers, Enter advances */
+  /* ---------- 7c. flag mode, variant "country -> flag" ---------- */
+  Qz.set({ mode: 'flag', zone: 'europe', difficulty: 'hard', variant: 'flags' });
+  check('the country->flag session starts', Qz.start() === true);
+  st = Z();
+  check('the question records the flags variant', st.question.variant === 'flags');
+  check('the prompt NAMES the country', Qz.html().indexOf(st.question.answer) >= 0 &&
+        /Which flag is/.test(Qz.html()));
+  check('the prompt also gives the capital', !st.question.capital ||
+        Qz.html().indexOf('capital ' + st.question.capital) >= 0, st.question.capital);
+  check('the six options are six flags', (Qz.html().match(/qz-optflag/g) || []).length === 6,
+        (Qz.html().match(/qz-optflag/g) || []).length);
+  check('the flags grid is its own layout', /qz-answers-flags/.test(Qz.html()));
+  check('every option flag is a real flag code',
+        st.question.options.every(o => /^[a-z]{2}$/.test(o.flag)));
+  check('no option flag is repeated',
+        (function () {
+          const seen = {};
+          return st.question.options.every(o => (seen[o.flag] ? false : (seen[o.flag] = 1)));
+        })());
+  check('the wrong options are NOT named on screen (that would give the answer away)',
+        st.question.options.every((o, i) => i === st.question.correct || Qz.html().indexOf('>' + o.name + '<') < 0));
+  check('the country is lit up and the map flies to it',
+        M().pickedFeature() >= 0 && !!M().flight());
+  Qz.choose(st.question.correct);
+  check('the country->flag answer shows the country details too',
+        /qz-details/.test(Qz.html()) && /population/.test(Qz.html()));
+
+  /* keyboard: 1-6 answers, Enter advances - from a FRESH question, since 7c left
+     one answered */
+  Qz.quit();
+  Qz.set({ mode: 'country', zone: 'world', difficulty: 'medium', variant: 'name' });
+  Qz.start();
   L['win:keydown']({ key: '1', preventDefault() {} });
   check('a number key answers', Z().answered === true && Z().chosen === 0, Z().chosen);
   L['win:keydown']({ key: 'Enter', preventDefault() {} });

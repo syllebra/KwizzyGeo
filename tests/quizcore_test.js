@@ -79,6 +79,30 @@ check('country mode needs neither', Q.poolFor(lattice({ noCap: true, noFlag: tru
 check('an item without coordinates is never a candidate',
       Q.poolFor([{ id: 'x', name: 'X', cont: 'Asia', lat: null, lon: 5 }], 'world', 'country').length === 0);
 
+/* ---------- 2b. the two halves of flag mode ---------- */
+check('flag mode has two variants', Q.FLAG_ASK.map(v => v.id).join(',') === 'name,flags');
+(function () {
+  const sName = Q.newSession(ALL, { mode: 'flag', zone: 'world', difficulty: 'medium', len: 3, variant: 'name' }, 5);
+  const sFlags = Q.newSession(ALL, { mode: 'flag', zone: 'world', difficulty: 'medium', len: 3, variant: 'flags' }, 5);
+  check('the variant is carried by the session', sName.cfg.variant === 'name' && sFlags.cfg.variant === 'flags');
+  check('a variant only exists in flag mode',
+        Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 3, variant: 'flags' }, 5)
+          .cfg.variant === null);
+  check('an unknown variant falls back to name',
+        Q.newSession(ALL, { mode: 'flag', zone: 'world', difficulty: 'medium', len: 3, variant: 'zzz' }, 5)
+          .cfg.variant === 'name');
+  const qs = [];
+  for (let i = 0; i < 12; i++) { const q = Q.nextQuestion(sFlags); if (q) qs.push(q); }
+  check('flag-mode questions carry the variant', qs.every(q => q.variant === 'flags'));
+  /* both halves ask about countries of the same pool, with the same answer rules */
+  check('the flags variant keeps six distinct options',
+        qs.every(q => q.options.length === 6 && q.options[q.correct].id === q.answer.id));
+  check('the flags variant never repeats a flag among the options',
+        qs.every(q => { const s = {}; return q.options.every(it => !s[it.flag] && (s[it.flag] = 1)); }));
+  check('the answer flag is among the options',
+        qs.every(q => q.options.some(it => it.id === q.answer.id && it.flag === q.answer.flag)));
+})();
+
 /* ---------- 3. a question ---------- */
 function manyQuestions(cfg, n, seed) {
   const sess = Q.newSession(ALL, cfg, seed == null ? 12345 : seed);

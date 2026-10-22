@@ -93,10 +93,22 @@ difficulties, Play — and the map blurred behind it. The settings survive a rel
 |---|---|---|
 | **Find the country** | one country lit up white on the map | country names |
 | **Find the capital** | the country is named (and lit up) | capital city names |
-| **Find the flag** | a flag, shown large, over the whole world | country names |
+| **Find the flag → country** | a flag, shown large, beside the prompt | country names |
+| **Find the country → flag** | the country is named, lit up, with its capital | **six flags** |
 
 **Always six options, always ten questions**, one answer per question, and a
 country is never asked twice in a round (the used-set resets when a pool runs out).
+
+**The flag question has two halves** (`FLAG_ASK` in `quizcore.js`, a chip row that
+only appears while the flag mode is picked). *Flag → country* shows the flag and
+asks for the name; *country → flag* names the country, lights it up on the map with
+its capital, and the six options are **pictures** — so the flag of the right answer
+is nowhere on screen. Once answered, the flags get their country names under them:
+a wrong option that stays anonymous teaches nothing.
+
+**Every question flies to its country**, both flag variants included: the flag says
+what the country looks like, the map says where it is, and both halves end on the
+same picture.
 
 ### Zones
 
@@ -137,11 +149,25 @@ The map is borrowed, not owned (`window.MapApp` in `app.js`; `quiz.js` calls it)
 * country labels, city dots, city names, the info panel, hover and picking are all
   **off**: any of them can spell out the answer;
 * arrows / `a` / `d` still pan and zoom, so the neighbours can be inspected;
-* `show(id)` lights the country and flies to it with the double-click's own fitted
-  flight, at 520 ms instead of 950 and with a **15 % pad** instead of 6 % — a
-  country filling the whole screen has lost the neighbours that are the clue;
+* `show(id)` lights the country and flies to it with **the double click's own
+  flight, unchanged**: `flyTo()` at its default `FLY_DUR` (950 ms), the same
+  zoom-out-then-in dip (`kMin`), the same untwisting, and the same `FLY_PAD` (6 % a
+  side, 88 % of the viewport). An earlier build shortened it to 520 ms with a 15 %
+  pad and it read as a jump cut: too little time for the dip, so the map looked like
+  it teleported. In a quiz the travel is exactly the travel of free exploration;
 * `exit()` gives the layer and every overlay back, and the burger's **Play the quiz**
   row reopens the start page (the start page is otherwise only reachable by a reload).
+
+**The details, after every answer.** Answering is not just feedback: the verdict
+card carries the **same panel a click on the map opens** — `MapApp.countryPanel()`
+for a country question, `MapApp.capitalPanel()` for a capital one, both rendered by
+the one builder `refreshUI` uses (`countryPanelHTML` / `placePanelHTML` in `app.js`,
+lifted out of the panel code for exactly this). So an answer shows the flag, the name
+in the other languages, the capital with its population, the region, the area, the
+population, the GDP, the ISO codes and the Wikipedia / Google Maps links — and a
+capital question shows the *city's* rows (country, region, type, population on the
+map, coordinates, time zone, its role as a seat of government). The block is capped
+at four rows tall and scrolls, so the map above it stays visible.
 
 **Which part of a country is measured.** A sovereignty's own outline includes its
 overseas parts: France's rings run from metropolitan France to French Guiana,
@@ -176,8 +202,8 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 
 | script | what it pins |
 |---|---|
-| `tests/quizcore_test.js` | 40 checks on a synthetic lattice: zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool |
-| `tests/quiz_test.js` | 79 checks headless over the **real data**: the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and flag modes, the keyboard, and the map handed back on quit |
+| `tests/quizcore_test.js` | 48 checks on a synthetic lattice: zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
+| `tests/quiz_test.js` | 99 checks headless over the **real data**: the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
 
 Both new scripts run in node with a fake DOM, no browser and no network:

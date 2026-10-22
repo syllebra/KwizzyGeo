@@ -177,10 +177,12 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
   letter-spacing: .1em; color: rgba(150, 172, 192, .9);
 }
 
-/* the flag is the question: a card of its own, big enough to read the charges */
-.qz-flagwrap { margin-top: 10px; line-height: 0; }
+/* the flag is the question: big enough to read its charges, but laid out BESIDE the
+   prompt, so the card stays short and the lit-up country behind it is not covered */
+.qz-flagrow { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.qz-flagwrap { line-height: 0; }
 .qz-bigflag {
-  font-size: 104px;
+  font-size: 74px;
   border-radius: 6px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .3), 0 6px 18px rgba(0, 0, 0, .45);
   background-color: rgba(255, 255, 255, .06);
@@ -224,10 +226,33 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
 .qz-ans.off { opacity: .45; }
 .qz-ans:disabled { cursor: default; }
 
+/* ---------- the answers as FLAGS (the "country -> flag" half of flag mode) ----------
+   The option is a picture, not a word, so the grid goes 3 x 2 and the button is a
+   centred flag with the same number badge as the text buttons (the keyboard 1-6 still
+   works, and so does the test). */
+.qz-answers-flags { grid-template-columns: 1fr 1fr 1fr; }
+.qz-answers-flags .qz-ans { justify-content: center; padding: 10px 8px; min-height: 66px; }
+.qz-answers-flags .qz-ans .n { position: absolute; left: 8px; top: 8px; width: auto; }
+.qz-answers-flags .qz-ans { position: relative; }
+.qz-answers-flags .qz-ans .fl { line-height: 0; }
+/* a flag option is a column once it has a caption: the flag, then the country */
+.qz-answers-flags .qz-ans { flex-direction: column; gap: 4px; }
+.qz-answers-flags .qz-ans .cap {
+  font: 10px/13px system-ui, sans-serif; letter-spacing: .02em;
+  color: rgba(222, 236, 248, .9); text-align: center;
+}
+.qz-optflag {
+  font-size: 38px;                      /* .fi sizes off the font size */
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .3), 0 2px 6px rgba(0, 0, 0, .35);
+}
+
 /* ---------- the verdict ---------- */
 .qz-reveal {
   pointer-events: auto;
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  /* narrower than the answer grid, and centred: the answers must stay visible under
+     the card that explains them */
+  width: min(620px, 100%); margin: 0 auto;
   padding: 10px 13px; border-radius: 13px;
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
@@ -235,10 +260,51 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
   animation: qz-in .16s ease-out;
 }
 @keyframes qz-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.qz-verdict { font: 600 13px/18px system-ui, sans-serif; }
+.qz-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.qz-verdict { font: 600 13px/18px system-ui, sans-serif; white-space: nowrap; }
 .qz-verdict.good { color: #46d18e; }
 .qz-verdict.bad { color: #ff8f8f; }
-.qz-facts { flex: 1 1 200px; font: 12px/17px system-ui, sans-serif; color: rgba(226, 238, 248, .92); }
+.qz-facts { flex: 1 1 180px; font: 12px/17px system-ui, sans-serif; color: rgba(226, 238, 248, .92); }
+.qz-head .qz-next { margin-left: auto; }
+
+/* THE DETAILS: the info panel's own rows, in the quiz's card. Same labels, same
+   numbers, same links - and scrollable, because a quiz card cannot grow to eleven
+   rows on a phone without pushing the answers off the screen. */
+.qz-details {
+  margin-top: 9px; padding-top: 8px;
+  border-top: 1px solid rgba(180, 205, 225, .14);
+  /* ~4 rows: enough to see what the country IS (name, capital, area, population)
+     before scrolling, and short enough that the map above it - the picture the
+     question was about - stays on screen */
+  max-height: 152px; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: rgba(120, 150, 180, .45) transparent;
+  font: 12px/17px system-ui, sans-serif;
+}
+.qz-details::-webkit-scrollbar { width: 5px; }
+.qz-details::-webkit-scrollbar-thumb { background: rgba(120, 150, 180, .45); border-radius: 3px; }
+.qz-details .row { display: grid; grid-template-columns: 82px 1fr; gap: 8px; margin-bottom: 5px; }
+.qz-details .row:last-child { margin-bottom: 0; }
+.qz-details .k {
+  color: rgba(160, 182, 202, .95); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .07em; padding-top: 2px;
+}
+.qz-details .v { position: relative; color: rgba(236, 245, 252, .95); }
+.qz-details .v .nm { display: inline-block; padding-left: 26px; }
+.qz-details .v .fi {
+  position: absolute; left: 0; top: .18em; width: 19px; height: 13px; border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .16); background-size: cover;
+}
+.qz-details .links {
+  display: flex; gap: 8px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(180, 205, 225, .12);
+}
+.qz-details .btn {
+  pointer-events: auto; cursor: pointer; text-decoration: none;
+  font: 11px/15px system-ui, sans-serif; color: rgba(180, 222, 255, .95);
+  padding: 5px 10px; border-radius: 8px;
+  border: 1px solid rgba(160, 205, 240, .22); background: rgba(60, 110, 160, .22);
+}
+.qz-details .btn:hover { background: rgba(80, 140, 200, .38); }
 .qz-facts .fi { vertical-align: -3px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .25); }
 .qz-dim { color: rgba(160, 182, 202, .95); }
 .qz-next { padding: 9px 18px; min-height: 38px; font-size: 13px; border-radius: 10px; }
@@ -268,16 +334,22 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
   .qz-h { margin-top: 13px; }
   .qz-ask { top: 54px; padding: 11px 13px 12px; }
   .qz-q { font-size: 16px; line-height: 21px; }
-  .qz-bigflag { font-size: 76px; }
+  .qz-bigflag { font-size: 62px; }
+  .qz-flagrow { gap: 10px; }
   .qz-ans { min-height: 46px; padding: 7px 10px; font-size: 13px; }
   .qz-ans .n { display: none; }        /* no keyboard on a phone */
+  .qz-answers-flags { grid-template-columns: 1fr 1fr; }
+  .qz-answers-flags .qz-ans .n { display: none; }
+  .qz-optflag { font-size: 30px; }
+  .qz-details { max-height: 122px; }
+  .qz-reveal { width: 100%; }
   .qz-endh { font-size: 44px; line-height: 50px; }
   .qz-foot { flex-direction: column; gap: 4px; }
 }
 @media (max-height: 560px) {
   /* landscape phone: the flag card and the prompt must leave the answers visible */
   .qz-ask { top: 50px; }
-  .qz-bigflag { font-size: 62px; }
+  .qz-bigflag { font-size: 52px; }
   .qz-q { font-size: 15px; line-height: 20px; }
   .qz-ans { min-height: 40px; }
 }
