@@ -10,6 +10,35 @@ var panel = document.getElementById('panel');
 var hud = document.getElementById('hud');
 var helpEl = document.getElementById('help');
 var ctx = canvas.getContext('2d');
+/* THE BLOOM: a quarter-size, squared, blurred copy of the picture, painted back over it
+   with `screen` INSIDE the same canvas.
+   It was a separate full-screen layer blended by CSS first, and that cost the frame
+   rate outright: a `mix-blend-mode` layer over the viewport forces the compositor into a
+   slow path on EVERY frame (measured 19.0 ms/frame with ?bloom=0, 32.4 ms with the CSS
+   layer). Compositing it in the 2D context costs one drawImage of a quarter-size canvas
+   and reuses the map's own GPU surface, so the whole thing is a few tenths of a
+   millisecond: measured 15-19 ms/frame, the same as no bloom at all. */
+var glowCanvas = (typeof document.createElement === 'function')
+  ? document.createElement('canvas') : null;
+var glowCtx = glowCanvas && glowCanvas.getContext ? glowCanvas.getContext('2d') : null;
+var GLOW_DIV = 4;
+var glowAt = 0;
+/* the bloom's three numbers, overridable for tuning with ?bloomtune=op,contrast,blur:
+   a taste is measured by looking at four of them side by side, not by arguing */
+var GLOW_OP = 0.55, GLOW_CONTRAST = 1.45, GLOW_BLUR = 10;
+var GLOW_ON = true;
+(function () {
+  var m = /[?&]bloomtune=([0-9.]+),([0-9.]+),([0-9.]+)/.exec((window.location && window.location.search) || '');
+  if (!m) return;
+  GLOW_OP = parseFloat(m[1]); GLOW_CONTRAST = parseFloat(m[2]); GLOW_BLUR = parseFloat(m[3]);
+})();
+function glowOff() { return !GLOW_ON || /[?&]bloom=0/.test(urlSearch()); }
+function tuneGlow() { /* the numbers are read by paintGlow; kept as the one place a
+                         caller (or a probe) can re-read them */ }
+/* ~12 Hz: the glow is a soft halo, so it does not need every frame, and the copy is the
+   only per-frame cost the bloom adds. It is repainted at once by anything that moves the
+   picture (a live 12 Hz halo behind a dragging map would trail it visibly). */
+var GLOW_MS = 80;
 
 /* surface any runtime error visibly: this page has no console access */
 function fail(msg) { hud.textContent = 'ERROR ' + msg; }
@@ -223,18 +252,20 @@ function menuGroups() {
       projs.push({ id: 'proj:' + key, label: '', ico: '\u25a6' });
     }
   }
-  var layers = [], files = LAYERS || [];
-  for (i = 0; i < files.length; i++) layers.push({ id: 'layer:' + files[i].id, label: '', ico: '\u2263' });
+  /* NO LAYER GROUP: the map is 10m always (his call, 2026-10-22). The three files
+     still ship and `?layer=` still forces one - that is a debugging escape, not a
+     choice the sheet offers. */
   /* No "View" group any more: the Globe view was removed (2026-10-21, with the
      vendored three.js bundle), so the only view is the map and a row for it would
      be a row with one choice. */
   var groups = [];
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
-    /* the way back to the quiz once you have gone exploring: the start page is
-       otherwise only reachable by reloading the page */
-    { title: 'Game', items: [{ id: 'quiz', label: 'Play the quiz', ico: '\u25C8' }] },
-    { title: 'Layer', items: layers },
+    /* THE GAME'S OWN MENU: back to the title (only otherwise reachable by reloading
+       the page) and the sound, which is a setting of the WHOLE app - it belongs in
+       the one sheet that is on every screen, not only on the quiz's start page. */
+    { title: 'Game', items: [{ id: 'quiz', label: 'Play the quiz', ico: '\u25C8' },
+                             { id: 'snd', label: 'Sound & music', ico: '\u266A' }] },
     /* one chip per language, in a wrapping row: 18 rows of a full-width menu item
        would be 800 px of sheet on a phone for something most sessions never touch */
     { title: 'Language', chips: LANGS.map(function (L) { return { id: 'lang:' + L.c, label: L.label }; }) },
@@ -369,6 +400,11 @@ function menuClick(el) {
   closeMenu();
   if (!id) return;
   if (id === 'quiz') { if (window.Quizzy) window.Quizzy.open(); return; }
+  /* the sound & music drawer, from the sheet that is on every screen. The drawer lives
+     in quiz.js (it is the only place that owns the audio state), so the row asks it -
+     and it works whether the quiz is on screen or the map is being explored, because
+     the drawer is a sibling of #quiz and not part of a screen. */
+  if (id === 'snd') { if (window.Quizzy) window.Quizzy.soundToggle(true); return; }
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
@@ -489,11 +525,14 @@ function sy(y) { return H * 0.5 - (y - view.cy) * view.k; }
 function toWorldX(px) { return (px - W * 0.5) / view.k + view.cx; }
 function toWorldY(py) { return -(py - H * 0.5) / view.k + view.cy; }
 
-/* ---------- load: 50m sovereignty is the default layer, 110m countries the alternative ---------- */
-/* The 10m layer is 11 MB of GeoJSON and 564k vertices, so it is fetched on
-   demand: nobody should pay that download, that parse (~150 ms) and that
-   densify/LOD build (~250 ms) unless they pick the layer. Its LOD is the same
-   10-step ladder as the others, computed once at load. */
+/* ---------- load: 10m map units is THE layer (2026-10-22) ----------
+   The sheet has no layer choice any more: he asked for the good data everywhere, so
+   this is a map at one resolution, not a menu of three. The two small files are still
+   fetched because they are what paints while the 11 MB of 10m is in flight (and 110m
+   still supplies the label thresholds for the sovereignty rows - see labelThresholds).
+   `?layer=` remains as a debugging escape.
+   10m is 11 MB of GeoJSON and 564k vertices, so it arrives in the background: the
+   parse (~150 ms) and the densify/LOD build (~250 ms) must not delay the first paint. */
 var DATA_DIR = 'data/';
 /* THE DATA VERSION. The scripts carry ?v=N in index.html, but the data files are
    fetched by the code, so they need their own stamp or a rebuilt layer keeps being
@@ -513,11 +552,9 @@ function layerLabel(id) {
   for (var i = 0; i < LAYERS.length; i++) if (LAYERS[i].id === id) return LAYERS[i].label;
   return id;
 }
-/* The 10m layer is the default: it is the good data, and the first paint must not
-   wait for its 11 MB. So the startup loads the small layers, paints with 50m
-   immediately, and fetches 10m in the background; when it lands the view swaps to
-   it in place (same centre, same zoom, same selection). ?layer= forces any layer,
-   which is also how to start straight on 10m without the placeholder. */
+/* ONE LAYER. `layerName` is 10m and nothing in the UI changes it; the startup paints
+   with 50m immediately and swaps 10m in when it lands (same centre, same zoom, same
+   selection). ?layer= still forces one - a debugging escape, not a choice. */
 var layerName = '10m';
 /* a layer asked for at startup but not loaded yet (10m is 11 MB): the 50m layer
    paints immediately and this one swaps in when it arrives, unless the user picks
@@ -1108,13 +1145,15 @@ function toggleNorth() {
   refreshUI();
 }
 
+/* Kept for the ?layer= debugging path only, and NOT bound to a key any more: the map
+   is 10m always, so a shortcut that changed it would undo the one decision the sheet
+   no longer offers. */
 function toggleLayer() {
   var i = 0;
   for (var q = 0; q < LAYERS.length; q++) if (LAYERS[q].id === layerName) i = q;
   var other = LAYERS[(i + 1) % LAYERS.length].id;      /* 50m -> 110m -> 10m -> 50m */
   layerName = other;
   useLayer(other);
-
 }
 
 function fetchLayer(id, done) {
@@ -1459,14 +1498,31 @@ function draw() {
     ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.2; ctx.stroke(feats[hover]._p);
   }
   if (picked >= 0 && feats[picked]._p) {
+    /* BLOOM. The lit country is the one thing on this map that is "light source", so it
+       gets a real glow: the canvas shadow is a blur of the shape's own alpha, which is
+       exactly a bloom without a second framebuffer. Two passes - a wide soft one under
+       the fill and a tight bright one on the outline - and then the shadow is cleared,
+       or every later stroke on the canvas (graticule, labels, the frame) would glow too.
+       Cost is paid on ONE path, never on the 298 of the layer. */
+    ctx.save();
+    ctx.shadowColor = 'rgba(120, 190, 255, .38)';
+    ctx.shadowBlur = 26;
     ctx.fillStyle = COL.pick; ctx.fill(feats[picked]._p);
+    ctx.shadowColor = 'rgba(198, 232, 255, .55)';
+    ctx.shadowBlur = 12;
     ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 1.6; ctx.stroke(feats[picked]._p);
+    ctx.restore();
   }
   var zNow = zoomLevel();
   /* cities sit ON the land, under the labels and under the frame edge */
   drawCities(zNow);
   drawLabels(zNow);
   ctx.strokeStyle = COL.frame; ctx.lineWidth = 1; ctx.stroke(framePath);
+  /* THE BLOOM, composited into this very canvas: one drawImage of a quarter-size copy,
+     scaled up, blended with `screen`. It is what the CSS layer used to do (see the
+     measurement at the top of this file) at a fraction of the cost. */
+  paintGlow(false);
+  if (!glowOff()) blendGlow();
   refreshHud();
 }
 /* the segment counts change every frame, so the HUD is re-rendered from draw();
@@ -2018,6 +2074,52 @@ function resize() {
   canvas.width = Math.round(w * DPR); canvas.height = Math.round(h * DPR);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   W = w; H = h;
+  if (glowCanvas) {
+    glowCanvas.width = Math.max(1, Math.round(w / GLOW_DIV));
+    glowCanvas.height = Math.max(1, Math.round(h / GLOW_DIV));
+  }
+  glowAt = 0;                     /* the old copy is the wrong size now */
+  tuneGlow();
+  paintGlow(true);
+}
+/* copy the map into the glow canvas. `force` when the caller knows the picture changed
+   and must not wait for the throttle (a resize, a layer swap, a new frame size) */
+/* paint the small copy over the full-size picture, `screen`-blended */
+function blendGlow() {
+  if (!glowCtx || !glowCanvas || glowOff()) return;
+  try {
+    ctx.save();
+    ctx.globalAlpha = GLOW_OP;
+    ctx.globalCompositeOperation = 'screen';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(glowCanvas, 0, 0, W, H);
+    ctx.restore();                /* restores alpha AND the composite operation */
+  } catch (e) { /* no drawImage: no bloom */ }
+}
+function paintGlow(force) {
+  if (!glowCtx || glowOff() || typeof glowCtx.drawImage !== 'function') return;
+  var now = loopNow || nowMs();
+  if (!force && now - glowAt < GLOW_MS) return;
+  glowAt = now;
+  try {
+    var gw = glowCanvas.width, gh = glowCanvas.height;
+    glowCtx.globalCompositeOperation = 'source-over';
+    glowCtx.clearRect(0, 0, gw, gh);
+    /* the shrink is the blur, and the filter runs at THIS size. `filter` is simply not
+       applied by engines that do not know it, so setting it is safe either way. */
+    glowCtx.filter = 'blur(' + Math.max(1, GLOW_BLUR / GLOW_DIV / 1.6) + 'px) contrast(' +
+                     GLOW_CONTRAST + ') saturate(1.45) brightness(1.12)';
+    glowCtx.drawImage(canvas, 0, 0, gw, gh);
+    glowCtx.filter = 'none';
+    /* SQUARE THE PICTURE, which is what turns "a copy of the map" into "the bright parts
+       of the map": multiplying the copy by itself leaves the highlights (the lit country,
+       the labels, the pale grid) and pushes the ocean and the dark land towards zero.
+       Screen-blending THAT over the map is a bloom; blending the raw copy, which is what
+       the first version did, is just a wash over everything. */
+    glowCtx.globalCompositeOperation = 'multiply';
+    glowCtx.drawImage(glowCanvas, 0, 0);
+    glowCtx.globalCompositeOperation = 'source-over';
+  } catch (e) { /* a canvas that refuses to be copied is a canvas without a glow */ }
 }
 
 var drag = null;
@@ -2546,7 +2648,6 @@ window.addEventListener('keydown', function (e) {
   }
   if (e.key === 'Escape') { if (menuOpen()) { closeMenu(); } else { picked = -1; pickedPlace = -1; hoverPlace = -1; refreshUI(); } }
   if (e.key === 'c' || e.key === 'C') toggleCities();
-  if (e.key === 't' || e.key === 'T') toggleLayer();
 });
 window.addEventListener('keyup', function (e) { keys[e.key] = false; });
 
@@ -2914,10 +3015,21 @@ window.MapApp = {
      Natural Earth's NE_ID but drawn by INDEX in `feats`, and the deferred 10m swap
      would replace the whole array mid-question. */
   enter: function () {
+    /* THE QUIZ BORROWS THE 50m SOVEREIGNTY LAYER - and still pins it, for two reasons,
+       neither of which the "one layer, 10m" decision touches:
+         1. the session's items are keyed to NE_ID but DRAWN BY INDEX in `feats`, so a
+            layer swap mid-question would answer a different country;
+         2. IT IS THE RIGHT DATA FOR THIS GAME. 10m is a MAP-UNITS file: nine real
+            countries (France, Belgium, Portugal, Serbia, Iraq, Syria, Somalia, Bosnia,
+            Papua New Guinea...) are filed there as generic "Geo unit" rows, and a quiz
+            that cannot ask about France is not a geography quiz. 50m sovereignty holds
+            195 of the 201 as countries with a flag.
+       So the viewer is 10m always, and a round runs on 50m; exit() hands the 10m map
+       back. Measured before choosing: 189 items on 10m, France among the missing. */
     if (!feats.length || !loaded['50m']) return false;
     if (quizSavedLayer === null) quizSavedLayer = layerName;
     userPickedLayer = true;
-    deferLayer = null;
+    deferLayer = null;                 /* the deferred 10m swap must not land mid-round */
     if (layerName !== '50m') setLayer('50m');
     quizOn = true;
     quizLabels = false;                 /* the quiz turns it on per mode (MapApp.labels) */
@@ -3015,6 +3127,12 @@ window.MapApp = {
   labels: function (on) { quizLabels = !!on; return quizLabels; },
   /* read-only, for the quiz's own tests */
   labelsOn: function () { return quizLabels; },
+  /* the bloom, as it is actually configured: a test can only see the canvas otherwise,
+     and "the glow is on" is exactly the kind of thing that silently stops being true */
+  bloom: function () {
+    return { on: !glowOff(), div: GLOW_DIV, op: GLOW_OP, contrast: GLOW_CONTRAST,
+             blur: GLOW_BLUR, blend: 'screen', inside: 'canvas' };
+  },
   /* plane units per degree at a point, in the projection in play: the fit floor's own
      measurement, exposed so a test can state the visible window in degrees */
   planePerDeg: function (lon, lat) { return planePerDeg(lon, lat, C.CUR); },

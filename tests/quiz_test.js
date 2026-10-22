@@ -70,6 +70,8 @@ const els = {
   panel: DivEl('panel'), hud: DivEl('hud'), help: DivEl('help'),
   menu: DivEl('menu'), burger: DivEl('burger'), items: DivEl('items'), scrim: DivEl('scrim'),
   spot: DivEl('spot'), quiz: DivEl('quiz'),
+  /* the burger's sheet: the active view's line and the rows (app.js builds them) */
+  mview: DivEl('mview'), fsbtn: DivEl('fsbtn'),
   /* the juice: the drawer (a sibling of #quiz) and the particle layer */
   'qz-sound': DivEl('qz-sound'), 'qz-stats': DivEl('qz-stats'), burst: DivEl('burst')
 };
@@ -745,6 +747,35 @@ async function afterLoad() {
     Qz.go('diff');
     return /Find the country/.test(before);
   })());
+
+  /* ---------- 7e. the sheet: no layer pick, and the sound is reachable there ----------
+     Three things he asked for on 2026-10-22, asserted where they can break:
+       * the map is 10m ALWAYS, so the sheet must not offer a layer choice;
+       * sound & music is a ROW in the burger's sheet (a setting of the whole app);
+       * opening the sound from the sheet works with the quiz on screen. */
+  /* this fake DOM has no getElementsByClassName: walk the children, as the last section
+     of this test already does */
+  const groups = (els.items.children || []).filter(c => /mgroup/.test(c.className || ''));
+  const titles = groups.map(g => (g.children[0] && g.children[0].textContent) || '');
+  check('the sheet has no Layer group any more', titles.indexOf('Layer') < 0, titles.join('|'));
+  check('the sheet still has the game and the languages',
+        titles.indexOf('Game') >= 0 && titles.indexOf('Language') >= 0, titles.join('|'));
+  const rowsAll = [];
+  (function walk(n) {
+    for (const c of n.children || []) {
+      if (/menuitem/.test(c.className || '')) rowsAll.push(c);
+      walk(c);
+    }
+  })(els.items);
+  check('there is no layer row at all',
+        !rowsAll.some(r => /^layer:/.test((r.dataset || {}).id || '')),
+        rowsAll.map(r => r.dataset.id).join(','));
+  const sndRow = rowsAll.filter(r => (r.dataset || {}).id === 'snd')[0];
+  check('the sheet has a Sound & music row', !!sndRow, rowsAll.map(r => r.dataset.id).join(','));
+  Qz.soundToggle(false);
+  L['menu:click']({ target: sndRow, clientX: 10, clientY: 10 });
+  check('...and it opens the drawer', Qz.sound().open === true);
+  Qz.soundToggle(false);
 
   /* ---------- 8. the way back in, from the viewer's sheet ---------- */
   function findRow(node, id) {

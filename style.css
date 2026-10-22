@@ -391,3 +391,61 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 @media (pointer: coarse), (max-width: 700px) {
   .fsbtn { left: 8px; top: max(8px, env(safe-area-inset-top)); width: 34px; height: 34px; }
 }
+
+/* ---------- BLOOM ----------
+   TWO layers, and the first one is the real thing.
+
+   1. the REAL one, inside the map canvas (app.js: paintGlow + blendGlow) - a
+      quarter-size copy of the picture, filtered, squared and screen-blended back over
+      it. Nothing here: a full-screen `mix-blend-mode` layer was the first build and it
+      cost the frame rate outright (19.0 -> 32.4 ms/frame, measured).
+   2. `#bloom` below - the atmosphere: soft accent halos, so the world reads as lit
+      from above the horizon rather than evenly.
+
+   `@supports` guards the blend mode: without it these are translucent washes over the
+   map (readable, but not a bloom), so there they simply do not exist. */
+/* NOTE: the bloom's own layer is GONE from here. It is composited inside the map
+   canvas now (app.js paintGlow/blendGlow), because a full-screen `mix-blend-mode`
+   layer cost the frame rate (19.0 ms/frame without it, 32.4 ms with it, measured). */
+
+.bloom {
+  position: fixed; inset: 0; z-index: 2; pointer-events: none;
+  display: none;
+}
+@supports (mix-blend-mode: screen) {
+  .bloom {
+    display: block;
+    /* SUBTLE on purpose: the atmosphere is the second half of the bloom, and the first
+       half (the squared copy composited inside the canvas, app.js) is what does the
+       work. At high alphas this layer stops being light and becomes a haze over the
+       whole picture - measured, at .8 alpha it lifted the ocean and drowned the
+       countries' outlines. */
+    background:
+      radial-gradient(70% 50% at 50% 0%, rgba(150, 208, 255, .22), transparent 70%),
+      radial-gradient(54% 44% at 6% 92%, rgba(104, 176, 244, .16), transparent 72%),
+      radial-gradient(50% 40% at 96% 64%, rgba(158, 214, 255, .14), transparent 72%);
+    mix-blend-mode: screen;
+    filter: blur(18px) saturate(1.15);
+  }
+}
+
+/* every accent surface gets the glow its colour implies: a lit dot, a chosen card, the
+   primary action, the fullscreen corner when it is on. One accent, one light. */
+.qz-stepd.on { box-shadow: 0 0 0 1px rgba(198, 224, 246, .22), 0 0 12px rgba(142, 208, 255, .65); }
+.qz-choice.on, .qz-zcard.on {
+  box-shadow: 0 0 0 1px rgba(142, 208, 255, .45), 0 0 26px rgba(142, 208, 255, .18),
+              0 12px 26px rgba(4, 14, 24, .30);
+}
+.qz-play.qz-xl, .qz-pagefoot .qz-play {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 0 22px rgba(142, 208, 255, .22),
+              0 10px 26px rgba(3, 11, 20, .34);
+}
+.qz-play.qz-xl:hover, .qz-pagefoot .qz-play:hover {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 0 30px rgba(142, 208, 255, .34),
+              0 12px 30px rgba(3, 11, 20, .40);
+}
+.fsbtn.on { box-shadow: 0 0 20px rgba(142, 208, 255, .55), 0 10px 30px rgba(3, 11, 20, .34); }
+.qz-verdict.good { text-shadow: 0 0 14px rgba(70, 209, 142, .55); }
+.qz-verdict.bad { text-shadow: 0 0 14px rgba(255, 130, 130, .50); }
+.qz-endh, .qz-endh.fresh { text-shadow: 0 0 26px rgba(142, 208, 255, .35); }
+.qz-brand .qz-halo { opacity: 1; }

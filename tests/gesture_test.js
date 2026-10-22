@@ -186,30 +186,38 @@ setTimeout(function () {
   check('burger click opens the menu', menu.classList.contains('open'));
   check('scrim is shown with the menu', scrim.classList.contains('on'));
 
-  /* a row: pick a PROJECTION row (the 3D row needs WebGL, which the harness has
-     no business providing) and check it both closes the sheet and takes effect */
+  /* THE SHEET'S SHAPE, 2026-10-22: the layer choice is GONE (the map is 10m always),
+     so the Game group is the quiz row and the sound row, the Language group is the 18
+     chips and the Overlay group is the two toggles. The projection group is archived. */
   const rows = items.getElementsByClassName('menuitem');
-  /* 3 layers + 2 overlays + the quiz row. The Globe row is gone with the 3D view,
-     and the projection group is archived, so there is no "View" group left to have
-     one choice in. */
-  check('menu has rows', rows.length === 6, rows.length + ' rows');
-  /* Layer / Overlay / Language / Game: the groups are the sheet's structure, so
-     the count is asserted - a group that silently stops being rendered is a
-     section the user can no longer reach */
+  check('menu has rows', rows.length === 4, rows.length + ' rows (quiz, sound, cities, north)');
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3,
+        items.getElementsByClassName('mgroup').length + ' groups (Game, Language, Overlay)');
+  check('the projection rows are archived, not rendered',
+        !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
+  check('there is no LAYER row to pick', !items.getElementsByClassName('menuitem').some(r => /^layer:/.test(r.dataset.id)));
+  check('the map is on 10m and says so', /Natural Earth 10m map units/.test(hud.textContent),
+        hud.textContent.split('\n').pop());
   /* The quiz row exists because the start page is only otherwise reachable by
      reloading: after "explore the map instead" it is the way back in. */
   const quizRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'quiz'; })[0];
   check('the quiz row is in the sheet', !!quizRow);
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
-        items.getElementsByClassName('mgroup').length + ' groups (Game, Layer, Overlay, Language)');
-  check('the projection rows are archived, not rendered',
-        !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
-  const perspRow = rows.find(r => r.dataset.id === 'layer:50m');
-  L['menu:click']({ target: perspRow, clientX: 10, clientY: 10 });
+  /* SOUND & MUSIC FROM THE SHEET: the drawer is a setting of the whole app, so the
+     burger - the one thing on every screen - must reach it, not only the quiz's own
+     start page. Clicking the row opens `#qz-sound`. */
+  const sndRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'snd'; })[0];
+  check('the sound row is in the sheet', !!sndRow);
+  /* the drawer itself lives in quiz.js, which this harness does not load (it drives
+     the VIEWER): the row's contract is that the click reaches that module, so the
+     module is stubbed - and the real drawer is opened end-to-end in quiz_test.js */
+  const sndCalls = [];
+  global.window.Quizzy = { soundToggle: function (on) { sndCalls.push(on); } };
+  L['menu:click']({ target: sndRow, clientX: 10, clientY: 10 });
   check('clicking a row closes the menu', !menu.classList.contains('open'));
   check('scrim hidden again', !scrim.classList.contains('on'));
-  check('the row took effect (layer switched)', /50m sovereignty/.test(hud.textContent), hud.textContent.split('\n').pop());
-  check('the row is marked active', perspRow.classList.contains('on'));
+  check('...and the sound drawer is asked to open', sndCalls.length === 1 && sndCalls[0] === true,
+        sndCalls.join(','));
+  global.window.Quizzy = undefined;
 
   /* the CITY overlay row: a toggle, and the HUD must say which state it is in */
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
@@ -234,9 +242,9 @@ setTimeout(function () {
 
   /* a press that travels (scrolling the sheet) must NOT activate a row */
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
-  const layerRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'layer:110m');
+  const travelRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities');
   L['menu:pointerdown']({ clientX: 10, clientY: 10 });
-  L['menu:click']({ target: layerRow, clientX: 10, clientY: 90 });
+  L['menu:click']({ target: travelRow, clientX: 10, clientY: 90 });
   check('a scrolled press does not activate a row', menu.classList.contains('open'));
 
   /* ---------- 7. the north-up tilt ----------

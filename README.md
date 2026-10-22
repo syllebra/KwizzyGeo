@@ -13,20 +13,23 @@ v5.1.1 / v5.1.2, converted by the scripts in `tools/`. If another source is adde
 later it goes in that list, and in the credit line at the bottom of the map's menu.
 
 Serve the root, open `index.html`, and it runs — no build step. The doc below
-is the viewer's own account of how it works. Three layers ship in `data/`; two are
-loaded at startup and **50m sovereignty is the default**:
+is the viewer's own account of how it works. **The map is Natural Earth's 10m
+map units, always** — there is no layer to pick any more (2026-10-22). The two small
+files still ship because they are what paints while the 11 MB of 10m is in flight, and
+because a quiz round borrows 50m sovereignty:
 
 | layer | file | features | vertices |
 |---|---|---|---|
-| **`data/so50.geojson`** (default) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
-| `data/countries.geojson` (alternative) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
-| `data/ne10m.geojson` (lazy) | `ne_10m_admin_0_map_units` v5.1.1 | 298 | 552,828 raw |
+| **`data/ne10m.geojson`** (the map) | `ne_10m_admin_0_map_units` v5.1.1 | 298 | 552,828 raw |
+| `data/so50.geojson` (first paint, and the QUIZ's data) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
+| `data/countries.geojson` (label thresholds) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
 | `data/places.json` (overlay) | `ne_10m_populated_places` v5.1.2 | 7,342 points | — |
 
 Open it at **http://localhost:8123/** (server: `python3 -m http.server 8123 --directory .`
 from the repository root — the page fetches `data/*.geojson`, so serving `data/`
 alone does not work).
-Switch layers with **`t`** or the URL param **`?layer=110m`**. The 2D view opens on
+**`?layer=110m|50m|10m`** still forces a file: it is a debugging escape, not a choice
+the sheet offers (the `t` shortcut is gone with it). The 2D view opens on
 **perspective (3 R)** — the default is `persp`, not `ortho` and not Eckert IV;
 `?proj=` still picks any re-centring projection (see the registry below).
 
@@ -57,9 +60,9 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `media/sfx/*.wav` | the six clips, 547 kB, from Kwizzy (synthesised, no samples, no licence) |
 | `media/music/*.mp3` | the five 25 s ambient loops, 3 MB, from Kwizzy (their own) |
 | `media/music/playlist.js` | the music RULES — random order, 3 repeats, then a crossfade — pure state, also `require()`d by `tests/playlist_test.js` |
-| `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
+| `data/so50.geojson` | 201 features, MultiPolygon, lon/lat degrees — the first paint, and the QUIZ's own data |
 | `data/countries.geojson` | 177 features |
-| `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
+| `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB — **the map** |
 | `data/places.json` | Natural Earth **10m populated places**: 7,342 cities as a point table, 0.59 MB |
 | `data/cities.<code>.json` | the localised city names, one file per language (18), fetched only when that language is picked |
 | `data/flags/<cc>.svg` | 249 country flags, vendored SVGs (see **Flags**) |
@@ -169,10 +172,12 @@ whenever the quiz has a **question** up — there the map is the question's pict
 `prefers-reduced-motion` kills the motion before it starts.
 
 **Two fixed corners, on every screen:** fullscreen top-left (`#fsbtn`), the burger —
-the menu, the layers, and the 18 languages — top-right. Both are the same 36 px glass
-disc, as in Kwizzy: the burger carries no text, and the name of the active view is the
-sheet's first line when it opens (`#mview`). Both stay put during a round (a player
-may want the screen filled, or the sound off, mid-question).
+the game, sound & music, the 18 languages, the two overlays — top-right. Both are the
+same 36 px glass disc, as in Kwizzy: the burger carries no text, and the name of the
+active view is the sheet's first line when it opens (`#mview`). **Sound & music is a
+row in that sheet**, because it is a setting of the whole app and the burger is the one
+control that is on every screen; both corners stay put during a round (a player may
+want the screen filled, or the sound off, mid-question).
 
 **The map names the lit country during a question — except where the name is the
 answer.** `MapApp.labels(on)` is set per question: off in *find the country* and in
@@ -248,9 +253,14 @@ or the same flag is excluded, so no question has two right answers on it.
 
 The map is borrowed, not owned (`window.MapApp` in `app.js`; `quiz.js` calls it):
 
-* `enter()` pins the layer to **50m** — the session's questions are keyed by Natural
-  Earth's `NE_ID` but drawn by index in `feats`, and the deferred 10m swap would
-  replace that array mid-question;
+* `enter()` pins the layer to **50m** — and still does, now that 10m is the viewer's
+  only layer, for two reasons: the session's questions are keyed by Natural Earth's
+  `NE_ID` but drawn by index in `feats`, so a swap mid-question would answer a
+  different country; and **10m is a map-units file, in which nine real countries
+  (France, Belgium, Portugal, Serbia, Iraq, Syria, Somalia, Bosnia, Papua New Guinea)
+  are filed as generic "Geo unit" rows** — a quiz that cannot ask about France is not
+  a geography quiz. Measured: 189 items on 10m, 195 on 50m sovereignty, France
+  among the missing;
 * country labels, city dots, city names, the info panel, hover and picking are all
   **off**: any of them can spell out the answer;
 * arrows / `a` / `d` still pan and zoom, so the neighbours can be inspected;
@@ -377,8 +387,8 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | script | what it pins |
 |---|---|
 | `tests/quizcore_test.js` | 60 checks on a synthetic lattice: the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
-| `tests/quiz_test.js` | 202 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back arrow, the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), the keyboard, and the map handed back on quit |
-| `tests/drift_test.js` | 25 checks on the menu's living background and the two corners: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off" |
+| `tests/quiz_test.js` | 207 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back arrow, the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its Sound & music row opens the drawer**, the keyboard, and the map handed back on quit |
+| `tests/drift_test.js` | 32 checks on the menu's living background and the two corners: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off" |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
 | `tests/i18n_test.js` | 218 checks: the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
@@ -774,6 +784,27 @@ Two decisions worth knowing:
 * the blur radius is **18 px**. It is the one number that makes the material read as
   FROSTED GLASS rather than as a flat panel with an alpha; below ~12 px the coastlines
   under a card stay sharp enough to be distracting.
+
+## Bloom
+
+The map glows. A quarter-size copy of the picture is taken, filtered, **squared** (it
+is multiplied by itself, which keeps the highlights - the lit country, the labels, the
+bright coast - and pushes the ocean towards black) and painted back over the map with
+`screen` at `GLOW_OP` (0.55) alpha. The three numbers live at the top of `app.js`
+(`GLOW_OP`, `GLOW_CONTRAST`, `GLOW_BLUR`) and can be tried side by side with
+`?bloomtune=op,contrast,blur`; `?bloom=0` turns the whole thing off.
+
+**It is composited INSIDE the map canvas**, and that is the point of the design. The
+first build blended a separate full-screen `mix-blend-mode` layer, which forces the
+compositor onto a slow path every frame: measured **19.0 ms/frame without it, 32.4 ms
+with it** (a 60 Hz map down to 30). Compositing the same glow in the 2D context - one
+`drawImage` of a quarter-size canvas - measures **19.2 ms/frame**: the bloom is free.
+A test asserts the page has one `<canvas>` and no `.glow` rule, so the expensive
+version cannot come back by accident.
+
+On top of it, a static `#bloom` layer adds an atmosphere - soft accent halos, so the
+world reads as lit from above the horizon. It is deliberately faint: at high alpha it
+stops being light and becomes a haze over the whole picture.
 
 ## Two idle animations
 

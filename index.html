@@ -6,11 +6,16 @@
 <meta name="theme-color" content="#0e141b">
 <title>KwizzyGeo — the geographical quiz</title>
 <link rel="stylesheet" href="flags.css?v=1">
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=39">
 <link rel="stylesheet" href="quiz.css?v=26">
 </head>
 <body>
+<!-- THE MAP. Its bloom is composited INSIDE the same canvas (see paintGlow in app.js):
+     a small, blurred, squared copy of the picture drawn back over it with `screen`. -->
 <div id="stage"><canvas id="map"></canvas></div>
+<!-- and a second, static layer: the atmosphere. Soft accent halos over the picture,
+     so the world reads as lit from above the horizon rather than evenly -->
+<div id="bloom" class="bloom" aria-hidden="true"></div>
 <!-- the scrim closes the menu on a tap anywhere outside it: on a phone there is
      no Esc key and no guaranteed click outside the panel -->
 <div id="scrim"></div>
@@ -41,7 +46,7 @@
 <!-- the particle bursts (juice.js). Decorative and empty: each spark removes itself -->
 <div id="burst" class="burst" aria-hidden="true"></div>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=86"></script>
+<script src="app.js?v=97"></script>
 <script src="quizcore.js?v=3"></script>
 <!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
      source, so what a player hears is what the test checks -->

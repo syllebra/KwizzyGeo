@@ -181,7 +181,33 @@ setTimeout(function () {
   void c6;
   global.window.MapApp.cinema(false);
 
-  /* ---------- 6. the fullscreen corner ---------- */
+  /* ---------- 6. the bloom ----------
+     The map's glow is a quarter-size copy of the picture, squared and screen-blended
+     back INTO the same canvas. What is asserted is not the look (no test can taste) but
+     the three things that make it survive a refactor:
+       * it exists at all, and it is composited in the canvas - a separate full-screen
+         `mix-blend-mode` layer was the first build and cost the frame rate outright
+         (19.0 -> 32.4 ms/frame, measured), so a layer coming back would be a regression;
+       * the copy is SMALL (a quarter in each direction): that is where the cost saving
+         comes from, and a "copy at full size" would quietly undo it;
+       * `?bloom=0` turns it off, which is what the measurement above was taken with. */
+  /* the page itself: ONE canvas. The glow is a canvas the app builds off-screen, so a
+     second <canvas id="glow"> in the markup would mean the old CSS layer came back */
+  const page = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+  check('the page has one canvas (no separate glow layer)',
+        (page.match(/<canvas/g) || []).length === 1, (page.match(/<canvas[^>]*>/g) || []).join(' '));
+  check('...and no .glow rule in the stylesheet',
+        !/\.glow\s*\{/.test(fs.readFileSync(__dirname + '/../style.css', 'utf8')));
+  check('the bloom is composited in the canvas', typeof global.window.MapApp.bloom === 'function');
+  const bloom = global.window.MapApp.bloom();
+  check('...it is on by default', bloom.on === true, JSON.stringify(bloom));
+  check('...its copy is a QUARTER size (that is the whole cost saving)',
+        bloom.div === 4, bloom.div);
+  check('...it draws with `screen`', bloom.blend === 'screen', bloom.blend);
+  check('...and it has an opacity below 1, or it would be a wash',
+        bloom.op > 0 && bloom.op < 1, bloom.op);
+
+  /* ---------- 7. the fullscreen corner ---------- */
   check('the fullscreen button is in the markup', /id="fsbtn"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8')));
   check('...declared on the LEFT, above the map', /\.fsbtn\s*\{[\s\S]*?left:\s*10px/.test(fs.readFileSync(__dirname + '/../style.css', 'utf8')));
   check('the burger is declared on the RIGHT', /#menu\s*\{[\s\S]*?right:\s*10px/.test(fs.readFileSync(__dirname + '/../style.css', 'utf8')));
