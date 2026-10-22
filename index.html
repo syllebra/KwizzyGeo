@@ -7,7 +7,7 @@
 <title>KwizzyGeo — the geographical quiz</title>
 <link rel="stylesheet" href="flags.css?v=1">
 <link rel="stylesheet" href="style.css?v=23">
-<link rel="stylesheet" href="quiz.css?v=8">
+<link rel="stylesheet" href="quiz.css?v=12">
 </head>
 <body>
 <div id="stage"><canvas id="map"></canvas></div>
@@ -23,9 +23,19 @@
 <!-- the quiz's three screens (start / question / score) are rendered into this one
      container by quiz.js: the markup lives there, in one place, next to the flow -->
 <div id="quiz"></div>
+<!-- the sound & music drawer. A SIBLING of #quiz on purpose: re-rendering a screen
+     replaces #quiz's markup wholesale, and a toggle pressed mid-game must not vanish
+     with it -->
+<div id="qz-sound" class="qz-sound"></div>
+<!-- the particle bursts (juice.js). Decorative and empty: each spark removes itself -->
+<div id="burst" class="burst" aria-hidden="true"></div>
 <script src="core.js?v=40"></script>
 <script src="app.js?v=79"></script>
 <script src="quizcore.js?v=3"></script>
-<script src="quiz.js?v=6"></script>
+<!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
+     source, so what a player hears is what the test checks -->
+<script src="media/music/playlist.js?v=1"></script>
+<script src="juice.js?v=2"></script>
+<script src="quiz.js?v=8"></script>
 </body>
 </html>

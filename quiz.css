@@ -6,7 +6,15 @@
      red   #ff6f6f  the wrong one that was picked
    The map stays the background of every screen, so the panels are built to leave
    the middle of the screen free: prompt at the top, answers at the bottom, and no
-   full-width surface in between. */
+   full-width surface in between.
+
+   THE ANIMATIONS ARE KWIZZY'S, ported with this app's colours. Kwizzy's own rule
+   (its ADR 0004, "juice is additive") is kept literally: nothing here carries a
+   message alone. A right answer is the word "Correct" in green AND a pop AND a
+   glow AND a burst; a wrong one is "Wrong" in red AND a shake AND a red flash.
+   With `prefers-reduced-motion: reduce` every animation collapses to its end state
+   and the particles never exist - the words and the colours still say everything.
+   The keyframes are named after Kwizzy's so the two files can be read side by side. */
 
 /* border-box everywhere in here: the card's width is `calc(100vw - 28px)` and its
    padding is 15-22px a side, which as content-box overflowed a 390 px phone by 6 px
@@ -16,9 +24,14 @@
 #quiz.qz-on { display: block; }
 #quiz.qz-start, #quiz.qz-end { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
-/* while a question is on screen the viewer's chrome is gone: the burger, the HUD
-   and the help line all sit where the quiz needs its own surfaces */
-body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: none; }
+/* THE VIEWER'S CHROME IS GONE whenever the quiz owns the screen: the HUD (fps,
+   segments, centre) and the help line are developer instrumentation and sit exactly
+   where the quiz draws its own surfaces. The burger is different - it carries the
+   LANGUAGE selector, which a quiz needs - so it stays on the start page and goes
+   while a question or the score is up, where it would compete with the quiz's own
+   buttons. */
+body.qz-owning .hud, body.qz-owning .help { display: none; }
+body.qz-playing #menu { display: none; }
 
 /* ---------- the dimmed backdrop of the start and end screens ---------- */
 .qz-scrim {
@@ -114,11 +127,14 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
 .qz-ghost:hover { background: rgba(56, 88, 120, .55); }
 
 .qz-foot {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
   margin-top: 16px; padding-top: 12px;
   border-top: 1px solid rgba(180, 205, 225, .12);
   font: 11px/15px system-ui, sans-serif; color: rgba(150, 172, 192, .85);
 }
+/* the two footer links need a gap between them: side by side they ran together
+   ("Explore the map insteadSound & music") */
+.qz-links { display: inline-flex; flex-wrap: wrap; gap: 16px; }
 .qz-link { pointer-events: auto; cursor: pointer; color: rgba(150, 210, 255, .95); text-decoration: none; }
 .qz-link:hover { text-decoration: underline; }
 
@@ -215,14 +231,9 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
 .qz-ans .v { flex: 1 1 auto; }
 .qz-ans:hover { background: rgba(56, 88, 120, .62); }
 .qz-ans:active { background: rgba(80, 124, 164, .75); }
-.qz-ans.ok {
-  background: rgba(40, 150, 100, .72); border-color: rgba(120, 240, 190, .75);
-  color: #ffffff;
-}
-.qz-ans.bad {
-  background: rgba(160, 56, 56, .72); border-color: rgba(255, 150, 150, .7);
-  color: #ffffff;
-}
+/* the verdict look itself lives in the ANIMATIONS section at the end of this file,
+   where the green pop and the red flash are written together */
+.qz-ans.ok, .qz-ans.bad { color: #ffffff; }
 .qz-ans.off { opacity: .45; }
 .qz-ans:disabled { cursor: default; }
 
@@ -257,9 +268,7 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
-  animation: qz-in .16s ease-out;
 }
-@keyframes qz-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .qz-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .qz-verdict { font: 600 13px/18px system-ui, sans-serif; white-space: nowrap; }
 .qz-verdict.good { color: #46d18e; }
@@ -356,4 +365,231 @@ body.qz-playing .hud, body.qz-playing .help, body.qz-playing #menu { display: no
 @media (pointer: coarse) {
   .qz-ans { min-height: 50px; }
   .chip { min-height: 36px; }
+}
+
+/* ═══════════════ ANIMATIONS (Kwizzy's vocabulary) ═══════════════ */
+
+/* The entrance: the screen slides up while its blocks pop in behind it, staggered.
+   .anim-in is re-added after a reflow by render(), so a re-render animates too. */
+@keyframes screenIn { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes cardIn { from { opacity: 0; transform: translateY(22px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes popUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+#quiz.anim-in { animation: screenIn .46s cubic-bezier(.2,.9,.25,1.06) both; }
+#quiz.anim-in .qz-card > * { animation: fadeUp .5s cubic-bezier(.2,.9,.25,1) both; }
+#quiz.anim-in .qz-card > *:nth-child(1) { animation-delay: .02s; }
+#quiz.anim-in .qz-card > *:nth-child(2) { animation-delay: .06s; }
+#quiz.anim-in .qz-card > *:nth-child(3) { animation-delay: .1s; }
+#quiz.anim-in .qz-card > *:nth-child(4) { animation-delay: .14s; }
+#quiz.anim-in .qz-card > *:nth-child(n+5) { animation-delay: .17s; }
+#quiz.anim-in .qz-mode, #quiz.anim-in .qz-endcard > * { animation: popIn .52s cubic-bezier(.2,.9,.25,1.05) both; }
+#quiz.anim-in .qz-mode:nth-child(2) { animation-delay: .06s; }
+#quiz.anim-in .qz-mode:nth-child(3) { animation-delay: .12s; }
+#quiz.anim-in .qz-ask { animation: cardIn .42s cubic-bezier(.2,.9,.25,1.06) both; }
+#quiz.anim-in .qz-top { animation: fadeUp .34s cubic-bezier(.2,.9,.25,1) both; }
+/* the six answers arrive one after the other, from the bottom */
+#quiz.anim-in .qz-ans { animation: popIn .34s cubic-bezier(.2,1.15,.4,1) both; animation-delay: calc(var(--i, 0) * 38ms); }
+
+/* the title breathes: the one pulsing light of the app, decorative only */
+.qz-halo {
+  position: absolute; inset: -18% 2% auto 2%; height: 150px; z-index: -1;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(142, 208, 255, .3), rgba(70, 209, 142, .16) 58%, transparent 78%);
+  filter: blur(24px);
+  animation: pulseGlow 3.6s ease-in-out infinite;
+}
+@keyframes pulseGlow { 0%, 100% { opacity: .7; transform: scale(.97); } 50% { opacity: 1; transform: scale(1.05); } }
+.qz-brand { position: relative; }
+.qz-brand h1 { animation: logoFloat 5.4s ease-in-out infinite; }
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0) rotate(-.3deg) scale(1); }
+  50% { transform: translateY(-4px) rotate(.3deg) scale(1.008); }
+}
+
+/* the primary button carries a sheen that sweeps across it every few seconds */
+.qz-play { position: relative; overflow: hidden; }
+.qz-play::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .45) 50%, transparent 70%);
+  transform: translateX(-120%); opacity: 0;
+  animation: sheen 4.2s ease-in-out infinite;
+}
+@keyframes sheen { 0%, 72% { transform: translateX(-120%); opacity: 0; } 80% { opacity: .9; } 100% { transform: translateX(120%); opacity: 0; } }
+
+/* a chip pops when it is picked */
+.qz-card .chip:active, .qz-sheet .chip:active { animation: chipPop .3s cubic-bezier(.2,1.4,.4,1) both; }
+@keyframes chipPop { 0% { transform: scale(.94); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
+
+/* a press that is not an answer shakes: the answer tiles have their own verdict
+   animation, and a shake fighting it would read as an error */
+.qz-mode.shake, .qz-play.shake, .qz-ghost.shake, .qz-next.shake, .qz-link.shake, .qz-x.shake {
+  animation: shake .34s cubic-bezier(.36,.07,.19,.97) both;
+}
+@keyframes shake {
+  10%, 90% { transform: translate3d(-2px, 0, 0) rotate(-.6deg); }
+  20%, 80% { transform: translate3d(4px, 0, 0) rotate(.8deg); }
+  30%, 50%, 70% { transform: translate3d(-6px, 0, 0) rotate(-1.2deg); }
+  40%, 60% { transform: translate3d(6px, 0, 0) rotate(1.2deg); }
+}
+
+/* THE VERDICT. Right: the tile pops, a halo swells and settles, a ring is thrown
+   outward. Wrong: the tile flashes red under a shake, its text struck through, and a
+   ring collapses INWARD onto it. Both keep their words above the answers. */
+/* OPAQUE, not a tint: over this map (light grey land, mid-blue ocean) a translucent
+   green reads as "washed out" rather than "that is the answer" - Kwizzy's fills could
+   be translucent because its background is dark. The glow and the rings stay. */
+.qz-ans.ok {
+  background: linear-gradient(118deg, rgba(38, 150, 105, .96), rgba(28, 122, 88, .96));
+  border-color: rgba(120, 240, 190, .9);
+  animation: rightPop .52s cubic-bezier(.2,1.5,.4,1) both, goodGlow 1.05s .16s ease-out both;
+}
+.qz-ans.ok::after {
+  content: ""; position: absolute; inset: -5px; border-radius: 16px; pointer-events: none;
+  border: 2px solid rgba(90, 230, 165, .8);
+  animation: goodRing .66s cubic-bezier(.2,.9,.3,1) both;
+}
+@keyframes rightPop { 0% { transform: scale(1); } 45% { transform: scale(1.07); } 100% { transform: scale(1); } }
+@keyframes goodGlow {
+  0% { box-shadow: 0 0 8px rgba(70, 209, 142, .2); }
+  42% { box-shadow: 0 0 40px rgba(70, 209, 142, .6); }
+  100% { box-shadow: 0 0 18px rgba(70, 209, 142, .32); }
+}
+@keyframes goodRing { 0% { opacity: 0; transform: scale(.88); } 32% { opacity: .95; } 100% { opacity: 0; transform: scale(1.18); } }
+
+.qz-ans.bad {
+  background: rgba(170, 58, 58, .95);
+  border-color: rgba(255, 150, 150, .9);
+  text-decoration: line-through; text-decoration-color: rgba(255, 140, 140, .8);
+  animation: shake .42s cubic-bezier(.36,.07,.19,.97) both, badFlash .52s ease-out both;
+}
+.qz-ans.bad::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 15px; pointer-events: none;
+  border: 2px solid rgba(255, 130, 130, .75);
+  animation: badRing .5s cubic-bezier(.2,.9,.3,1) both;
+}
+/* the flash goes THROUGH the tile and settles back on its own colour (the last frame
+   must be the resting look, or the tile would end up paler than every other one) */
+@keyframes badFlash {
+  0% { background-color: rgba(235, 90, 90, .98); box-shadow: 0 0 26px rgba(255, 111, 111, .6); }
+  48% { background-color: rgba(120, 40, 40, .95); box-shadow: 0 0 4px rgba(255, 111, 111, .12); }
+  100% { background-color: rgba(170, 58, 58, .95); box-shadow: 0 0 10px rgba(255, 111, 111, .3); }
+}
+@keyframes badRing { 0% { opacity: .9; transform: scale(1.14); } 60% { opacity: .25; } 100% { opacity: 0; transform: scale(.9); } }
+.qz-ans { position: relative; }
+
+/* the verdict line stamps in */
+.qz-verdict { animation: stampIn .4s cubic-bezier(.2,1.5,.4,1) both; }
+@keyframes stampIn { 0% { opacity: 0; transform: scale(.7) translateY(-6px); } 55% { transform: scale(1.08); } 100% { opacity: 1; transform: none; } }
+.qz-reveal { animation: cardIn .38s cubic-bezier(.2,.9,.25,1.06) both; }
+
+/* the score ticks up when it moves */
+.qz-score.bump { animation: scoreBump .45s cubic-bezier(.2,1.5,.4,1) both; }
+@keyframes scoreBump { 0% { transform: scale(1); } 45% { transform: scale(1.35); color: #46d18e; } 100% { transform: scale(1); } }
+
+/* the score screen: the number lands big, the dots arrive one by one, a new best
+   flashes gold three times */
+.qz-endh { animation: bigPop .7s cubic-bezier(.2,1.5,.4,1) both; }
+@keyframes bigPop { 0% { transform: scale(.6); opacity: 0; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+.qz-endh.fresh { animation: bigPop .7s cubic-bezier(.2,1.5,.4,1) both, bestFlash .9s ease-in-out .7s 3 both; }
+@keyframes bestFlash { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.qz-dot { animation: rise .38s cubic-bezier(.2,.9,.25,1) both; animation-delay: calc(.25s + var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(12px) scale(.6); } to { opacity: 1; transform: none; } }
+.qz-best-new { color: #ffd166; }
+
+/* the info line slides in like a toast */
+.qz-info:not(:empty) { animation: toastIn .34s cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* ═══════════════ the particles ═══════════════ */
+.burst { position: fixed; inset: 0; z-index: 22; pointer-events: none; overflow: hidden; }
+.spark {
+  position: absolute; width: 9px; height: 9px; border-radius: 3px;
+  background: #8ed0ff; opacity: 0;
+  animation: sparkFly var(--dur, 760ms) cubic-bezier(.15,.75,.35,1) forwards;
+}
+@keyframes sparkFly {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.2) rotate(var(--rot, 260deg)); }
+}
+
+/* ═══════════════ the sound & music drawer ═══════════════ */
+.qz-sound { position: fixed; inset: 0; z-index: 24; display: none; }
+.qz-sound.on { display: block; }
+.qz-sound .qz-scrim { animation: scrimIn .16s ease-out both; }
+@keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
+.qz-sheet {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px 18px 14px; border-radius: 17px;
+  background: rgba(11, 20, 32, .93);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  font: 13px/18px system-ui, sans-serif; color: var(--ink);
+  animation: sheetIn .3s cubic-bezier(.2,.9,.25,1.05) both;
+}
+@keyframes sheetIn { from { opacity: 0; transform: translate(-50%, -46%) scale(.96); } to { opacity: 1; transform: translate(-50%, -50%); } }
+/* a switch row: the state is written (aria-checked + the .on class), never colour-only */
+.qz-set {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 11px 12px; margin-bottom: 6px; border-radius: 12px;
+  border: 1px solid rgba(180, 205, 225, .16); background: rgba(38, 60, 84, .34);
+  font: 13px/17px system-ui, sans-serif; color: rgba(205, 222, 238, .85);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.qz-set .lbl { flex: 1 1 auto; }
+.qz-set .why { font-size: 10px; color: rgba(160, 182, 202, .85); text-align: right; }
+/* the pill switch: a track with a knob that slides, and a filled track when on */
+.qz-set .sw {
+  position: relative; flex: 0 0 auto; width: 38px; height: 22px; border-radius: 99px;
+  background: rgba(140, 165, 190, .3); border: 1px solid rgba(180, 205, 225, .3);
+  transition: background .16s ease, border-color .16s ease;
+}
+.qz-set .sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: rgba(225, 238, 250, .9);
+  transition: transform .16s cubic-bezier(.2,.9,.25,1.2);
+}
+.qz-set.on { color: #f4f9fd; border-color: rgba(190, 215, 235, .45); background: rgba(96, 150, 196, .34); }
+.qz-set.on .sw { background: rgba(70, 209, 142, .55); border-color: rgba(120, 230, 180, .7); }
+.qz-set.on .sw::after { transform: translateX(16px); background: #ffffff; }
+
+.qz-vol { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; padding: 0 2px; }
+.qz-vol .lbl { font-size: 12px; color: rgba(190, 210, 228, .9); white-space: nowrap; }
+.qz-vol input[type=range] {
+  flex: 1 1 auto; -webkit-appearance: none; appearance: none; height: 22px;
+  background: transparent; cursor: pointer;
+}
+.qz-vol input[type=range]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 99px; background: rgba(150, 180, 210, .35);
+}
+.qz-vol input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5.5px;
+  border-radius: 50%; background: #8ed0ff; border: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, .3);
+}
+.qz-vol input[type=range]::-moz-range-track { height: 5px; border-radius: 99px; background: rgba(150, 180, 210, .35); }
+.qz-vol input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: #8ed0ff; }
+.qz-vol .pill {
+  font: 11px/15px ui-monospace, Menlo, monospace; min-width: 40px; text-align: right;
+  color: rgba(200, 225, 245, .95);
+}
+.qz-vol.off { opacity: .45; }
+.qz-sheet .qz-h:first-child { margin-top: 0; }
+.qz-sheet .qz-note { min-height: 0; }
+
+/* ═══════════════ reduced motion ═══════════════
+   Kwizzy's ADR 0004, taken literally: movement goes, the look and every word stay.
+   The particles never exist (juice.js checks the same query), the halo keeps its
+   glow as a still, the loader-less screens simply appear. */
+@media (prefers-reduced-motion: reduce) {
+  #quiz, #quiz *, .qz-sound, .qz-sound *, .spark, .qz-sheet {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  .qz-halo { animation: none; opacity: .8; }
+  .qz-brand h1 { animation: none; }
+  .burst { display: none; }
 }

@@ -51,6 +51,10 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `app.js` | rendering, centre-of-projection moves, hover/pick, mouse + keyboard + touch |
 | `quizcore.js` | **the game's rules**: modes, zones, difficulty, the six options — pure functions, no DOM (unit-tested by `tests/quizcore_test.js`) |
 | `quiz.js` | **the game's screens**: the three pages, the keyboard, and the hand-over of the map |
+| `juice.js` | **the feel**, ported from the Kwizzy app: sound effects, haptics, particle bursts, the music engine and the sound drawer (unit-tested by `tests/juice_test.js`) |
+| `media/sfx/*.wav` | the six clips, 547 kB, from Kwizzy (synthesised, no samples, no licence) |
+| `media/music/*.mp3` | the five 25 s ambient loops, 3 MB, from Kwizzy (their own) |
+| `media/music/playlist.js` | the music RULES — random order, 3 repeats, then a crossfade — pure state, also `require()`d by `tests/playlist_test.js` |
 | `data/so50.geojson` | the default data: 201 features, MultiPolygon, lon/lat degrees |
 | `data/countries.geojson` | 177 features |
 | `data/ne10m.geojson` | Natural Earth **10m admin-0 map units**: 298 features, 552k raw vertices, 11 MB (lazy-loaded) |
@@ -82,6 +86,62 @@ the README and the licence are never fetched, so leave them out if the host serv
 only the game. `index.html` needs `style.css`, `quiz.css`, `flags.css`, `core.js`,
 `app.js`, `quizcore.js` and `quiz.js` next to it; the layers must keep the `data/`
 prefix, or `DATA_DIR` must be changed to match.
+
+## Sound, music, haptics and animation
+
+All of it is the **Kwizzy** app's (`github.com/syllebra/Kwizzy`), ported rather than
+re-invented: the clips, the haptic retry, the particle burst, the music engine and
+its playlist rules are that app's own, and two of its lessons came with them (see
+"what the port taught us" below). `juice.js` owns the engine; the screens only call it.
+
+| | what it is | when it fires |
+|---|---|---|
+| **Sound effects** | six short clips, `media/sfx/` | `tap` every button, `select` when the pointer moves onto an answer, `start` on Play, `screen` under every screen change, `correct` (rising) / `wrong` (falling) on the verdict |
+| **Haptics** | Vibration API | one clean buzz (60 ms) for right, a triple tap (25-40-25) for wrong |
+| **Particles** | a burst of 22 sparks on a right answer, 10 on a wrong one | at the option in the grid, in this app's palette |
+| **Music** | five 25 s ambient loops, Web Audio | the startup track is `light_ambient`; "All" shuffles the set, repeats each track 3 times, then crossfades |
+| **Animation** | Kwizzy's vocabulary of keyframes | the screen slides in and its blocks pop in staggered, the answers arrive one by one, a right answer pops + glows + throws a ring, a wrong one shakes + flashes red + its ring collapses inward, the score bumps, the end screen's number lands big and its dots arrive one by one |
+
+The **sound & music drawer** (start page footer, and the ♪ button beside the ✕ during a
+question) holds three switches — sound effects, music, haptics — a **music volume
+slider** and the **music choice** (All + each track). It is the only place a level is
+expressed, because a switch cannot express a loudness; a tap on the slider's track sets
+the level to that spot, and the level is also written out (100%) so it is read and not
+only felt. Everything is remembered in `localStorage kwizzygeo.settings.v1`, separately
+from the game's own key, so resetting the quiz never changes how the app sounds.
+Haptics greys out (with the reason in words) where the device has no vibration; music
+greys out where the browser has no audio engine; and where the browser has refused
+audio until a first gesture, the drawer says exactly that instead of pretending.
+
+**Juice is additive** (Kwizzy's ADR 0004, kept literally): nothing in that table
+carries a message alone. A right answer is the word "Correct" in green *and* the pop
+*and* the clip; a wrong one is "Wrong" in red *and* the shake *and* the rasp. Under
+`prefers-reduced-motion: reduce` every animation collapses to its end state, the
+particles are never created, the haptics never fire — and **the sound stays**, because
+that query is about moving pixels, not about audio.
+
+### What the port taught us
+
+* **A refused `play()` is not a broken clip.** Chrome refuses audio before the page is
+  interacted with and rejects with `NotAllowedError`; the first version marked the clip
+  dead on any rejection and silenced the game for good after one early tap. Only a real
+  failure (`NotSupportedError`, a broken file, no output device) is remembered;
+  `NotAllowedError` simply waits for the next gesture. The last attempt is readable at
+  `Juice.lastAttempt()` for a page with no console.
+* **`wrong.wav` shipped two percent the loudness of `correct.wav`** (peak 0.035 against
+  0.94): the rasp of a wrong answer was nearly inaudible. The **asset** carries the fix
+  (×6, same waveform, peak 0.21, no clipping) rather than the code, because `<audio>`
+  volume cannot exceed 1 and the effects must not depend on an unlocked AudioContext.
+  `tests/juice_test.js` asserts every clip's peak lands in 0.10-0.99, so a fresh copy of
+  the quiet original fails the suite instead of going silent.
+* **Two overlapping tracks must not double the level.** A crossfade is each play owning
+  a gain under the master — the outgoing one falling to 0 while the new one climbs —
+  and never a dip of the master, which would silence both and leave the old one loud.
+* **`src.loop = true` fires `ended` zero times**, so the playlist's "third play, then
+  the next track" could never be reached and two musics ran at once. One source per
+  play, `loop = false`, the buffer decoded once and reused.
+* **The music choice is a setting even with no engine**: picking a track with no Web
+  Audio still persists it, so the drawer remembers what the player asked for.
 
 ## The game
 
@@ -204,6 +264,8 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 |---|---|
 | `tests/quizcore_test.js` | 48 checks on a synthetic lattice: zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
 | `tests/quiz_test.js` | 99 checks headless over the **real data**: the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
+| `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
+| `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
 
 Both new scripts run in node with a fake DOM, no browser and no network:

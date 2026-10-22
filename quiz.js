@@ -16,6 +16,11 @@
 
 var Q = window.QuizCore;
 var M = window.MapApp;
+/* the juice: Kwizzy's sound effects, haptics, particles and music (juice.js). Sound is
+   OPTIONAL here - the game must run exactly as before if the module is absent or the
+   browser has no audio at all, so every call goes through J() and is a no-op when gone. */
+var JU = window.Juice || null;
+function J() { return JU; }
 if (!Q || !M) return;
 
 var quizEl = document.getElementById('quiz');
@@ -41,8 +46,13 @@ function storeCfg() {
 }
 
 var screen = 'start';        /* start | question | end */
+var soundOpen = false;       /* the sound & music drawer, over whichever screen */
+var soundEl = document.getElementById('qz-sound');   /* a SIBLING of #quiz, so a screen
+                                                       re-render cannot wipe the drawer */
 var session = null, q = null, answered = false, chosen = -1;
 var infoMsg = '';
+var bumped = false;          /* the score just went up: its next render bumps */
+var lastHover = -1;          /* which answer the pointer is on, for the select pip */
 
 /* ---------- tiny helpers ---------- */
 function esc(s) {
@@ -89,7 +99,10 @@ function startHTML() {
   var h = '';
   h += '<div class="qz-scrim"></div>';
   h += '<div class="qz-card">';
-  h += '<div class="qz-brand"><h1>Kwizzy<span>Geo</span></h1>' +
+  /* the halo breathes behind the name, exactly as Kwizzy's title does: the one
+     pulsing light of the app, and it is decorative only (aria-hidden) */
+  h += '<div class="qz-brand"><span class="qz-halo" aria-hidden="true"></span>' +
+       '<h1>Kwizzy<span>Geo</span></h1>' +
        '<p>Ten questions, six answers, one map.</p></div>';
 
   h += '<div class="qz-h">Find</div><div class="qz-modes">';
@@ -135,7 +148,9 @@ function startHTML() {
   h += '<div class="qz-actions"><button class="qz-play" data-act="play"' +
        (ready ? '' : ' disabled') + '>' + (ready ? 'Play' : 'Loading the map…') + '</button></div>';
   h += '<div class="qz-note qz-info">' + esc(infoMsg || defaultInfo()) + '</div>';
-  h += '<div class="qz-foot"><a class="qz-link" data-act="explore">Explore the map instead</a>' +
+  h += '<div class="qz-foot">' +
+       '<span class="qz-links"><a class="qz-link" data-act="explore">Explore the map instead</a>' +
+       '<a class="qz-link" data-act="snd-open">Sound &amp; music</a></span>' +
        '<span class="qz-best">' + bestText() + '</span></div>';
   h += '</div>';
   return h;
@@ -194,7 +209,8 @@ function answersHTML() {
       else if (i === chosen) cls += ' bad';
       else cls += ' off';
     }
-    h += '<button class="' + cls + '" data-i="' + i + '"' + (answered ? ' disabled' : '') + '>' +
+    h += '<button class="' + cls + '" data-i="' + i + '" style="--i:' + i + '"' +
+         (answered ? ' disabled' : '') + '>' +
          '<span class="n">' + (i + 1) + '</span>';
     if (asFlags) {
       /* the flag IS the option: no label, and `aria-label` carries the country name
@@ -254,8 +270,11 @@ function questionHTML() {
   var h = '';
   h += '<div class="qz-top">' +
        '<button class="qz-x" data-act="quit" title="Back to the menu">\u2715</button>' +
+       /* muting mid-round is a thing players do, so the drawer is one tap away here too */
+       '<button class="qz-x qz-sndbtn" data-act="snd-open" title="Sound &amp; music" aria-label="Sound and music">' +
+       '\u266A</button>' +
        '<div class="qz-mid"><span class="qz-prog">Question ' + session.i + ' / ' + session.cfg.len +
-       '</span><span class="qz-score">' + session.score + ' \u2713</span></div>' +
+       '</span><span class="qz-score' + (bumped ? ' bump' : '') + '">' + session.score + ' \u2713</span></div>' +
        '</div>';
   h += '<div class="qz-ask' + (q.mode === 'flag' && q.variant === 'name' ? ' qz-ask-flag' : '') + '">' +
        askHTML() + '</div>';
@@ -269,9 +288,11 @@ function endHTML() {
   for (var i = 0; i < n; i++) {
     var a = session.asked[i];
     if (a.ok) ok++;
-    dots += '<span class="qz-dot' + (a.ok ? ' good' : ' bad') + '"></span>';
+    dots += '<span class="qz-dot' + (a.ok ? ' good' : ' bad') + '" style="--i:' + i + '"></span>';
   }
+  var before = bestOf();
   var best = saveBest(ok);
+  var fresh = ok > before;              /* a new best: the number flashes gold, once */
   var msg = ok === n ? 'Every one. Ridiculous.' :
             ok >= n * 0.8 ? 'Strong. The map is yours.' :
             ok >= n * 0.5 ? 'Solid half. Again?' :
@@ -279,13 +300,79 @@ function endHTML() {
   return '<div class="qz-scrim"></div><div class="qz-card qz-endcard">' +
     '<div class="qz-h">' + esc(modeLabel(session.cfg.mode)) + ' · ' + esc(zoneLabel(session.cfg.zone)) +
     ' · ' + esc(diffLabel(session.cfg.difficulty)) + '</div>' +
-    '<div class="qz-endh">' + ok + ' <span>/ ' + n + '</span></div>' +
+    '<div class="qz-endh' + (fresh ? ' fresh' : '') + '">' + ok + ' <span>/ ' + n + '</span></div>' +
     '<div class="qz-dots">' + dots + '</div>' +
     '<div class="qz-endmsg">' + esc(msg) + '</div>' +
-    '<div class="qz-note">best here: ' + best + ' / ' + n + '</div>' +
+    '<div class="qz-note' + (fresh ? ' qz-best-new' : '') + '">' +
+    (fresh ? 'new best: ' : 'best here: ') + best + ' / ' + n + '</div>' +
     '<div class="qz-actions"><button class="qz-play" data-act="again">Play again</button>' +
     '<button class="qz-ghost" data-act="menu">Change settings</button></div>' +
     '</div>';
+}
+
+/* ---------- the sound & music drawer ----------
+   Kwizzy puts its three switches in a burger above every screen. Here they live in one
+   drawer opened from the start page's footer AND from the speaker button beside the ✕
+   during a question (muting mid-round is a thing players do). Everything shown is the
+   state of juice.js - this is presentation only. */
+function toggleRow(id, label, on, extra) {
+  return '<div class="qz-set' + (on ? ' on' : '') + '" role="switch" aria-checked="' + (on ? 'true' : 'false') +
+         '" data-set="' + id + '">' +
+         '<span class="lbl">' + esc(label) + '</span>' +
+         (extra ? '<span class="why">' + esc(extra) + '</span>' : '') +
+         '<span class="sw"></span></div>';
+}
+function soundHTML() {
+  var j = J();
+  if (!j) return '<div class="qz-scrim" data-act="snd-close"></div><div class="qz-sheet">' +
+                 '<div class="qz-h">Sound</div><div class="qz-note">No sound module on this page.</div></div>';
+  var st = j.settings(), m = j.music();
+  var canHap = j.hapticsSupported();
+  var h = '<div class="qz-scrim" data-act="snd-close"></div><div class="qz-sheet">';
+  h += '<div class="qz-h">Sound &amp; music</div>';
+  h += toggleRow('sfx', 'Sound effects', st.sfx);
+  h += toggleRow('music', 'Music', st.music, m.supported ? '' : 'no audio engine in this browser');
+  h += toggleRow('haptics', 'Haptic feedback', st.haptics && canHap,
+                 canHap ? '' : 'this device has no vibration');
+  /* the volume: a real slider, because a switch cannot express a loudness. A tap on the
+     track sets the level to that spot (which is what makes a small slider usable on a
+     phone), and the level is also written out - never state in movement alone. */
+  h += '<div class="qz-vol' + (st.music ? '' : ' off') + '">' +
+       '<span class="lbl">Music volume</span>' +
+       '<input type="range" min="0" max="100" step="5" value="' + Math.round(st.vol * 100) +
+       '" id="qz-vol" aria-label="Music volume">' +
+       '<span class="pill">' + Math.round(st.vol * 100) + '%</span></div>';
+  h += '<div class="qz-h">Music choice</div><div class="chips qz-row">';
+  h += '<button class="chip' + (st.trk === 'all' ? ' on' : '') + '" data-trk="all">All</button>';
+  var tr = j.tracks();
+  for (var i = 0; i < tr.length; i++) {
+    h += '<button class="chip' + (st.trk === tr[i].id ? ' on' : '') + '" data-trk="' + tr[i].id + '">' +
+         esc(tr[i].label) + '</button>';
+  }
+  h += '</div>';
+  h += '<div class="qz-note" id="qz-now">' + esc(musicStatus(m)) + '</div>';
+  h += '<div class="qz-actions"><button class="qz-ghost" data-act="snd-close">Done</button></div>';
+  h += '</div>';
+  return h;
+}
+/* What the music engine is doing, in words - the honest three states: playing, waiting
+   for a first touch (the autoplay policy), or failed to load. */
+function musicStatus(m) {
+  if (!m.supported) return 'This browser has no audio engine: the music stays off.';
+  if (m.loadFailed) return 'The music could not be loaded.';
+  if (!J().settings().music) return 'Music is off.';
+  if (m.running) return 'Playing ' + J().trackLabel(m.playing || '') + '.';
+  return 'Waiting for a first tap or key press (browsers refuse audio before one).';
+}
+function soundRender() {
+  var el = soundEl || (soundEl = document.getElementById('qz-sound'));
+  if (!el) return;
+  el.innerHTML = soundOpen ? soundHTML() : '';
+  el.className = soundOpen ? 'qz-sound on' : 'qz-sound';
+}
+function soundToggle(open) {
+  soundOpen = (open === undefined) ? !soundOpen : !!open;
+  soundRender();
 }
 
 /* ---------- render ---------- */
@@ -295,10 +382,19 @@ function render() {
   else if (screen === 'question') quizEl.innerHTML = questionHTML();
   else quizEl.innerHTML = endHTML();
   quizEl.className = 'qz-on qz-' + screen;
+  /* Kwizzy's entrance: the screen slides up, its blocks pop in behind it, staggered.
+     Re-adding the class after a reflow is what makes the SECOND render of the same
+     screen animate too (a wrong answer re-renders the question screen). */
+  void quizEl.offsetWidth;
+  quizEl.classList.add('anim-in');
   if (bodyEl && bodyEl.classList) {
+    /* qz-playing: a question is up (the burger goes too); qz-owning: any quiz screen
+       (the HUD and the help line go, they are instrumentation over the card) */
     if (screen === 'question') bodyEl.classList.add('qz-playing');
     else bodyEl.classList.remove('qz-playing');
+    bodyEl.classList.add('qz-owning');
   }
+  soundRender();
 }
 function info(msg) { infoMsg = msg || ''; if (screen === 'start') render(); }
 
@@ -320,14 +416,24 @@ function startSession() {
   }
   session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0);
   infoMsg = '';
+  var j = J();
+  if (j) j.sfx('start');            /* the one loud yes of a run, as in Kwizzy */
+  var was = screen;
   screen = 'question';
   nextQuestion();
+  screenSfx(was);
   return true;
+}
+/* an airy swell under every screen change, as in Kwizzy: felt more than heard */
+function screenSfx(from) {
+  var j = J();
+  if (j && from !== screen) j.sfx('screen');
 }
 function nextQuestion() {
   q = Q.nextQuestion(session);
   answered = false;
   chosen = -1;
+  lastHover = -1;
   if (!q) { endScreen(); return; }
   /* EVERY mode flies to the country and lights it up, the flag ones included: the
      flag says what the country looks like, the map says where it is, and both
@@ -342,7 +448,22 @@ function choose(i) {
   if (!res) return false;
   answered = true;
   chosen = i;
+  bumped = res.ok;
   render();
+  bumped = false;
+  var j = J();
+  if (j) {
+    /* exactly Kwizzy's verdict feedback: one clean buzz for a right answer, a triple
+       tap for a wrong one; a RISING clip for right, a FALLING rasp for wrong, so the
+       two can never be mistaken for each other or for the tap. The words on the card
+       say the same thing - the juice amplifies, it never carries the message. */
+    j.haptic(res.ok ? 60 : [25, 40, 25]);
+    j.sfx(res.ok ? 'correct' : 'wrong');
+    /* a burst on the right option, wherever it sits in the grid - and a smaller one
+       when the player got it wrong, on the answer they should have picked */
+    var el = quizEl && quizEl.querySelector ? quizEl.querySelector('[data-i="' + q.correct + '"]') : null;
+    if (el) setTimeout(function () { j.burstAt(el, res.ok ? 22 : 10); }, 60);
+  }
   return res.ok;
 }
 function next() {
@@ -353,6 +474,7 @@ function next() {
 function endScreen() {
   screen = 'end';
   render();
+  screenSfx('question');
 }
 function quit() {
   session = null; q = null; answered = false; chosen = -1;
@@ -360,6 +482,7 @@ function quit() {
   infoMsg = '';
   M.exit();
   render();
+  screenSfx('question');
 }
 function open() {
   if (screen === 'question' && session) return;
@@ -371,7 +494,10 @@ function open() {
 function hide() {
   if (M.quizOn()) M.exit();
   quizEl.className = '';
-  if (bodyEl && bodyEl.classList) bodyEl.classList.remove('qz-playing');
+  if (bodyEl && bodyEl.classList) {
+    bodyEl.classList.remove('qz-playing');
+    bodyEl.classList.remove('qz-owning');
+  }
 }
 
 /* ---------- input ---------- */
@@ -382,34 +508,112 @@ function attrUp(el, name) {
   }
   return null;
 }
-if (quizEl && quizEl.addEventListener) {
-  quizEl.addEventListener('click', function (e) {
+/* ONE delegated handler for the whole game, as Kwizzy has: a tap on anything pressable
+   ticks (the clip is the same for every button), and each control then does its job. */
+function onQuizClick(e) {
     var el = attrUp(e.target, 'act');
     if (el) {
       var act = el.getAttribute('data-act');
+      if (act !== 'snd-close') tapSfx();          /* closing the drawer is not a press */
       if (act === 'play' || act === 'again') startSession();
       else if (act === 'next') next();
       else if (act === 'quit') quit();
       else if (act === 'menu') quit();
       else if (act === 'explore') hide();
+      else if (act === 'snd-open') soundToggle(true);
+      else if (act === 'snd-close') soundToggle(false);
+      return;
+    }
+    /* the three switches and the music choice: juice.js owns the state, this renders it */
+    el = attrUp(e.target, 'set');
+    if (el) { switchToggle(el.getAttribute('data-set')); tapSfx(); return; }
+    el = attrUp(e.target, 'trk');
+    if (el) {
+      var j0 = J();
+      if (j0) { j0.setTrack(el.getAttribute('data-trk')); }
+      tapSfx();
+      soundRender();
       return;
     }
     el = attrUp(e.target, 'mode');
-    if (el) { cfg.mode = el.getAttribute('data-mode'); storeCfg(); info(''); render(); return; }
+    if (el) { tapSfx(); cfg.mode = el.getAttribute('data-mode'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'zone');
-    if (el) { cfg.zone = el.getAttribute('data-zone'); storeCfg(); info(''); render(); return; }
+    if (el) { tapSfx(); cfg.zone = el.getAttribute('data-zone'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'variant');
-    if (el) { cfg.variant = el.getAttribute('data-variant'); storeCfg(); info(''); render(); return; }
+    if (el) { tapSfx(); cfg.variant = el.getAttribute('data-variant'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'diff');
-    if (el) { cfg.difficulty = el.getAttribute('data-diff'); storeCfg(); info(''); render(); return; }
+    if (el) { tapSfx(); cfg.difficulty = el.getAttribute('data-diff'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'i');
-    if (el) { choose(parseInt(el.getAttribute('data-i'), 10)); return; }
+    if (el) {
+      /* an answer press: the tick, then the verdict clip 90 ms later (Kwizzy plays them
+         as two sounds too - the tap of the press, then correct/wrong) */
+      tapSfx();
+      choose(parseInt(el.getAttribute('data-i'), 10));
+      return;
+    }
+}
+
+if (quizEl && quizEl.addEventListener) {
+  quizEl.addEventListener('click', onQuizClick);
+  if (soundEl) soundEl.addEventListener('click', onQuizClick);
+
+  /* THE HIGHLIGHT MOVED: Kwizzy's `select` pip belongs to a selection step this game
+     does not have (one tap answers). The nearest honest equivalent is the pointer
+     moving onto an answer, so that is where it plays - and only for a real pointer,
+     once per option, so a mouse sweeping the grid does not machine-gun six pips. */
+  quizEl.addEventListener('mouseover', function (e) {
+    var el = attrUp(e.target, 'i');
+    if (!el) { lastHover = -1; return; }
+    var i = parseInt(el.getAttribute('data-i'), 10);
+    if (i === lastHover) return;
+    lastHover = i;
+    var j = J();
+    if (j && !answered) j.sfx('select');
   });
+
+  /* the volume slider: a live level, written straight into the master gain */
+  function onVolInput(e) {
+    var t = e.target;
+    if (!t || t.id !== 'qz-vol') return;
+    var j = J();
+    if (j) j.setVol(parseInt(t.value, 10) / 100);
+    var pill = quizEl.querySelector ? quizEl.querySelector('.qz-vol .pill') : null;
+    if (pill) pill.textContent = t.value + '%';
+    var now = document.getElementById('qz-now');
+    if (now && j) now.textContent = musicStatus(j.music());
+  }
+  quizEl.addEventListener('input', onVolInput);
+  if (soundEl) soundEl.addEventListener('input', onVolInput);
+}
+
+/* the tick: the same clip for every button, exactly as Kwizzy does it */
+function tapSfx() {
+  var j = J();
+  if (j) j.sfx('tap');
+}
+/* one switch, from the row's data-set to juice.js and back into the row */
+function switchToggle(which) {
+  var j = J();
+  if (!j) return;
+  var st = j.settings(), el = null;
+  if (quizEl && quizEl.querySelector) el = quizEl.querySelector('[data-set="' + which + '"]');
+  if (which === 'sfx') j.setSfx(!st.sfx);
+  else if (which === 'music') j.setMusic(!st.music);
+  else if (which === 'haptics') j.setHaptics(!st.haptics);
+  /* the tick for a switch turning ON comes from juice (it fires after the state, so the
+     confirmation is heard); turning OFF must be silent - there is nothing to hear */
+  if (el) {
+    var now = j.settings();
+    var on = which === 'sfx' ? now.sfx : which === 'music' ? now.music : now.haptics;
+    el.classList.toggle('on', !!(on && (which !== 'haptics' || j.hapticsSupported())));
+    el.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+  soundRender();
 }
 window.addEventListener('keydown', function (e) {
   if (!quizEl || !quizEl.className) return;      /* the quiz is not on screen */
   if (screen === 'question') {
-    if (e.key >= '1' && e.key <= '6') { choose(parseInt(e.key, 10) - 1); e.preventDefault(); return; }
+    if (e.key >= '1' && e.key <= '6') { tapSfx(); choose(parseInt(e.key, 10) - 1); e.preventDefault(); return; }
     if (e.key === 'Enter' || e.key === ' ') { next(); e.preventDefault(); return; }
     if (e.key === 'Escape') { quit(); return; }
   } else if (screen === 'end') {
@@ -435,6 +639,11 @@ function watchReady() {
     clearInterval(readyTimer); readyTimer = null;
   }, 400);
 }
+
+/* Boot the juice: the music engine starts loading its first track now (it may be
+   refused until the first gesture - that is juice.js's business), and every change the
+   engine reports re-renders the drawer, so the panel never claims a stale state. */
+if (JU) { JU.onState = soundRender; JU.boot(); }
 
 /* ---------- public, for the burger row and for the tests ---------- */
 window.Quizzy = {
@@ -475,7 +684,11 @@ window.Quizzy = {
   next: function () { return next(); },
   quit: function () { quit(); },
   html: function () { return quizEl ? quizEl.innerHTML : ''; },
-  best: function () { return bestOf(); }
+  best: function () { return bestOf(); },
+  /* the sound drawer, and the juice module itself (null when absent) */
+  sound: function () { return { open: soundOpen, html: soundEl ? soundEl.innerHTML : '' }; },
+  soundToggle: function (open) { soundToggle(open); return soundOpen; },
+  juice: function () { return J(); }
 };
 
 render();

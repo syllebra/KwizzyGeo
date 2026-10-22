@@ -33,7 +33,20 @@ function DivEl(name) {
     removeChild() {}, appendChild(c) { el.children.push(c); return c; },
     setAttribute(k, v) { el['attr:' + k] = v; },
     getAttribute(k) { const v = el['attr:' + k]; return v == null ? null : v; },
-    getElementsByClassName() { return []; }
+    getElementsByClassName() { return []; },
+    /* the answers are built as a markup STRING, so the double answers for an element
+       the string contains - which is exactly what the real DOM would have */
+    querySelector(sel) {
+      const m = /data-i="(\d+)"/.exec(sel || '');
+      if (m && String(el.innerHTML).indexOf('data-i="' + m[1] + '"') >= 0) {
+        return { getBoundingClientRect() { return { left: 100, top: 200, width: 80, height: 40 }; } };
+      }
+      const c = /class="([^"]+)"/.exec(sel || '');
+      if (c && String(el.innerHTML).indexOf('class="' + c[1]) >= 0) {
+        return { textContent: String(el.innerHTML).replace(/<[^>]*>/g, ' ').trim(), className: c[1] };
+      }
+      return null;
+    }
   };
   el.classList = {
     add(c) { const a = el.className ? el.className.split(' ') : []; if (a.indexOf(c) < 0) a.push(c); el.className = a.filter(Boolean).join(' '); },
@@ -56,14 +69,26 @@ const els = {
   map: canvasEl, stage: stageEl,
   panel: DivEl('panel'), hud: DivEl('hud'), help: DivEl('help'),
   menu: DivEl('menu'), burger: DivEl('burger'), items: DivEl('items'), scrim: DivEl('scrim'),
-  spot: DivEl('spot'), quiz: DivEl('quiz')
+  spot: DivEl('spot'), quiz: DivEl('quiz'),
+  /* the juice: the drawer (a sibling of #quiz) and the particle layer */
+  'qz-sound': DivEl('qz-sound'), burst: DivEl('burst')
 };
 const bodyEl = DivEl('body');
 const store = {};
+/* every <audio> juice.js builds, so the test can read WHICH clips played and WHEN */
+const played = [];
+function FakeAudio(src) {
+  const a = { src: src, volume: 1, currentTime: 0, preload: '', plays: 0,
+    play() { a.plays++; played.push(src.replace(/^.*\//, '').replace(/\.wav$/, '')); return { catch() {} }; } };
+  return a;
+}
+const vibrated = [];
 global.window = {
   innerWidth: 1440, innerHeight: 900, devicePixelRatio: 2,
   addEventListener(t, f) { L['win:' + t] = f; },
   requestAnimationFrame() { return 1; },
+  matchMedia() { return { matches: false, addEventListener() {} }; },
+  Audio: FakeAudio,
   localStorage: {
     getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
     setItem(k, v) { store[k] = String(v); }
@@ -71,12 +96,25 @@ global.window = {
   document: {
     getElementById(id) { return els[id] || els.help; },
     addEventListener() {},
-    createElement() { return DivEl('el' + Math.floor(Math.random() * 1e9)); }
+    /* a created element needs what juice.js's burst touches: a style that takes custom
+       properties, a class name, and a parent that can drop it */
+    createElement() {
+      const e = DivEl('el' + Math.floor(Math.random() * 1e9));
+      e.style = { setProperty(k, v) { this[k] = v; } };
+      return e;
+    }
   }
 };
 global.window.document.body = bodyEl;
 global.document = global.window.document;
 global.requestAnimationFrame = function () { return 1; };
+global.Audio = FakeAudio;
+global.localStorage = global.window.localStorage;
+try {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { vibrate(p) { vibrated.push(p); return true; } }, configurable: true, writable: true
+  });
+} catch (e) {}
 const DATA = __dirname + '/../data/';
 global.fetch = function (u) {
   const name = String(u).replace(/^.*\//, '').replace(/\?.*$/, '');
@@ -94,8 +132,13 @@ function load(file) {
 load('core.js');
 load('app.js');
 load('quizcore.js');
+/* the music rules are a plain <script> in the page; under node the same file exports
+   through module.exports, so it is required and put where the page puts it */
+global.window.KwizzyPlaylist = require(__dirname + '/../media/music/playlist.js');
+load('juice.js');
 load('quiz.js');
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 let fails = 0, checks = 0;
 function check(name, cond, extra) {
   checks++;
@@ -106,7 +149,7 @@ const M = () => global.window.MapApp;
 
 setTimeout(function () { afterLoad(); }, 500);
 
-function afterLoad() {
+async function afterLoad() {
   check('the three scripts loaded without throwing', errors.length === 0, errors.join(' | '));
   const Qz = global.window.Quizzy;
   check('the quiz API is exported', !!Qz);
@@ -216,11 +259,26 @@ function afterLoad() {
     check('France is measured on its core rings only', nCore >= 1 && nCore <= 3, nCore + ' rings');
   }
 
+  /* ---------- 4b. the juice it ships with ---------- */
+  const JU = Qz.juice();
+  check('the sound module is loaded', !!JU);
+  check('the sound module is exported on window', !!global.window.Juice);
+  check('the sound assets are shipped', ['tap', 'select', 'screen', 'start', 'correct', 'wrong'].every(n =>
+        fs.existsSync(__dirname + '/../media/sfx/' + n + '.wav')));
+  check('the music rules are the playlist module', JU && JU.tracks().length === 5);
+  check('nothing has played yet at load', played.length === 0, played.join(','));
+
   /* ---------- 5. a session, end to end ---------- */
   Qz.set({ mode: 'country', zone: 'world', difficulty: 'easy' });
+  const before = played.length;
   check('a session starts', Qz.start() === true);
+  check('...and the launch plays the "start" clip', played.slice(before).indexOf('start') >= 0,
+        played.slice(before).join(','));
+  check('...under an airy "screen" swell', played.slice(before).indexOf('screen') >= 0,
+        played.slice(before).join(','));
   check('the screen is a question', Z().screen === 'question', Z().screen);
-  check('the viewer chrome is hidden while playing', bodyEl.classList.contains('qz-playing'));
+  check('the viewer chrome is hidden while playing',
+        bodyEl.classList.contains('qz-playing') && bodyEl.classList.contains('qz-owning'));
   check('the map is handed over to the quiz', M().quizOn() === true);
   check('the layer is pinned for the session', M().layer() === '50m', M().layer());
   let st = Z();
@@ -230,9 +288,16 @@ function afterLoad() {
         M().pickedFeature() >= 0 && items.filter(it => it.id === st.question.answerId)[0] &&
         items.filter(it => it.id === st.question.answerId)[0].idx === M().pickedFeature());
 
-  /* a wrong answer: no point, the right option is marked */
+  /* a wrong answer: no point, the right option is marked, and the FALLING clip plays */
   const wrong = (st.question.correct + 1) % 6;
+  const pBefore = played.length;
   check('a wrong answer scores nothing', Qz.choose(wrong) === false && Z().score === 0);
+  check('a wrong answer plays the "wrong" clip', played.slice(pBefore).indexOf('wrong') >= 0,
+        played.slice(pBefore).join(','));
+  check('a wrong answer does not play the "correct" clip',
+        played.slice(pBefore).indexOf('correct') < 0, played.slice(pBefore).join(','));
+  check('a wrong answer buzzes the phone once, in three taps',
+        JSON.stringify(vibrated[vibrated.length - 1]) === '[25,40,25]', JSON.stringify(vibrated));
   check('the answer is locked', Z().answered === true && Qz.choose(0) === false);
   check('the right answer is revealed', /qz-ans ok/.test(Qz.html()) && /qz-verdict bad/.test(Qz.html()));
   check('the verdict names the right country', Qz.html().indexOf(st.question.options[st.question.correct].name) >= 0);
@@ -242,6 +307,21 @@ function afterLoad() {
 
   /* then answer everything else right */
   check('Next moves on', Qz.next() === true && Z().index === 2, Z().index);
+  /* a RIGHT answer: the rising clip, one clean buzz, and the particles */
+  const rIndex = Z().question.correct;
+  const rBefore = played.length, sparks0 = els.burst.children.length;
+  Qz.choose(rIndex);
+  check('a right answer plays the "correct" clip', played.slice(rBefore).indexOf('correct') >= 0,
+        played.slice(rBefore).join(','));
+  check('a right answer buzzes once, cleanly', vibrated[vibrated.length - 1] === 60,
+        String(vibrated[vibrated.length - 1]));
+  await sleep(120);
+  check('a right answer throws a particle burst', els.burst.children.length >= 20,
+        els.burst.children.length + ' sparks (' + sparks0 + ' before)');
+  check('the sparks are coloured from this app palette',
+        /#8ed0ff|#46d18e|#ff8f8f|#ffd166/.test(els.burst.children[0] && els.burst.children[0].style.background || ''),
+        els.burst.children[0] && els.burst.children[0].style.background);
+  Qz.next();
   let guard = 0;
   while (Z().screen === 'question' && guard++ < 40) {
     const s2 = Z();
@@ -257,11 +337,42 @@ function afterLoad() {
   check('the best score is remembered', store['kwizzy.quiz.best.country.world.easy'] === '9',
         store['kwizzy.quiz.best.country.world.easy']);
 
-  /* ---------- 6. quit gives the map back ---------- */
+  /* ---------- 5b. the sound & music drawer ---------- */
+  check('the drawer starts closed', Qz.sound().open === false);
+  Qz.soundToggle(true);
+  check('the drawer opens', Qz.sound().open === true);
+  const sh = Qz.sound().html;
+  check('it offers the three switches', /data-set="sfx"/.test(sh) && /data-set="music"/.test(sh) &&
+        /data-set="haptics"/.test(sh));
+  check('it offers the volume slider', /id="qz-vol"/.test(sh) && /type="range"/.test(sh));
+  check('it offers the music choice', /data-trk="all"/.test(sh) && (sh.match(/data-trk="/g) || []).length === 6,
+        (sh.match(/data-trk="/g) || []).length);
+  check('each switch states its state in words, not only in colour',
+        (sh.match(/role="switch"/g) || []).length === 3 && /aria-checked="true"/.test(sh));
+  check('the drawer says what the music is doing',
+        /Playing|Waiting for a first tap|Music is off|no audio engine/.test(sh),
+        (sh.match(/class="qz-note" id="qz-now">[^<]*/) || [''])[0]);
+  /* turning Sound off must persist AND silence the game */
+  Qz.soundToggle(false);
+  JU.setSfx(false);
+  const sBefore = played.length;
+  L['win:keydown']({ key: '1', preventDefault() {} });
+  check('with Sound off, answering is silent', played.length === sBefore, played.slice(sBefore).join(','));
+  JU.setSfx(true);
   Qz.quit();
+
+  /* ---------- 6. quit gives the map back ---------- */
   check('quit goes back to the start page', Z().screen === 'start');
   check('the map is handed back', M().quizOn() === false);
-  check('the chrome is back', !bodyEl.classList.contains('qz-playing'));
+  /* back on the START page: the burger (the language selector) is back, the HUD and
+     the help line are not - the start page is a quiz screen too. They only return when
+     the quiz is dismissed altogether ("explore the map instead"). */
+  check('the burger is back on the start page', !bodyEl.classList.contains('qz-playing') &&
+        bodyEl.classList.contains('qz-owning'));
+  Qz.close();
+  check('dismissing the quiz gives the whole viewer back',
+        !bodyEl.classList.contains('qz-playing') && !bodyEl.classList.contains('qz-owning'));
+  Qz.open();
 
   /* ---------- 7. the other two modes ---------- */
   Qz.set({ mode: 'capital', zone: 'europe', difficulty: 'hard' });
@@ -277,9 +388,13 @@ function afterLoad() {
   /* answering a CAPITAL question shows the CITY's details, not the country's */
   const capAnswer = st.question.capital;
   Qz.choose(st.question.correct);
+  /* the city panel's rows: name, country, region, type, population, coordinates - and
+     time zone where Natural Earth has one (it does not for Moscow), so the check is on
+     the rows every city has */
   check('the capital answer reveals the city details',
-        /qz-details/.test(Qz.html()) && /time zone/.test(Qz.html()) &&
-        Qz.html().indexOf(capAnswer) >= 0, (Qz.html().match(/qz-details[\s\S]{0,200}/) || [''])[0]);
+        /qz-details/.test(Qz.html()) && /country/.test(Qz.html()) &&
+        /coordinates|at<\/span>|°/.test(Qz.html()) && Qz.html().indexOf(capAnswer) >= 0,
+        (Qz.html().match(/qz-details[\s\S]{0,300}/) || [''])[0]);
   check('the city details are the place panel',
         Qz.html().indexOf(M().capitalPanel(st.question.answerId).slice(0, 60)) >= 0);
   Qz.quit();
