@@ -25,6 +25,34 @@ function J() { return JU; }
    quiz runs without it, it just cannot remember anything. */
 var ST = window.KwizzyStats || null;
 function S() { return ST; }
+/* THE UI LANGUAGE is the map's own language (app.js's LANG, set by the burger's chips):
+   one setting for the whole app, not a second one for the game. Every visible string
+   goes through T(); country and capital names come from the layers through M.label /
+   M.capLabel, so they follow the same setting. */
+var I18 = window.KwizzyI18n || null;
+var V = window.ViewState || null;
+function lang() {
+  try { return (V && V.lang && V.lang()) || 'en'; } catch (e) { return 'en'; }
+}
+function T(key, vars) {
+  if (!I18) return key;
+  return I18.t(key, vars, lang());
+}
+function dirOf() { return I18 ? I18.dir(lang()) : 'ltr'; }
+/* the id -> key maps for the vocabularies that live in quizcore (which is language
+   neutral by design: it holds ids and rules, never words) */
+var K_MODE = { country: 'm_country', capital: 'm_capital', flag: 'm_flag' };
+var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag_s' };
+var K_ZONE = { world: 'z_world', africa: 'z_africa', asia: 'z_asia', europe: 'z_europe',
+               'north-america': 'z_na', 'south-america': 'z_sa', oceania: 'z_oceania' };
+var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard' };
+var K_DIFF_SUB = { easy: 'd_easy_s', medium: 'd_medium_s', hard: 'd_hard_s' };
+var K_VARIANT = { name: 'v_name', flags: 'v_flags' };
+var K_VARIANT_SUB = { name: 'v_name_s', flags: 'v_flags_s' };
+var K_LEN_SUB = { 10: 'l_short', 25: 'l_long', 0: 'l_all' };
+var K_TRACK = { arcade_quiz_02: 'track_arcade', jazzy_lounge_01: 'track_jazzy1',
+                jazzy_lounge_02: 'track_jazzy2', jazzy_lounge_04: 'track_jazzy4',
+                light_ambient: 'track_ambient' };
 if (!Q || !M) return;
 
 var quizEl = document.getElementById('quiz');
@@ -71,22 +99,13 @@ function flagSpan(code, cls) {
   if (!code || !/^[a-z]{2}$/.test(code)) return '';
   return '<span class="fi fi-' + code + (cls ? ' ' + cls : '') + '"></span>';
 }
-function zoneLabel(id) {
-  for (var i = 0; i < Q.ZONES.length; i++) if (Q.ZONES[i].id === id) return Q.ZONES[i].label;
-  return id;
-}
-function diffLabel(id) {
-  for (var i = 0; i < Q.DIFFS.length; i++) if (Q.DIFFS[i].id === id) return Q.DIFFS[i].label;
-  return id;
-}
-function variantSub(id) {
-  for (var i = 0; i < Q.FLAG_ASK.length; i++) if (Q.FLAG_ASK[i].id === id) return Q.FLAG_ASK[i].sub;
-  return '';
-}
-function modeLabel(id) {
-  for (var i = 0; i < Q.MODES.length; i++) if (Q.MODES[i].id === id) return Q.MODES[i].label;
-  return id;
-}
+function zoneLabel(id) { return K_ZONE[id] ? T(K_ZONE[id]) : id; }
+function diffLabel(id) { return K_DIFF[id] ? T(K_DIFF[id]) : id; }
+function diffSub(id) { return K_DIFF_SUB[id] ? T(K_DIFF_SUB[id]) : ''; }
+function modeLabel(id) { return K_MODE[id] ? T(K_MODE[id]) : id; }
+function modeSub(id) { return K_MODE_SUB[id] ? T(K_MODE_SUB[id]) : ''; }
+function variantLabel(id) { return K_VARIANT[id] ? T(K_VARIANT[id]) : id; }
+function variantSub(id) { return K_VARIANT_SUB[id] ? T(K_VARIANT_SUB[id]) : ''; }
 function flagsReady() { return M.ready(); }
 function capsReady() { return M.placesReady(); }
 /* THE BEST SCORE OF THIS CONFIG comes from stats.js, which compares by RATIO (so a
@@ -111,17 +130,17 @@ function startHTML() {
      pulsing light of the app, and it is decorative only (aria-hidden) */
   h += '<div class="qz-brand"><span class="qz-halo" aria-hidden="true"></span>' +
        '<h1>Kwizzy<span>Geo</span></h1>' +
-       '<p>Six answers, one map — a round is 10, 25 or the whole zone.</p></div>';
+       '<p>' + esc(T('tagline')) + '</p></div>';
 
-  h += '<div class="qz-h">Find</div><div class="qz-modes">';
+  h += '<div class="qz-h">' + esc(T('h_find')) + '</div><div class="qz-modes">';
   for (var i = 0; i < Q.MODES.length; i++) {
     var md = Q.MODES[i];
     var waitCap = (md.id === 'capital' && !capsReady());
     h += '<button class="qz-mode' + (cfg.mode === md.id ? ' on' : '') + (waitCap ? ' wait' : '') +
          '" data-mode="' + md.id + '">' +
          '<span class="ico">' + md.ico + '</span>' +
-         '<span class="t">' + esc(md.label) + '</span>' +
-         '<span class="s">' + (waitCap ? 'loading the capitals…' : esc(md.sub)) + '</span>' +
+         '<span class="t">' + esc(modeLabel(md.id)) + '</span>' +
+         '<span class="s">' + (waitCap ? esc(T('loading_capitals_short')) : esc(modeSub(md.id))) + '</span>' +
          '</button>';
   }
   h += '</div>';
@@ -130,43 +149,43 @@ function startHTML() {
      flag of a named country. The row only exists while the flag mode is picked, so
      the page does not grow a permanent setting that is meaningless for the others. */
   if (cfg.mode === 'flag') {
-    h += '<div class="qz-h">Flag question</div><div class="chips qz-row">';
+    h += '<div class="qz-h">' + esc(T('h_flag')) + '</div><div class="chips qz-row">';
     for (var v = 0; v < Q.FLAG_ASK.length; v++) {
       h += '<button class="chip' + (cfg.variant === Q.FLAG_ASK[v].id ? ' on' : '') + '" data-variant="' +
-           Q.FLAG_ASK[v].id + '">' + esc(Q.FLAG_ASK[v].label) + '</button>';
+           Q.FLAG_ASK[v].id + '">' + esc(variantLabel(Q.FLAG_ASK[v].id)) + '</button>';
     }
     h += '</div><div class="qz-note">' + esc(variantSub(cfg.variant)) + '</div>';
   }
 
-  h += '<div class="qz-h">Zone</div><div class="chips qz-row">';
+  h += '<div class="qz-h">' + esc(T('h_zone')) + '</div><div class="chips qz-row">';
   for (var z = 0; z < Q.ZONES.length; z++) {
     h += '<button class="chip' + (cfg.zone === Q.ZONES[z].id ? ' on' : '') + '" data-zone="' +
-         Q.ZONES[z].id + '">' + esc(Q.ZONES[z].label) + '</button>';
+         Q.ZONES[z].id + '">' + esc(zoneLabel(Q.ZONES[z].id)) + '</button>';
   }
   h += '</div>';
 
-  h += '<div class="qz-h">Questions</div><div class="chips qz-row">';
+  h += '<div class="qz-h">' + esc(T('h_len')) + '</div><div class="chips qz-row">';
   for (var L = 0; L < Q.LENS.length; L++) {
     h += '<button class="chip' + (cfg.len === Q.LENS[L].id ? ' on' : '') + '" data-len="' +
-         Q.LENS[L].id + '">' + esc(Q.LENS[L].label) + '</button>';
+         Q.LENS[L].id + '">' + esc(Q.LENS[L].id ? String(Q.LENS[L].id) : T('all_tracks')) + '</button>';
   }
   h += '</div><div class="qz-note">' + esc(lenSub()) + '</div>';
 
-  h += '<div class="qz-h">Difficulty</div><div class="chips qz-row">';
+  h += '<div class="qz-h">' + esc(T('h_diff')) + '</div><div class="chips qz-row">';
   for (var d = 0; d < Q.DIFFS.length; d++) {
     h += '<button class="chip' + (cfg.difficulty === Q.DIFFS[d].id ? ' on' : '') + '" data-diff="' +
-         Q.DIFFS[d].id + '">' + esc(Q.DIFFS[d].label) + '</button>';
+         Q.DIFFS[d].id + '">' + esc(diffLabel(Q.DIFFS[d].id)) + '</button>';
   }
   h += '</div>';
   h += '<div class="qz-note">' + esc(diffSub(cfg.difficulty)) + '</div>';
 
   h += '<div class="qz-actions"><button class="qz-play" data-act="play"' +
-       (ready ? '' : ' disabled') + '>' + (ready ? 'Play' : 'Loading the map…') + '</button></div>';
+       (ready ? '' : ' disabled') + '>' + (ready ? esc(T('play')) : esc(T('loading_map'))) + '</button></div>';
   h += '<div class="qz-note qz-info">' + esc(infoMsg || defaultInfo()) + '</div>';
   h += '<div class="qz-foot">' +
-       '<span class="qz-links"><a class="qz-link" data-act="explore">Explore the map instead</a>' +
-       '<a class="qz-link" data-act="snd-open">Sound &amp; music</a>' +
-       '<a class="qz-link" data-act="stats-open">Stats</a></span>' +
+       '<span class="qz-links"><a class="qz-link" data-act="explore">' + esc(T('explore')) + '</a>' +
+       '<a class="qz-link" data-act="snd-open">' + esc(T('sound_music')) + '</a>' +
+       '<a class="qz-link" data-act="stats-open">' + esc(T('stats')) + '</a></span>' +
        '<span class="qz-best">' + bestText() + '</span></div>';
   h += '</div>';
   return h;
@@ -177,57 +196,79 @@ function lenSub() {
   var want = cfg.len;
   var n = flagsReady() ? Q.poolFor(M.items(), cfg.zone, cfg.mode).length : 0;
   if (!want) {
-    return n ? ('every country of ' + zoneLabel(cfg.zone) + ': ' + n + ' questions')
-             : 'every country of the zone, once';
+    return n ? T('l_note_all', { zone: zoneLabel(cfg.zone), n: n }) : T('l_all');
   }
-  if (n && n < want) return n + ' countries in ' + zoneLabel(cfg.zone) + ': the round is ' + n + ' questions';
-  for (var i = 0; i < Q.LENS.length; i++) if (Q.LENS[i].id === want) return Q.LENS[i].sub;
-  return '';
-}
-function diffSub(id) {
-  for (var i = 0; i < Q.DIFFS.length; i++) if (Q.DIFFS[i].id === id) return Q.DIFFS[i].sub;
-  return '';
+  if (n && n < want) return T('l_note_clip', { zone: zoneLabel(cfg.zone), n: n });
+  return K_LEN_SUB[want] ? T(K_LEN_SUB[want]) : '';
 }
 function defaultInfo() {
-  if (!flagsReady()) return 'Loading the map…';
-  if (cfg.mode === 'capital' && !capsReady()) return 'Loading the capital cities…';
+  if (!flagsReady()) return T('loading_map');
+  if (cfg.mode === 'capital' && !capsReady()) return T('loading_caps');
   return '';
 }
 function bestText() {
   var b = bestOf();
   if (!b.len) return '';
   /* the length is printed with the score: it is what makes two bests comparable */
-  return 'best here: ' + b.score + ' / ' + b.len +
-         (b.played > 1 ? ' · ' + b.played + ' rounds' : '');
+  return T('best_here', { score: b.score, len: b.len }) +
+         (b.played > 1 ? ' · ' + T('best_n', { n: b.played }) : '');
 }
 
 /* ---------- screen 2: a question ---------- */
 function askHTML() {
   var h = '';
   if (q.mode === 'country') {
-    h += '<div class="qz-q">Which country is lit up?</div>' +
-         '<div class="qz-sub">' + esc(zoneLabel(q.zone)) + ' · ' + esc(diffLabel(q.difficulty)) + '</div>';
+    h += '<div class="qz-q">' + esc(T('ask_country')) + '</div>' +
+         '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
   } else if (q.mode === 'capital') {
-    h += '<div class="qz-q">What is the capital of <b>' + esc(q.answer.name) + '</b>?</div>' +
-         '<div class="qz-sub">' + esc(zoneLabel(q.zone)) + ' · ' + esc(diffLabel(q.difficulty)) + '</div>';
+    h += '<div class="qz-q">' + askCapital(q) + '</div>' +
+         '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
   } else if (q.variant === 'flags') {
     /* the country is NAMED and lit up on the map, with its capital: the flag is the
        answer, so it must not be anywhere on screen */
     var bits = [];
-    if (q.answer.cap) bits.push('capital ' + esc(q.answer.cap));
-    if (q.answer.cont) bits.push(esc(q.answer.cont));
-    h += '<div class="qz-q">Which flag is <b>' + esc(q.answer.name) + '</b>&rsquo;s?</div>' +
+    var capF = M.capLabel(q.answer.id);
+    if (capF) bits.push(esc(T('sub_capital', { cap: capF })));
+    if (q.answer.cont) bits.push(esc(continent(q.answer)));
+    h += '<div class="qz-q">' + askFlag(q) + '</div>' +
          '<div class="qz-sub">' + (bits.length ? bits.join(' · ') : esc(zoneLabel(q.zone))) + '</div>';
   } else {
     /* the prompt and the flag on ONE row: the country is centred on the map behind
        this card, and a stack of title + 100 px flag covered the top third of it */
-    h += '<div class="qz-flagrow"><span class="qz-q">Whose flag is this?</span>' +
+    h += '<div class="qz-flagrow"><span class="qz-q">' + esc(T('ask_flag_name')) + '</span>' +
          '<span class="qz-flagwrap">' + flagSpan(q.answer.flag, 'qz-bigflag') + '</span></div>';
   }
   return h;
 }
+/* THE THREE PROMPTS THAT NAME SOMETHING. Split at {country} so the country can be bold
+   WITHOUT the sentence being glued together here: a language that puts the name at the
+   end, or wraps it in its own punctuation, only has to move {country} in its own string. */
+function named(tpl, name) {
+  var mark = '\u0001';
+  var s2 = esc(T(tpl, { country: mark }));
+  return s2.replace(mark, '<b>' + esc(name) + '</b>');
+}
+function askCapital(q) { return named('ask_capital', M.label(q.answer.id) || q.answer.name); }
+function askFlag(q) { return named('ask_flag_country', M.label(q.answer.id) || q.answer.name); }
+function subZoneDiff(q) {
+  return T('sub_zone', { zone: zoneLabel(q.zone), difficulty: diffLabel(q.difficulty) });
+}
+/* the continent of an answer, in the map's language: Earth's continents are in the same
+   vocabulary as the zones, and quizcore's SUB_ZONE has the fallback for the three
+   countries Natural Earth files under "seven seas" */
+function continent(it) {
+  var z = Q.zoneOf ? Q.zoneOf(it) : it.cont;
+  for (var i = 0; i < Q.ZONES.length; i++) {
+    if (Q.ZONES[i].cont && Q.ZONES[i].cont === z && K_ZONE[Q.ZONES[i].id]) return zoneLabel(Q.ZONES[i].id);
+  }
+  return it.cont || '';
+}
+/* THE OPTION'S OWN TEXT, read live: the country name in the language in play, or the
+   capital's - never the string the item was built with, so a language change is not
+   frozen into a half-translated question */
 function optionLabel(it) {
-  return q.mode === 'capital' ? it.cap : it.name;
+  if (q.mode === 'capital') return M.capLabel(it.id) || it.cap || '';
+  return M.label(it.id) || it.name || '';
 }
 function flagsAsOptions() { return q.mode === 'flag' && q.variant === 'flags'; }
 function answersHTML() {
@@ -265,16 +306,18 @@ function revealHTML() {
      right answer inside the verdict as well ("✕ Trinidad and Tobago" next to
      "Trinidad and Tobago") said the same thing twice and read like a bug. */
   var facts;
+  var aName = M.label(a.id) || a.name;
+  var aCap = M.capLabel(a.id) || a.cap;
   if (q.mode === 'capital') {
     /* the question was about the CITY, so the answer line leads with the city */
-    facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(a.cap) + '</b>' +
-            ' <span class="qz-dim">· capital of ' + esc(a.name) +
-            (a.cont ? ' · ' + esc(a.cont) : '') + '</span>';
+    facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(aCap) + '</b>' +
+            ' <span class="qz-dim">· ' + esc(T('capital_of', { country: aName })) +
+            (a.cont ? ' · ' + esc(continent(a)) : '') + '</span>';
   } else {
-    facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(a.name) + '</b>';
+    facts = flagSpan(a.flag, 'fis') + ' <b>' + esc(aName) + '</b>';
     var bits = [];
-    if (a.cap) bits.push('capital ' + esc(a.cap));
-    if (a.cont) bits.push(esc(a.cont));
+    if (aCap) bits.push(esc(T('capital_word', { cap: aCap })));
+    if (a.cont) bits.push(esc(continent(a)));
     if (bits.length) facts += ' <span class="qz-dim">· ' + bits.join(' · ') + '</span>';
   }
   /* THE DETAILS. Answering a question should teach something, so the verdict comes
@@ -290,9 +333,9 @@ function revealHTML() {
   return '<div class="qz-reveal">' +
     '<div class="qz-head">' +
     '<span class="qz-verdict ' + (q.ok ? 'good' : 'bad') + '">' +
-    (q.ok ? '\u2713 Correct' : '\u2715 Wrong') + '</span>' +
+    (q.ok ? '\u2713 ' + esc(T('correct')) : '\u2715 ' + esc(T('wrong'))) + '</span>' +
     '<span class="qz-facts">' + facts + '</span>' +
-    '<button class="qz-next" data-act="next">' + (last ? 'Results \u2192' : 'Next \u2192') +
+    '<button class="qz-next" data-act="next">' + esc(last ? T('results') : T('next')) +
     '</button></div>' +
     (details ? '<div class="qz-details">' + details + '</div>' : '') +
     '</div>';
@@ -300,12 +343,15 @@ function revealHTML() {
 function questionHTML() {
   var h = '';
   h += '<div class="qz-top">' +
-       '<button class="qz-x" data-act="quit" title="Back to the menu">\u2715</button>' +
+       '<button class="qz-x" data-act="quit" title="' + esc(T('quit')) + '">\u2715</button>' +
        /* muting mid-round is a thing players do, so the drawer is one tap away here too */
-       '<button class="qz-x qz-sndbtn" data-act="snd-open" title="Sound &amp; music" aria-label="Sound and music">' +
+       '<button class="qz-x qz-sndbtn" data-act="snd-open" title="' + esc(T('sound_btn')) +
+       '" aria-label="' + esc(T('sound_btn')) + '">' +
        '\u266A</button>' +
-       '<div class="qz-mid"><span class="qz-prog">Question ' + session.i + ' / ' + session.cfg.len +
-       '</span><span class="qz-score' + (bumped ? ' bump' : '') + '">' + session.score + ' \u2713</span></div>' +
+       '<div class="qz-mid"><span class="qz-prog">' +
+       esc(T('question_of', { i: session.i, n: session.cfg.len })) +
+       '</span><span class="qz-score' + (bumped ? ' bump' : '') + '">' +
+       esc(T('score_mark', { n: session.score })) + '</span></div>' +
        '</div>';
   h += '<div class="qz-ask' + (q.mode === 'flag' && q.variant === 'name' ? ' qz-ask-flag' : '') + '">' +
        askHTML() + '</div>';
@@ -332,12 +378,11 @@ function endHTML() {
   var ever = '';
   if (S()) {
     var sum = S().summary();
-    if (sum.asked > n) ever = ' \u00b7 ' + sum.correct + ' right of ' + sum.asked + ' ever';
+    if (sum.asked > n) ever = ' \u00b7 ' + T('ever_right', { c: sum.correct, n: sum.asked });
   }
-  var msg = ok === n ? 'Every one. Ridiculous.' :
-            ok >= n * 0.8 ? 'Strong. The map is yours.' :
-            ok >= n * 0.5 ? 'Solid half. Again?' :
-            'The map wins this round.';
+  var msg = T(ok === n ? 'end_every' :
+              ok >= n * 0.8 ? 'end_strong' :
+              ok >= n * 0.5 ? 'end_half' : 'end_lose');
   return '<div class="qz-scrim"></div><div class="qz-card qz-endcard">' +
     '<div class="qz-h">' + esc(modeLabel(session.cfg.mode)) + ' · ' + esc(zoneLabel(session.cfg.zone)) +
     ' · ' + esc(diffLabel(session.cfg.difficulty)) + '</div>' +
@@ -345,11 +390,12 @@ function endHTML() {
     '<div class="qz-dots">' + dots + '</div>' +
     '<div class="qz-endmsg">' + esc(msg) + '</div>' +
     '<div class="qz-note' + (fresh ? ' qz-best-new' : '') + '">' +
-    (fresh ? 'new best: ' : 'best here: ') + after.score + ' / ' + after.len +
+    esc(T(fresh ? 'new_best' : 'best_line', { score: after.score, len: after.len })) +
     /* the whole record, one line: this run's place in it */
     ever + '</div>' +
-    '<div class="qz-actions"><button class="qz-play" data-act="again">Play again</button>' +
-    '<button class="qz-ghost" data-act="menu">Change settings</button></div>' +
+    '<div class="qz-actions"><button class="qz-play" data-act="again">' + esc(T('play_again')) +
+    '</button><button class="qz-ghost" data-act="menu">' + esc(T('change_settings')) +
+    '</button></div>' +
     '</div>';
 }
 
@@ -368,48 +414,59 @@ function toggleRow(id, label, on, extra) {
 function soundHTML() {
   var j = J();
   if (!j) return '<div class="qz-scrim" data-act="snd-close"></div><div class="qz-sheet">' +
-                 '<div class="qz-h">Sound</div><div class="qz-note">No sound module on this page.</div></div>';
+                 '<div class="qz-h">' + esc(T('snd_title')) + '</div><div class="qz-note">' +
+                 esc(T('no_sound_module')) + '</div></div>';
   var st = j.settings(), m = j.music();
   var canHap = j.hapticsSupported();
   var h = '<div class="qz-scrim" data-act="snd-close"></div><div class="qz-sheet">';
-  h += '<div class="qz-h">Sound &amp; music</div>';
-  h += toggleRow('sfx', 'Sound effects', st.sfx);
-  h += toggleRow('music', 'Music', st.music, m.supported ? '' : 'no audio engine in this browser');
-  h += toggleRow('haptics', 'Haptic feedback', st.haptics && canHap,
-                 canHap ? '' : 'this device has no vibration');
+  h += '<div class="qz-h">' + esc(T('snd_title')) + '</div>';
+  h += toggleRow('sfx', T('set_sfx'), st.sfx);
+  h += toggleRow('music', T('set_music'), st.music, m.supported ? '' : T('no_audio'));
+  h += toggleRow('haptics', T('set_haptics'), st.haptics && canHap,
+                 canHap ? '' : T('no_vibrate'));
   /* the volume: a real slider, because a switch cannot express a loudness. A tap on the
      track sets the level to that spot (which is what makes a small slider usable on a
      phone), and the level is also written out - never state in movement alone. */
   h += '<div class="qz-vol' + (st.music ? '' : ' off') + '">' +
-       '<span class="lbl">Music volume</span>' +
+       '<span class="lbl">' + esc(T('volume')) + '</span>' +
        '<input type="range" min="0" max="100" step="5" value="' + Math.round(st.vol * 100) +
-       '" id="qz-vol" aria-label="Music volume">' +
+       '" id="qz-vol" aria-label="' + esc(T('volume')) + '">' +
        '<span class="pill">' + Math.round(st.vol * 100) + '%</span></div>';
-  h += '<div class="qz-h">Music choice</div><div class="chips qz-row">';
-  h += '<button class="chip' + (st.trk === 'all' ? ' on' : '') + '" data-trk="all">All</button>';
+  h += '<div class="qz-h">' + esc(T('music_choice')) + '</div><div class="chips qz-row">';
+  h += '<button class="chip' + (st.trk === 'all' ? ' on' : '') + '" data-trk="all">' +
+       esc(T('all_tracks')) + '</button>';
   var tr = j.tracks();
   for (var i = 0; i < tr.length; i++) {
     h += '<button class="chip' + (st.trk === tr[i].id ? ' on' : '') + '" data-trk="' + tr[i].id + '">' +
-         esc(tr[i].label) + '</button>';
+         esc(trackLabel(tr[i])) + '</button>';
   }
   h += '</div>';
   h += '<div class="qz-note" id="qz-now">' + esc(musicStatus(m)) + '</div>';
-  h += '<div class="qz-actions"><button class="qz-ghost" data-act="snd-close">Done</button></div>';
+  h += '<div class="qz-actions"><button class="qz-ghost" data-act="snd-close">' +
+       esc(T('done')) + '</button></div>';
   h += '</div>';
   return h;
 }
 /* What the music engine is doing, in words - the honest three states: playing, waiting
    for a first touch (the autoplay policy), or failed to load. */
 function musicStatus(m) {
-  if (!m.supported) return 'This browser has no audio engine: the music stays off.';
-  if (m.loadFailed) return 'The music could not be loaded.';
-  if (!J().settings().music) return 'Music is off.';
-  if (m.running) return 'Playing ' + J().trackLabel(m.playing || '') + '.';
-  return 'Waiting for a first tap or key press (browsers refuse audio before one).';
+  if (!m.supported) return T('music_noengine');
+  if (m.loadFailed) return T('music_failed');
+  if (!J().settings().music) return T('music_off');
+  if (m.running) return T('music_playing', { track: trackLabel({ id: m.playing || '' }) });
+  return T('music_waiting');
+}
+/* a track's name in the UI language: the titles are ours, so they are translated where
+   a translation reads naturally and left alone where it is a proper name */
+function trackLabel(tr) {
+  var k = tr && K_TRACK[tr.id];
+  if (k) return T(k);
+  return (tr && tr.label) || (tr && tr.id) || '';
 }
 function soundRender() {
   var el = soundEl || (soundEl = document.getElementById('qz-sound'));
   if (!el) return;
+  applyDir();
   el.innerHTML = soundOpen ? soundHTML() : '';
   el.className = soundOpen ? 'qz-sound on' : 'qz-sound';
 }
@@ -435,17 +492,17 @@ function statRows(list, labelOf, n) {
     h += '<div class="qz-srow"><span class="k">' + esc(labelOf(r.key)) + '</span>' +
          '<span class="v">' + pctText(r.pct, r.asked) + '</span>' +
          '<span class="q">' + r.correct + '/' + r.asked + '</span>' +
-         (r.bestLen ? '<span class="b">best ' + r.best + '/' + r.bestLen + '</span>' : '') +
+         (r.bestLen ? '<span class="b">' + esc(T('best_word', { score: r.best, len: r.bestLen })) + '</span>' : '') +
          '</div>';
   }
-  return h || '<div class="qz-note">Nothing yet.</div>';
+  return h || '<div class="qz-note">' + esc(T('nothing_yet')) + '</div>';
 }
 function countryRows(list) {
   var h = '';
   for (var i = 0; i < list.length; i++) {
     var c = list[i];
     h += '<div class="qz-crow">' + flagSpan(c.flag, 'fis') +
-         '<span class="nm">' + esc(c.name) + '</span>' +
+         '<span class="nm">' + esc(M.label(c.id) || c.name) + '</span>' +
          '<span class="q">' + c.correct + '/' + c.asked + '</span>' +
          '<span class="v">' + pctText(c.pct, c.asked) + '</span></div>';
   }
@@ -455,49 +512,52 @@ function statsHTML() {
   var st = S();
   if (!st) {
     return '<div class="qz-scrim" data-act="stats-close"></div><div class="qz-sheet">' +
-           '<div class="qz-h">Stats</div><div class="qz-note">No stats module on this page.</div></div>';
+           '<div class="qz-h">' + esc(T('stats')) + '</div><div class="qz-note">' +
+           esc(T('no_stats_module')) + '</div></div>';
   }
   var m = st.summary();
   /* a PINNED header and footer with a scrolling body: the record is longer than a
      phone screen, and a sheet whose title scrolls away and whose Close button is below
      the fold is a sheet you cannot get out of. */
   var h = '<div class="qz-scrim" data-act="stats-close"></div><div class="qz-sheet qz-statsheet">';
-  h += '<div class="qz-shead"><span class="qz-h">Your record</span>' +
-       '<button class="qz-x qz-xs" data-act="stats-close" aria-label="Close">\u2715</button></div>';
+  h += '<div class="qz-shead"><span class="qz-h">' + esc(T('rec_title')) + '</span>' +
+       '<button class="qz-x qz-xs" data-act="stats-close" aria-label="' + esc(T('close')) +
+       '">\u2715</button></div>';
   h += '<div class="qz-sbody">';
   if (!m.asked) {
-    h += '<div class="qz-note">Nothing played yet. A round writes itself down here.</div>';
+    h += '<div class="qz-note">' + esc(T('nothing_played')) + '</div>';
   } else {
     h += '<div class="qz-figs">' +
-         '<div class="fig"><b>' + m.asked + '</b><span>questions</span></div>' +
-         '<div class="fig"><b>' + Math.round(m.pct * 100) + '%</b><span>right</span></div>' +
-         '<div class="fig"><b>' + m.bestStreak + '</b><span>best streak</span></div>' +
-         '<div class="fig"><b>' + m.played + '</b><span>rounds kept</span></div>' +
+         '<div class="fig"><b>' + m.asked + '</b><span>' + esc(T('fig_questions')) + '</span></div>' +
+         '<div class="fig"><b>' + Math.round(m.pct * 100) + '%</b><span>' + esc(T('fig_right')) + '</span></div>' +
+         '<div class="fig"><b>' + m.bestStreak + '</b><span>' + esc(T('fig_streak')) + '</span></div>' +
+         '<div class="fig"><b>' + m.played + '</b><span>' + esc(T('fig_rounds')) + '</span></div>' +
          '</div>';
-    h += '<div class="qz-h">By mode</div>' + statRows(m.modes, modeLabel);
-    h += '<div class="qz-h">By zone</div>' + statRows(m.zones, zoneLabel);
+    h += '<div class="qz-h">' + esc(T('by_mode')) + '</div>' + statRows(m.modes, modeLabel);
+    h += '<div class="qz-h">' + esc(T('by_zone')) + '</div>' + statRows(m.zones, zoneLabel);
     if (m.cfgs.length) {
-      h += '<div class="qz-h">Best rounds</div>' +
+      h += '<div class="qz-h">' + esc(T('best_rounds')) + '</div>' +
            statRows(m.cfgs.slice(0, 4), function (k) {
              var p = String(k).split('|');
              return modeLabel(p[0]) + (p[1] ? ' \u00b7 ' + zoneLabel(p[1]) : '') +
                     (p[2] ? ' \u00b7 ' + diffLabel(p[2]) : '');
            });
     }
-    if (m.missed.length) h += '<div class="qz-h">Costs you the most</div>' + countryRows(m.missed);
-    if (m.known.length) h += '<div class="qz-h">Never missed</div>' + countryRows(m.known.slice(0, 6));
+    if (m.missed.length) h += '<div class="qz-h">' + esc(T('costs')) + '</div>' + countryRows(m.missed);
+    if (m.known.length) h += '<div class="qz-h">' + esc(T('never_missed')) + '</div>' + countryRows(m.known.slice(0, 6));
   }
   h += '</div>';
   h += '<div class="qz-sfoot">' +
        '<button class="qz-ghost" data-act="stats-reset">' +
-       (statsArmed ? 'Really erase everything?' : 'Reset stats') + '</button>' +
-       '<button class="qz-play" data-act="stats-close">Done</button></div>';
+       esc(statsArmed ? T('reset_confirm') : T('reset_stats')) + '</button>' +
+       '<button class="qz-play" data-act="stats-close">' + esc(T('done')) + '</button></div>';
   h += '</div>';
   return h;
 }
 function statsRender() {
   if (!statsEl) statsEl = document.getElementById('qz-stats');
   if (!statsEl) return;
+  applyDir();
   statsEl.innerHTML = statsOpen ? statsHTML() : '';
   statsEl.className = statsOpen ? 'qz-stats on' : 'qz-stats';
 }
@@ -515,8 +575,20 @@ function statsReset() {
 }
 
 /* ---------- render ---------- */
+/* RIGHT-TO-LEFT for Arabic, Persian and Hebrew: `dir` on the containers, so the flex
+   rows (top bar, footer, the six answers, the sheets) flip. The map is untouched - it is
+   a picture. Set on every render as well as on a language change, so a sheet opened
+   later cannot be left in the old direction. */
+function applyDir() {
+  var d = dirOf();
+  if (quizEl) quizEl.setAttribute('dir', d);
+  if (soundEl) soundEl.setAttribute('dir', d);
+  if (statsEl) statsEl.setAttribute('dir', d);
+}
+
 function render() {
   if (!quizEl) return;
+  applyDir();
   if (screen === 'start') quizEl.innerHTML = startHTML();
   else if (screen === 'question') quizEl.innerHTML = questionHTML();
   else quizEl.innerHTML = endHTML();
@@ -540,18 +612,18 @@ function info(msg) { infoMsg = msg || ''; if (screen === 'start') render(); }
 
 /* ---------- the flow ---------- */
 function startSession() {
-  if (!flagsReady()) { info('The map is still loading…'); return false; }
-  if (cfg.mode === 'capital' && !capsReady()) { info('The capital cities are still loading…'); return false; }
+  if (!flagsReady()) { info(T('loading_map')); return false; }
+  if (cfg.mode === 'capital' && !capsReady()) { info(T('loading_caps')); return false; }
   /* HAND THE MAP OVER FIRST, then read the country list: enter() pins the layer, and
      the list must be the one the pinned layer actually draws (app.js paints the 50m
      layer and swaps the 10m one in when its 11 MB arrive - building the items before
      that would key a session to a layer that is no longer on screen). */
-  if (!M.enter()) { info('The map is not ready yet.'); return false; }
+  if (!M.enter()) { info(T('map_not_ready')); return false; }
   var items = M.items();
   var pool = Q.poolFor(items, cfg.zone, cfg.mode);
   if (pool.length < Q.N_OPT) {
     M.exit();
-    info('Not enough countries in ' + zoneLabel(cfg.zone) + ' for six answers - pick another zone.');
+    info(T('not_enough', { zone: zoneLabel(cfg.zone) }));
     return false;
   }
   session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0);
@@ -798,6 +870,17 @@ function watchReady() {
   }, 400);
 }
 
+/* THE LANGUAGE IS THE MAP'S, so the map tells us when it moves: every screen the quiz
+   owns is rebuilt (the words from i18n.js, the country and capital names from the
+   layers, which the map has just reloaded). */
+if (V && V.onLang) {
+  V.onLang(function () {
+    render();
+    soundRender();
+    statsRender();
+  });
+}
+
 /* Boot the juice: the music engine starts loading its first track now (it may be
    refused until the first gesture - that is juice.js's business), and every change the
    engine reports re-renders the drawer, so the panel never claims a stale state. */
@@ -848,6 +931,9 @@ window.Quizzy = {
   html: function () { return quizEl ? quizEl.innerHTML : ''; },
   best: function () { return bestOf(); },
   stats: function () { return S(); },
+  lang: function () { return lang(); },
+  dir: function () { return dirOf(); },
+  t: function (k, vars) { return T(k, vars); },
   statsOpen: function () { return statsOpen; },
   statsToggle: function (open) { statsToggle(open); return statsOpen; },
   statsHtml: function () { return statsEl ? statsEl.innerHTML : ''; },

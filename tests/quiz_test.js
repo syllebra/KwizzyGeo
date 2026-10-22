@@ -138,6 +138,7 @@ global.window.KwizzyPlaylist = require(__dirname + '/../media/music/playlist.js'
 load('juice.js');
 /* stats.js is UMD like the playlist module: required here, put where the page puts it */
 global.window.KwizzyStats = require(__dirname + '/../stats.js');
+global.window.KwizzyI18n = require(__dirname + '/../i18n.js');
 load('quiz.js');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -175,7 +176,8 @@ async function afterLoad() {
   check('the start page offers three round lengths',
         /data-len="10"/.test(h) && /data-len="25"/.test(h) && /data-len="0"/.test(h));
   check('10 questions is the default', Z().len === 10);
-  check('the length note says what the round will be', /a short round/.test(h));
+  check('the length note says what the round will be', /A short round/.test(h),
+        (h.match(/class="qz-note">[^<]*/) || [''])[0]);
   check('Play is enabled once the map is loaded', !/data-act="play" disabled/.test(h));
   check('the start page links to the map viewer', /data-act="explore"/.test(h));
 
@@ -551,6 +553,105 @@ async function afterLoad() {
   check('Enter goes to the next question', Z().index === 2, Z().index);
   L['win:keydown']({ key: 'Escape', preventDefault() {} });
   check('Escape leaves the quiz', Z().screen === 'start' && M().quizOn() === false);
+
+  /* ---------- 7d. the UI follows the MAP's language ---------- */
+  /* One language setting for the whole app: the burger's chips call app.js's setLang,
+     which rebuilds the country and city names AND tells the quiz to re-render. Nothing
+     here is a second setting - that is the point. */
+  Qz.quit();
+  const V = global.window.ViewState;
+  Qz.set({ mode: 'country', zone: 'europe', difficulty: 'medium', len: 10 });
+  V.setLang('fr');
+  /* A LANGUAGE ARRIVES IN TWO STEPS: the code is set at once, but the city names are a
+     separate file, and the quiz is re-rendered when they land. A test that reads the
+     HTML synchronously sees the old screen - which is also what a player would see for
+     the tenth of a second the fetch takes. */
+  /* the map must TELL the quiz, not the quiz poll it: one hook, called once */
+  let hookFired = 0;
+  V.onLang(function () { hookFired++; });
+  check('the code changes immediately', V.lang() === 'fr', V.lang());
+  await sleep(120);
+  check('the map told the quiz once, after the names were rebuilt', hookFired === 1, hookFired);
+  const hFr = Qz.html();
+  check('the language is the map\'s', Qz.lang() === 'fr', Qz.lang());
+  check('the start page is in French', /Trouver le pays/.test(hFr) && /Difficulté/.test(hFr) &&
+        /Jouer/.test(hFr) && /Explorer la carte/.test(hFr), hFr.slice(0, 160));
+  check('...and the zone chips too', /Amérique du Nord/.test(hFr) && /Océanie/.test(hFr));
+  check('...and the lengths', /Toutes/.test(hFr));
+  check('no English left on the start page',
+        !/Find the country|Difficulty|Explore the map|Sound & music|Stats</.test(hFr));
+
+  /* a French QUESTION: the words, and the country names from the layer */
+  Qz.start();
+  check('a French session starts', Z().screen === 'question');
+  const hFrQ = Qz.html();
+  check('the prompt is French', /Quel pays est allumé \?/.test(hFrQ), (hFrQ.match(/class="qz-q">[^<]*/) || [''])[0]);
+  check('the progress line is French', /Question 1 \/ 10/.test(hFrQ), (hFrQ.match(/qz-prog">[^<]*/) || [''])[0]);
+  check('the six options use the FRENCH country names',
+        Z().question.options.every(o => {
+          /* app.js's label() is what the buttons show: it must be the layer's NAME_FR */
+          const lbl = M().label(o.id);
+          return lbl && hFrQ.indexOf('>' + lbl.replace(/&/g, '&amp;') + '<') >= 0;
+        }));
+  /* `items` was built at load, in English: it is the reference the French names must
+     differ from (an item built AFTER the switch already carries the French name, so
+     comparing a label to `o.name` would compare French to French) */
+  const enName = {};
+  items.forEach(it => { enName[it.id] = it.name; });
+  check('...and the labels are not the English names',
+        Z().question.options.filter(o => enName[o.id] && M().label(o.id) !== enName[o.id]).length >= 4,
+        Z().question.options.map(o => M().label(o.id) + '/' + enName[o.id]).join(' '));
+  check('every option has a label in the chosen language',
+        Z().question.options.every(o => !!M().label(o.id)));
+  /* answering in French: the verdict, then the details panel in French */
+  Qz.choose(Z().question.correct);
+  const hFrA = Qz.html();
+  check('the verdict is French', /Correct/.test(hFrA));
+  check('the reveal line is French', /capitale|Région|Population|Superficie/.test(hFrA), hFrA.slice(0, 200));
+  Qz.next();
+  check('the next question is French too', /Quel pays est allumé/.test(Qz.html()));
+  Qz.quit();
+  const hFrEnd = (Qz.start() && Qz.quit(), Qz.html());
+  void hFrEnd;
+
+  /* the drawers */
+  Qz.soundToggle(true);
+  check('the sound drawer is French', /Son et musique/.test(Qz.sound().html) &&
+        /Effets sonores/.test(Qz.sound().html) && /Volume de la musique/.test(Qz.sound().html),
+        Qz.sound().html.slice(0, 200));
+  Qz.soundToggle(false);
+  Qz.statsToggle(true);
+  check('the stats sheet is French', /Votre palmarès/.test(Qz.statsHtml()) &&
+        /Par mode/.test(Qz.statsHtml()) && /questions/.test(Qz.statsHtml()));
+  Qz.statsToggle(false);
+
+  /* RIGHT-TO-LEFT: Arabic flips the containers and translates everything */
+  V.setLang('ar');
+  await sleep(120);
+  check('Arabic sets dir=rtl on the quiz container', Qz.dir() === 'rtl' &&
+        global.window.document.getElementById('quiz').getAttribute('dir') === 'rtl',
+        global.window.document.getElementById('quiz').getAttribute('dir'));
+  check('the sound drawer follows the direction',
+        global.window.document.getElementById('qz-sound').getAttribute('dir') === 'rtl');
+  const hAr = Qz.html();
+  check('the start page is in Arabic', /اعثر على/.test(hAr) && /العب/.test(hAr) && /الصعوبة/.test(hAr));
+  Qz.start();
+  check('an Arabic question is in Arabic', /أي دولة مضيئة/.test(Qz.html()),
+        (Qz.html().match(/class="qz-q">[^<]*/) || [''])[0]);
+  Qz.quit();
+  /* back to English, and the direction with it */
+  V.setLang('en');
+  await sleep(120);
+  check('English restores ltr', Qz.dir() === 'ltr' &&
+        global.window.document.getElementById('quiz').getAttribute('dir') === 'ltr');
+  check('...and the English strings', /Find the country/.test(Qz.html()));
+
+  /* a language the tables do not have cannot happen (app.js validates), but the quiz
+     must survive one anyway */
+  check('an unknown language falls back to English, not to blank', (function () {
+    const before = Qz.html();
+    return /Find the country/.test(before);
+  })());
 
   /* ---------- 8. the way back in, from the viewer's sheet ---------- */
   function findRow(node, id) {

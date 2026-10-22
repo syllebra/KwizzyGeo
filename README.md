@@ -52,6 +52,7 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `quizcore.js` | **the game's rules**: modes, zones, difficulty, the six options — pure functions, no DOM (unit-tested by `tests/quizcore_test.js`) |
 | `quiz.js` | **the game's screens**: the three pages, the keyboard, and the hand-over of the map |
 | `stats.js` | **the record**: every answer and every round, in localStorage, with the best-by-ratio rule (unit-tested by `tests/stats_test.js`) |
+| `i18n.js` | **the quiz's UI strings in the map's 18 languages** — one table, 139 keys per language, placeholders and RTL included (unit-tested by `tests/i18n_test.js`) |
 | `juice.js` | **the feel**, ported from the Kwizzy app: sound effects, haptics, particle bursts, the music engine and the sound drawer (unit-tested by `tests/juice_test.js`) |
 | `media/sfx/*.wav` | the six clips, 547 kB, from Kwizzy (synthesised, no samples, no licence) |
 | `media/music/*.mp3` | the five 25 s ambient loops, 3 MB, from Kwizzy (their own) |
@@ -82,7 +83,8 @@ hardcodes a layer name. The server test suite reads the same files from
 
 ### Deploying
 
-Upload the app files at the root and `data/` + `media/` beside them; `tests/`, `tools/`,
+Upload the app files at the root and `data/` + `media/` beside them (`i18n.js` is one of
+them); `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
 only the game. `index.html` needs `style.css`, `quiz.css`, `flags.css`, `core.js`,
 `app.js`, `quizcore.js`, `stats.js`, `juice.js` and `quiz.js` next to it (plus
@@ -269,6 +271,39 @@ shortened where the English name is a mouthful or too close to another option
 (`People's Republic of China` → China, `Federated States of Micronesia` → Micronesia,
 the two Congos → DR Congo / Congo).
 
+### Language
+
+**There is ONE language setting for the whole app**: the burger's 18 chips (app.js's
+`setLang`). It already translated country and city names from the layers; `i18n.js`
+does the same for everything the GAME says. Nothing is a second setting, and no screen
+can be half in one language: `setLang` rebuilds the names, then calls the quiz's hook
+(`ViewState.onLang`), and the quiz re-renders every screen it owns.
+
+Eighteen tables, **139 keys each**, with:
+
+* **no missing key in any language** — a missing one would fall back to English, i.e. an
+  English button inside a Japanese screen, which is the one thing this must not do;
+* **placeholders that survive** (`{n}`, `{zone}`, `{country}`, `{score}`, `{len}`): the
+  test compares the placeholder set of every translation against English's, so a
+  sentence can never lose its number. Sentences with a name are **split at
+  `{country}`** (`ask_capital: 'What is the capital of {country}?'`) rather than glued
+  together in code, so a language that puts the name first, or wraps it in its own
+  punctuation, only moves the placeholder in its own string;
+* **the right script** — the long strings of the CJK, Cyrillic, Greek, Arabic, Hebrew,
+  Devanagari and Bengali tables must contain a character from that script, so a paste of
+  English cannot pass;
+* **a whitelist of legitimate identical strings** (French "Zone", Spanish "capital", the
+  music titles, "km²"), checked to stay small and to have no stale entry;
+* **RTL**: Arabic, Persian and Hebrew set `dir="rtl"` on the quiz's containers, so the
+  top bar, the footer, the six answers and the sheets flip. The map is untouched — it is
+  a picture.
+
+The **info panel** (which the quiz's answer card reuses) is translated too: its row
+labels and units come from the same table (`p_name`, `p_capital`, `p_parts`, `p_km2`…),
+and the continent with them. Natural Earth's own classification — `ECONOMY`,
+`INCOME_GRP`, `SUBREGION` — stays as the dataset spells it, like the source credit;
+`TYPE` is translated because its five values are ordinary words.
+
 ### The record: `stats.js`
 
 Everything played is written to `localStorage kwizzygeo.stats.v1` — a third key, apart
@@ -312,9 +347,10 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | script | what it pins |
 |---|---|
 | `tests/quizcore_test.js` | 60 checks on a synthetic lattice: the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
-| `tests/quiz_test.js` | 149 checks headless over the **real data**: the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
+| `tests/quiz_test.js` | 174 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the start page is the first page, 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, the keyboard, and the map handed back on quit |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
+| `tests/i18n_test.js` | 218 checks: the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
 | `tests/stats_test.js` | 62 checks on the record: an empty record, one answer, the streak, the groupings (mode / zone / the two flag halves kept apart), what "best" means across lengths, the 60-run cap, every corrupt-blob shape, reset (and that the settings key survives it), a `localStorage` that refuses to write, and that 300 answers stay under 40 kB |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
 

@@ -555,6 +555,13 @@ function loadCityNames(code, done) {
     if (done) done(false, e);
   });
 }
+/* Language change listeners: the quiz (quiz.js) re-renders every screen it owns when
+   the language moves, because its words come from i18n.js and its country and city
+   names from the layers. Registered here rather than polled, so no screen can be left
+   half in one language. */
+var LANG_FNS = [];
+function onLang(fn) { if (typeof fn === 'function') LANG_FNS.push(fn); }
+
 function setLang(code, silent) {
   code = validLang(code) || 'en';
   if (code === LANG) return;
@@ -566,6 +573,9 @@ function setLang(code, silent) {
     capCache = null;                   /* the capital lookup matches raw ADM0NAME: keep it */
     refreshMenu();
     refreshUI();
+    /* the quiz's screens LAST: they read countryName()/cityName() for their labels, so
+       they must run after the caches are rebuilt */
+    for (var q = 0; q < LANG_FNS.length; q++) { try { LANG_FNS[q](code); } catch (e) {} }
   }
   if (code === 'en' || cityNames[code]) { apply(); return; }
   loadCityNames(code, function () { apply(); });
@@ -1635,12 +1645,13 @@ function placePanelHTML(i) {
     ['country', P.c],
     ['region', P.r],
     ['type', PLACE_FCLASS[P.f] || P.f],
-    ['population', popText(P.p) ? fmtNum(P.p) + ' (pop. max)' : ''],
+    ['population', popText(P.p) ? TT('p_popmax', { n: fmtNum(P.p) }) : ''],
     ['at', Math.abs(P.lat).toFixed(3) + '° ' + (P.lat >= 0 ? 'N' : 'S') + ', ' +
            Math.abs(P.lon).toFixed(3) + '° ' + (P.lon >= 0 ? 'E' : 'W')],
     ['time zone', P.tz || ''],
     ['capital', capRoles(P.k).length ? capRoles(P.k).join(', ') : ''],
-    ['source', 'Natural Earth 10m populated places · rank ' + P.l + ' · shows from z ' + P.z]
+    ['source', 'Natural Earth 10m populated places · ' + TT('p_rank', { n: P.l }) + ' · ' +
+               TT('p_from_z', { n: P.z })]
   ];
   rows.push(['', linkRow([
     ['Wikipedia', wikiURL(P.e || P.n)],
@@ -1648,15 +1659,35 @@ function placePanelHTML(i) {
   ])]);
   return panelRowsHTML(rows);
 }
+/* THE PANEL'S WORDS come from the same table the quiz uses (i18n.js), in the language
+   in play: the row labels and the units are the app's own text. The VALUES Natural
+   Earth classifies (TYPE, ECONOMY, INCOME_GRP, SUBREGION) are dataset vocabulary and
+   stay as the dataset spells them - except TYPE, whose five values are standard words
+   the table carries (t_sovereign ...), and the continent, which is translated because
+   the app already has a translated vocabulary for continents (they are the zones). */
+function TT(key, vars) {
+  var I = window.KwizzyI18n;
+  return I ? I.t(key, vars, LANG) : key;
+}
+function typeText(t) {
+  var k = { 'Sovereign country': 't_sovereign', 'Sovereignty': 't_sovereignty',
+            'Country': 't_country', 'Breakaway': 't_breakaway',
+            'Disputed': 't_disputed', 'Indeterminate': 't_indeterminate' }[t];
+  return k ? TT(k) : t;
+}
 function panelRowsHTML(rows) {
   var s = '';
   for (var k2 = 0; k2 < rows.length; k2++) {
     var val = rows[k2][1];
     if (!val || val === '') continue;
     if (!rows[k2][0]) { s += '<div class="links">' + val + '</div>'; continue; }
+    /* the key is a table key; a key the table does not have is shown as it is, so a
+       new row is never a blank label */
+    var lab = TT('p_' + rows[k2][0].replace(/ /g, '_'));
+    if (lab === 'p_' + rows[k2][0].replace(/ /g, '_')) lab = rows[k2][0];
     /* every row is `position: relative` - cheap, and it keeps the flag's absolute
        position defined whether or not this particular row has one */
-    s += '<div class="row"><span class="k">' + rows[k2][0] + '</span><span class="v">' + val + '</span></div>';
+    s += '<div class="row"><span class="k">' + lab + '</span><span class="v">' + val + '</span></div>';
   }
   return s;
 }
@@ -1711,14 +1742,15 @@ function countryPanelHTML(idx) {
     ['name', flagHTML(flagCodeOf(p)) + '<span class="nm">' + shown + '</span>'],
     ['also', alt.join('  ·  ')],
     ['capital', capTxt],
-    ['type', p.TYPE + (p.SOVEREIGNT && p.SOVEREIGNT !== shown ? ' · sovereign: ' + p.SOVEREIGNT : '')],
-    ['region', [p.CONTINENT, p.SUBREGION].filter(function (x) { return x; }).join(' / ')],
+    ['type', typeText(p.TYPE) + (p.SOVEREIGNT && p.SOVEREIGNT !== shown
+              ? ' · ' + TT('p_sovereign', { name: countryNameIn(p, LANG) || p.SOVEREIGNT }) : '')],
+    ['region', [continentText(p.CONTINENT), p.SUBREGION].filter(function (x) { return x; }).join(' / ')],
     ['area', fmtKm2(km2)],
-    ['population', p.POP_EST ? fmtNum(p.POP_EST) + ' est. ' + (p.POP_YEAR || '') : ''],
+    ['population', p.POP_EST ? fmtNum(p.POP_EST) + ' ' + TT('p_est', { y: p.POP_YEAR || '' }) : ''],
     ['gdp', p.GDP_MD ? '$' + fmtNum(p.GDP_MD * 1e6) + ' (' + (p.GDP_YEAR || '') + ')' : ''],
     ['economy', [p.ECONOMY, p.INCOME_GRP].filter(function (x) { return x; }).join(' · ')],
     ['codes', 'ISO ' + p.ISO_A2 + ' / ' + p.ISO_A3 + ' / ' + p.ISO_N3 + ' · NE ' + p.NE_ID],
-    ['geometry', f.rings.length + ' part(s) · ' + p.VERTS + ' vertices']
+    ['geometry', TT('p_parts', { n: f.rings.length }) + ' · ' + TT('p_vertices', { n: p.VERTS })]
   ];
   /* the links out. Real <a> elements so middle-click / open-in-new-tab work; .panel
      is pointer-events:none (the map must stay draggable under it), so the anchors opt
@@ -1772,10 +1804,21 @@ function helpText() {
   }
   return '\u2630 view \u00b7 wheel = zoom \u00b7 drag / shift+wheel = move the centre \u00b7 dbl-click = fly there \u00b7 r reset \u00b7 c cities';
 }
+/* a continent, in the language in play: the zone vocabulary is the translated one, and
+   "Seven seas (open ocean)" - a Natural Earth filing, not a continent - is left alone */
+var CONTINENT_KEY = {
+  'Africa': 'z_africa', 'Asia': 'z_asia', 'Europe': 'z_europe',
+  'North America': 'z_na', 'South America': 'z_sa', 'Oceania': 'z_oceania'
+};
+function continentText(c) {
+  if (!c) return '';
+  return CONTINENT_KEY[c] ? TT(CONTINENT_KEY[c]) : c;
+}
+
 function fmtKm2(v) {
-  if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + ' million km²';
-  if (v >= 1000) return fmtNum(v) + ' km²';
-  return Math.round(v) + ' km²';
+  if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + ' ' + TT('p_million', { unit: TT('p_km2') });
+  if (v >= 1000) return fmtNum(v) + ' ' + TT('p_km2');
+  return Math.round(v) + ' ' + TT('p_km2');
 }
 function fmtNum(v) {
   return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
@@ -2502,6 +2545,8 @@ window.addEventListener('resize', function () {
    same entry point the menu row uses). */
 window.ViewState = {
   lang: function () { return LANG; },
+  /* the quiz's hook: called after every language change, once the names are rebuilt */
+  onLang: function (fn) { onLang(fn); },
   /* the ONE writing entry point here: the language is a property of the whole app
      and a test must drive the same path the menu chip does */
   setLang: function (code) { setLang(code); },
@@ -2728,6 +2773,24 @@ window.MapApp = {
     var i = quizIndexOf(key);
     if (i < 0) return null;
     return fitTargetForFeature(i, null, FLY_PAD, coreFeature(feats[i]), QUIZ_MIN_WINDOW_DEG);
+  },
+  /* THE NAME OF A COUNTRY / OF ITS CAPITAL, in the language in play, looked up at call
+     time. The quiz's items carry a name too, but that one was baked when the item list
+     was built; these two are what the screens render, so switching language on the end
+     screen - or the capital names, which arrive from a second file - is never stale. */
+  label: function (key) {
+    var i = quizIndexOf(key);
+    if (i < 0) return '';
+    var p = feats[i].props || {};
+    var nm = countryName(p);
+    if (LANG === 'en' && QUIZ_SHORT[nm]) nm = QUIZ_SHORT[nm];
+    return nm;
+  },
+  capLabel: function (key) {
+    var i = quizIndexOf(key);
+    if (i < 0) return '';
+    var ci = capitalOf(i);
+    return ci < 0 ? '' : cityName(ci);
   },
   /* THE DETAILS of the country, and of its capital city, as the info panel renders
      them - the same builder, so a quiz answer and a click on the map say the same
