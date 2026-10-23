@@ -148,6 +148,12 @@ try {
   logoProbe.onload = function () { logoOK = true; if (screen === 'title') render(); };
   logoProbe.src = 'media/logo.png';
 } catch (e) { /* no Image() (node): the wordmark stays */ }
+/* IS THE PLATFORM IN CHARGE OF THE PAGE? (crazy.js) Asked where the title is BUILT,
+   not where a style is applied, because the ORDER of the two ways in depends on it. */
+function onPlatform() {
+  var C = window.Crazy;
+  return !!(C && C.on && C.on());
+}
 function flagsReady() { return M.ready(); }
 function capsReady() { return M.placesReady(); }
 /* THE BEST SCORE OF THIS CONFIG comes from stats.js, which compares by RATIO (so a
@@ -235,14 +241,23 @@ function titleHTML() {
      round, or take the map and explore it - and then the two doors that are not ways to
      play (credits, and the sound/stats drawers in the footer). Leaving the game used to
      be a small link down here AND a row in the burger; it is a first-class choice. */
-  h += '<div class="qz-titleacts">' +
-       '<button class="qz-play qz-xl" data-act="play"' + (ready ? '' : ' disabled') + '>' +
-       esc(ready ? T('play') : T('loading_map')) + '</button>' +
-       /* RANDOM PLAY: one tap, no walk - a mode and a zone drawn at random, then the
-          round starts. It sits UNDER Play because it is Play with the choices taken
-          away, not a fourth way to use the app. */
-       '<button class="qz-ghost qz-randbtn" data-act="random"' + (ready ? '' : ' disabled') + '>' +
-       esc(T('play_random')) + '</button>' +
+  /* FAST PLAY: one tap, no walk - a mode and a zone drawn at random, then the round
+     starts. WHERE IT SITS DEPENDS ON WHO IS ASKING:
+       GitHub Pages  a player who came here on purpose; Play is the way in and Fast Play
+                     is the variant, so Fast Play is second and smaller;
+       CrazyGames    their rule for a Full Launch is "land in gameplay in ONE click", and
+                     Fast Play is that click: it comes FIRST and it is the big one, with
+                     Play (the walk) beneath it as the deliberate route.
+     Two weights, one column, and the biggest button is the shortest way to play. */
+  var fastFirst = onPlatform();
+  var fastBtn = '<button class="' + (fastFirst ? 'qz-play qz-xl qz-fastbtn' : 'qz-ghost qz-fastbtn') +
+       '" data-act="random"' + (ready ? '' : ' disabled') + '>' +
+       esc(ready ? T('play_fast') : T('loading_map')) + '</button>';
+  var playBtn = '<button class="' + (fastFirst ? 'qz-ghost qz-playbtn' : 'qz-play qz-xl') +
+       '" data-act="play"' + (ready ? '' : ' disabled') + '>' +
+       esc(ready ? T('play') : T('loading_map')) + '</button>';
+  h += '<div class="qz-titleacts' + (fastFirst ? ' qz-fastfirst' : '') + '">' +
+       (fastFirst ? fastBtn + playBtn : playBtn + fastBtn) +
        '<button class="qz-ghost qz-explorebtn" data-act="explore">' +
        esc(T('explore')) + '</button>' +
        '<button class="qz-ghost qz-creditsbtn" data-act="about">' + esc(T('ab_title')) + '</button>' +
@@ -403,21 +418,30 @@ function bestText() {
          (b.played > 1 ? ' \u00b7 ' + T('best_n', { n: b.played }) : '');
 }
 
-/* ---------- screen 2: a question ---------- */
+/* ---------- screen 2: a question ----------
+   THE QUESTION SAYS WHAT KIND OF QUESTION IT IS. A player who came in through Fast
+   Play never saw the three steps, so the mode, the zone and the difficulty have to be
+   readable WHILE playing - and a player who walked the steps forgets them by question
+   six. One small kicker above the prompt, in the walk's own voice (uppercase, tracking),
+   built from the same translated words the steps and the score card use: "Find the
+   flag · Country → flag · Europe · Easy". It names the CONTEXT, never the answer. */
+function kindLabel() {
+  /* in flag mode the VARIANT is the precise name of the question ("Country → flag"),
+     and "Find the flag" would say less than that */
+  if (q.mode === 'flag' && q.variant) return variantLabel(q.variant);
+  return modeLabel(q.mode);
+}
 function askHTML() {
-  var h = '';
+  var h = '<div class="qz-qkind">' + esc(kindLabel()) + ' \u00b7 ' + esc(subZoneDiff(q)) + '</div>';
   if (q.mode === 'country') {
-    h += '<div class="qz-q">' + esc(T('ask_country')) + '</div>' +
-         '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
+    h += '<div class="qz-q">' + esc(T('ask_country')) + '</div>';
   } else if (q.mode === 'capital') {
-    h += '<div class="qz-q">' + askCapital(q) + '</div>' +
-         '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
+    h += '<div class="qz-q">' + askCapital(q) + '</div>';
   } else if (q.mode === 'locate') {
     /* THE CITY IS THE QUESTION: named, in the language in play, and split at {city} so a
        language can put the name where its own sentence wants it */
     var cityN = M.placeLabel(q.answer.id) || q.answer.name;
-    h += '<div class="qz-q">' + named('ask_locate', cityN, 'city') + '</div>' +
-         '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
+    h += '<div class="qz-q">' + named('ask_locate', cityN, 'city') + '</div>';
   } else if (q.variant === 'flags') {
     /* the country is NAMED and lit up on the map, with its capital: the flag is the
        answer, so it must not be anywhere on screen */
