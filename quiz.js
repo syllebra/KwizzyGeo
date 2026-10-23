@@ -15,6 +15,17 @@
 'use strict';
 
 var Q = window.QuizCore;
+/* THE LOCATE DIFFICULTY IS A TASTE, SO IT IS TUNED BY LOOKING, not by arguing: the three
+   band edges are Natural Earth's min_zoom (the zoom at which a map starts naming a city),
+   and ?locz=easy,medium,hard moves them for one session. The defaults are documented in
+   quizcore.js; this only lets a player (or I) try another set without a rebuild. */
+(function () {
+  var m = /[?&]locz=([0-9.]+),([0-9.]+),([0-9.]+)/.exec((window.location && window.location.search) || '');
+  if (!m || !Q || !Q.CITY_Z) return;
+  Q.CITY_Z.easy = parseFloat(m[1]);
+  Q.CITY_Z.medium = parseFloat(m[2]);
+  Q.CITY_Z.hard = parseFloat(m[3]);
+})();
 var M = window.MapApp;
 /* the juice: Kwizzy's sound effects, haptics, particles and music (juice.js). Sound is
    OPTIONAL here - the game must run exactly as before if the module is absent or the
@@ -957,7 +968,7 @@ function confirmGuess() {
   bumped = res.ok;
   aimOff();
   var nm = M.placeLabel(q.answer.id) || q.answer.name;
-  if (M.marks) M.marks(guess, { lon: q.answer.lon, lat: q.answer.lat }, nm);
+  if (M.marks) M.marks(guess, { lon: q.answer.lon, lat: q.answer.lat }, nm, res.km);
   /* frame both points: the reveal is a picture, and two marks 200 km apart have to be
      two marks, not one */
   if (M.fitMarks) M.fitMarks();

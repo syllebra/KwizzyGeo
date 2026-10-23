@@ -190,38 +190,48 @@ function poolFor(items, zone, mode) {
 
 /* ---------- LOCATE: the city pool, and how hard a city is ----------
    A locate ITEM is a city, built by quiz.js from the map's own places layer:
-   { id:'p<index>', idx, name, lat, lon, pop, cap (ADM0CAP 0/1), cont, sub, country }
+   { id:'p<index>', idx, name, lat, lon, pop, z (min_zoom), cap (ADM0CAP 0/1), cont, sub, country }
 
-   DIFFICULTY IS FAME, and fame is the city's population - with ONE exception that
-   matters: a national capital is a city a map reader knows whatever its size (Bern
-   122 000, Reykjavik 115 000, Canberra 400 000). So the bands are
+   DIFFICULTY IS FAME, and the first build used POPULATION for it. That is a bad proxy and
+   a player notices: Duisburg has 1.3 million people and nobody outside Germany could place
+   it, while Bern has 275 000 and everyone can. What actually encodes fame here is Natural
+   Earth's own MIN_ZOOM - the zoom at which a map starts showing the city's name - because
+   that is a cartographer's judgement about how much of the world knows the place:
+   Paris/Tokyo/New York are at 1.7, a country's big cities at 4-5, regional centres at 6,
+   small towns at 7-9. So the bands are thresholds on min_zoom:
 
-     easy   - the million-plus cities, and every national capital;
-     medium - 250 000 to 1 000 000, and not a capital;
-     hard   - 40 000 to 250 000, and not a capital.
-   The band IS the difficulty id (easy / medium / hard), so a pool never has to be
-   translated from one vocabulary into another - the first build had a 'normal' band
-   and a 'medium' difficulty, and cityPool('medium') matched nothing.
+     easy   - z <= 5.0 AND (250 000 people or a national capital): a name a world map shows;
+     medium - z <= 6.1: a regional centre;
+     hard   - z <= 7.0: a smaller town.
 
-   The bands are DISJOINT on purpose: hard is not "any city, unluckily", it is a
-   category, so a hard round is a hard round. Below 40 000 nothing is asked at all:
-   a town nobody could place is not a hard question, it is a lottery. Measured on the
-   shipped data (7 342 places, cities with a country and a population): World has
-   602 easy, 1 164 medium, 2 832 hard; the tightest zone is Oceania (19 / 6 / 43). */
-var CITY_FAME = { easy: 1000000, medium: 250000, hard: 40000 };
+   Two floors, both measured against what a question can fairly ask:
+     * nothing ABOVE 7.0 at any difficulty - the 8-9 tail is the towns only a regional map
+       names (Eger, Tatabánya, Wum), and asking about them is not a hard question but a
+       lottery. That tail is most of what made Hard feel unfair;
+     * nothing below 40 000 people unless it is a capital (Vaduz, Monaco, Vatican City).
+   The 250 000 condition on Easy is what removes the second artifact of min_zoom: an
+   ISOLATED speck gets a low zoom because a map must label something in the emptiness
+   (Abéché, Atar, Honiara, Alice Springs, Arctic Bay were all "easy"), and a population
+   floor is what tells those apart from Kathmandu.
+
+   Measured on the shipped data: world pools 448 easy / 1 957 medium / 2 013 hard, spread
+   over 165 / 179 / 154 countries. */
+var CITY_Z = { easy: 5.0, medium: 6.1, hard: 7.0 };
+var EASY_MIN_POP = 250000;
+var ASK_MIN_POP = 40000;         /* below this, only a capital is asked */
 var BULLSEYE_KM = 25;            /* "you found it" - the dot on the score screen */
 var POINTS_MAX = 1000;           /* per question; a round is n x 1000 */
 var SCORE_KM = 1500;             /* the distance that costs 63 % of the points */
 
 function cityBand(it) {
-  var p = it && it.pop;
   if (!it) return null;
-  if (it.cap) return 'easy';     /* ADM0CAP: a national capital is a famous name */
-  if (p == null || !isFinite(p) || p <= 0) return null;
-  if (p >= CITY_FAME.easy) return 'easy';
-  if (p >= CITY_FAME.medium) return 'medium';
-  if (p >= CITY_FAME.hard) return 'hard';
-  return null;
+  var p = it.pop, z = it.z;
+  if (z == null || !isFinite(z)) return null;
+  if (z > CITY_Z.hard) return null;                        /* a town, not a question */
+  if ((p == null || !isFinite(p) || p < ASK_MIN_POP) && !it.cap) return null;
+  if (z <= CITY_Z.easy && (it.cap || (p != null && p >= EASY_MIN_POP))) return 'easy';
+  if (z <= CITY_Z.medium) return 'medium';
+  return 'hard';
 }
 /* the cities a round can ask about: the zone's, in the difficulty's band */
 function cityPool(items, zone, difficulty) {
@@ -249,14 +259,78 @@ function pointsFor(km) {
   if (!isFinite(km) || km < 0) return 0;
   return Math.round(POINTS_MAX * Math.exp(-km / SCORE_KM));
 }
-/* one locate question: a city nobody has been asked yet this session */
+
+/* ---------- HOW A CITY IS CHOSEN: COUNTRY FIRST, THEN CITY ----------
+   Drawing uniformly from the CITIES is what the first build did, and it is wrong in a way
+   a player notices at once: a city question is really a question about a country's
+   geography, but the pool is not spread over countries - it is spread over cities, and
+   cities are wildly uneven. Measured on the shipped data, the easy band is 602 cities in
+   198 countries, and CHINA ALONE IS 18.6 % of it (the USA 8.4 %, India 7.9 %): one easy
+   question in five was Chinese, and a ten-question round named 8 distinct countries, not
+   ten.
+
+   So the draw is two-stage, as the player expects: a COUNTRY, then a city inside it.
+
+   The country's weight is `cities^COUNTRY_WEIGHT`, and that one exponent is the whole
+   design decision:
+     * 1.0 = today's behaviour (proportional to cities) - China 18.6 %, USA 8.4 %;
+     * 0.0 = every country strictly equal - China 0.6 %, a micro-state exactly as likely
+       as China, so "Easy" becomes "the capital of some random small country" and the big
+       countries nearly vanish;
+     * 0.5 (the default) = in between, and the one that reads right: measured, China is
+       3.5 %, the USA 2.5 %, India 2.3 %, and the round names TEN distinct countries out
+       of ten.
+   A country is never asked twice in a round while there is an unasked one left, which is
+   the rule the three multiple-choice modes already keep for their answers. */
+var COUNTRY_WEIGHT = 0.5;
+function citiesByCountry(pool) {
+  var by = {}, order = [], i, k;
+  for (i = 0; i < pool.length; i++) {
+    k = pool[i].country || '';
+    if (!k) k = '\u0000' + pool[i].id;        /* a city with no country stands alone */
+    if (!by[k]) { by[k] = []; order.push(k); }
+    by[k].push(pool[i]);
+  }
+  return { by: by, order: order };
+}
+/* one locate question: a country nobody has been asked yet this round, then a city of it,
+   by its share of the band */
 function cityQuestion(sess, r) {
-  var pool = sess.pool;
-  if (!pool.length) return null;
-  var free = [], i;
-  for (i = 0; i < pool.length; i++) if (!sess.used[pool[i].id]) free.push(pool[i]);
-  if (!free.length) { sess.used = {}; free = pool.slice(0); }
-  var answer = free[Math.floor(r() * free.length)];
+  if (!sess.pool.length) return null;       /* an empty zone has no question to ask */
+  if (!sess.byCountry) sess.byCountry = citiesByCountry(sess.pool);
+  var by = sess.byCountry.by, order = sess.byCountry.order, i, k;
+  /* the countries that still have a city to ask */
+  var freeC = [], allC = [];
+  for (i = 0; i < order.length; i++) {
+    k = order[i];
+    var un = [];
+    for (var j = 0; j < by[k].length; j++) if (!sess.used[by[k][j].id]) un.push(by[k][j]);
+    if (!un.length) continue;
+    allC.push(k);
+    if (!sess.usedCountry[k]) freeC.push(k);
+  }
+  if (!allC.length) {                        /* every city asked: start the zone over */
+    sess.used = {}; sess.usedCountry = {};
+    return cityQuestion(sess, r);
+  }
+  /* prefer a country this round has not named; fall back to any that still has a city */
+  var cands = freeC.length ? freeC : allC;
+  var pick = cands[0], weights = [], total = 0;
+  if (COUNTRY_WEIGHT === 0) {
+    pick = cands[Math.floor(r() * cands.length)];
+  } else {
+    for (i = 0; i < cands.length; i++) {
+      var w = Math.pow(by[cands[i]].length, COUNTRY_WEIGHT);
+      weights.push(w); total += w;
+    }
+    var t = r() * total;
+    for (i = 0; i < cands.length; i++) { pick = cands[i]; if ((t -= weights[i]) <= 0) break; }
+  }
+  sess.usedCountry[pick] = 1;
+  /* then a city of it, uniformly among the ones not asked yet */
+  var free = [];
+  for (i = 0; i < by[pick].length; i++) if (!sess.used[by[pick][i].id]) free.push(by[pick][i]);
+  var answer = free[Math.floor(r() * free.length)] || by[pick][0];
   sess.used[answer.id] = 1;
   return {
     mode: 'locate', zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
@@ -374,10 +448,14 @@ function newSession(items, cfg, seed) {
   if (want == null) want = lens[0].id;
   if (want === 0) want = pool.length;          /* "All" = the zone's whole pool */
   c.lenWanted = want;
+  /* THE ROUND IS CAPPED BY ITS CITIES, not by its countries. "One country per question" is
+     a PREFERENCE in cityQuestion, not a limit on the round: capping at the country count
+     turned a 25-question round of Oceania/medium into TWO questions (6 cities, 2
+     countries), when the honest round there is six cities in two countries. */
   c.len = Math.max(1, Math.min(want, pool.length || want, 500));
   return {
     cfg: c, pool: pool,
-    used: {}, i: 0, score: 0, points: 0, km: 0, asked: [],
+    used: {}, usedCountry: {}, byCountry: null, i: 0, score: 0, points: 0, km: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };
 }
@@ -420,7 +498,9 @@ function answerPoint(sess, q, guess) {
 var QUIZCORE = {
   N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
   LENS_LOCATE: LENS_LOCATE, lensOf: lensOf,
-  BULLSEYE_KM: BULLSEYE_KM, POINTS_MAX: POINTS_MAX, SCORE_KM: SCORE_KM, CITY_FAME: CITY_FAME,
+  BULLSEYE_KM: BULLSEYE_KM, POINTS_MAX: POINTS_MAX, SCORE_KM: SCORE_KM,
+  CITY_Z: CITY_Z, EASY_MIN_POP: EASY_MIN_POP, ASK_MIN_POP: ASK_MIN_POP,
+  COUNTRY_WEIGHT: COUNTRY_WEIGHT, citiesByCountry: citiesByCountry,
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
   cityBand: cityBand, cityPool: cityPool, pointsFor: pointsFor,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,

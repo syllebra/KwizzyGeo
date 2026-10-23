@@ -337,25 +337,39 @@ check('flag options are all different flags', flagQ.every(q => {
      * locate's lengths are its own (5 / 10 / 25, no "All"), so a stored "All" from a
        country round cannot start a 4 598-question round. */
 (function () {
-  const C = (i, name, lat, lon, pop, cap, cont) =>
+  /* min_zoom (z) is the fame rank now, so a fixture HAS to carry one: it is what the
+     bands are thresholds on. The numbers below are the real ones from Natural Earth
+     (Paris 1.7, Bern 5.6, Lyon 6.0, Villeurbanne 6.7). */
+  const C = (i, name, lat, lon, pop, cap, cont, zz) =>
     ({ id: 'p' + i, idx: i, name: name, lat: lat, lon: lon, pop: pop, cap: cap || 0,
-       cont: cont || 'Europe', sub: '', country: 'X' });
+       cont: cont || 'Europe', sub: '', country: 'X', z: zz == null ? 6.0 : zz });
   const CITIES = [
-    C(1, 'Paris', 48.85, 2.35, 9904000, 0),
-    C(2, 'Lyon', 45.76, 4.83, 472000, 0),
-    C(3, 'Villeurbanne', 45.77, 4.88, 124000, 0),
-    C(4, 'Annonay', 45.24, 4.67, 16000, 0),        /* too small to be asked */
-    C(5, 'Bern', 46.95, 7.44, 122000, 1),          /* a capital: easy whatever its size */
-    C(6, 'Marseille', 43.30, 5.40, 1400000, 0),
-    C(7, 'Ouagadougou', 12.37, -1.52, 1800000, 0, 'Africa'),
-    C(8, 'Bobo-Dioulasso', 11.18, -4.30, 200000, 0, 'Africa')
+    C(1, 'Paris', 48.85, 2.35, 9904000, 0, 'Europe', 1.7),
+    C(2, 'Lyon', 45.76, 4.83, 472000, 0, 'Europe', 6.0),
+    C(3, 'Villeurbanne', 45.77, 4.88, 124000, 0, 'Europe', 6.7),
+    C(4, 'Annonay', 45.24, 4.67, 16000, 0, 'Europe', 8.0),        /* too small to be asked */
+    C(5, 'Bern', 46.95, 7.44, 275000, 1, 'Europe', 5.6),          /* a capital: easy */
+    C(6, 'Marseille', 43.30, 5.40, 1400000, 0, 'Europe', 4.0),
+    C(7, 'Ouagadougou', 12.37, -1.52, 1800000, 0, 'Africa', 4.0),
+    C(8, 'Bobo-Dioulasso', 11.18, -4.30, 200000, 0, 'Africa', 6.7),
+    C(9, 'Eger', 47.90, 20.37, 56647, 0, 'Europe', 7.7),          /* the 8-9 tail: never */
+    C(10, 'Atar', 20.52, -13.05, 25000, 0, 'Africa', 5.0)         /* an isolated speck */
   ];
   const names = (list) => list.map(c => c.name).join(',');
 
-  check('the fame bands are disjoint',
+  /* Bern is a capital at min_zoom 5.6, so it is MEDIUM under these thresholds: min_zoom
+     leads, and being a capital only rescues a city from the population floor and from the
+     Easy band's 250 000 condition - it does not make an obscure capital famous. */
+  check('the fame bands are disjoint, and read off min_zoom',
         ['easy', 'medium', 'hard'].map(d => names(Q.cityPool(CITIES, 'world', d))).join('|') ===
-        'Paris,Bern,Marseille,Ouagadougou|Lyon|Villeurbanne,Bobo-Dioulasso',
+        'Paris,Marseille,Ouagadougou|Lyon,Bern|Villeurbanne,Bobo-Dioulasso',
         ['easy', 'medium', 'hard'].map(d => names(Q.cityPool(CITIES, 'world', d))).join('|'));
+  check('a town above min_zoom 7 is never asked (Eger, z 7.7)',
+        Q.cityBand(C(20, 'Eger', 0, 0, 56647, 0, 'Europe', 7.7)) === null);
+  check('...nor is an isolated speck with a low zoom and no people (Atar, 25 000)',
+        Q.cityBand(C(21, 'Atar', 0, 0, 25000, 0, 'Africa', 5.0)) === null);
+  check('...but a tiny CAPITAL still is (Vaduz, 36 000)',
+        Q.cityBand(C(22, 'Vaduz', 0, 0, 36281, 1, 'Europe', 6.7)) === 'hard');
   check('...no city in two bands at once', (() => {
     const seen = {};
     return ['easy', 'medium', 'hard'].every(d => Q.cityPool(CITIES, 'world', d).every(c => {
@@ -364,10 +378,16 @@ check('flag options are all different flags', flagQ.every(q => {
     }));
   })());
   check('a national capital is easy however small it is',
-        Q.cityBand(C(9, 'Reykjavik', 64.1, -21.9, 115000, 1)) === 'easy');
+        Q.cityBand(C(9, 'Reykjavik', 64.1, -21.9, 166212, 1, 'Europe', 3.7)) === 'easy');
+  check('...but a capital does not become Easy by existing (Bern, z 5.6)',
+        Q.cityBand(C(23, 'Bern', 46.9, 7.4, 275329, 1, 'Europe', 5.6)) === 'medium');
   check('a town below 40 000 is never asked',
-        Q.cityBand(C(10, 'Nowhere', 0, 0, 39999, 0)) === null && Q.cityBand(C(10, 'x', 0, 0, 40000, 0)) === 'hard');
-  check('a city with no population and no capital is not asked', Q.cityBand(C(11, 'y', 0, 0, null, 0)) === null);
+        Q.cityBand(C(10, 'Nowhere', 0, 0, 39999, 0, 'Europe', 6.0)) === null &&
+        Q.cityBand(C(10, 'x', 0, 0, 40000, 0, 'Europe', 6.0)) === 'medium');
+  check('a city with no population and no capital is not asked',
+        Q.cityBand(C(11, 'y', 0, 0, null, 0, 'Europe', 6.0)) === null);
+  check('a city with no min_zoom is not asked at all',
+        Q.cityBand({ id: 'q', name: 'q', lat: 0, lon: 0, pop: 5000000, cap: 1 }) === null);
   check('a zone still filters the cities',
         names(Q.cityPool(CITIES, 'africa', 'hard')) === 'Bobo-Dioulasso', names(Q.cityPool(CITIES, 'africa', 'hard')));
   check('the point of a bullseye is the full 1000', Q.pointsFor(0) === Q.POINTS_MAX, Q.pointsFor(0));
@@ -386,8 +406,8 @@ check('flag options are all different flags', flagQ.every(q => {
 
   const sess = Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'medium', len: 5 }, 3);
   check('a locate session asks CITIES, from the difficulty band',
-        sess.pool.length === 1 && sess.pool[0].name === 'Lyon', sess.pool.length);
-  check('...and its length is capped to that pool', sess.cfg.len === 1, sess.cfg.len);
+        sess.pool.length === 2 && names(sess.pool) === 'Lyon,Bern', sess.pool.length);
+  check('...and its length is capped to that pool', sess.cfg.len === 2, sess.cfg.len);
   const q = Q.nextQuestion(sess);
   check('a locate question has no options at all',
         !!q && q.mode === 'locate' && q.options.length === 0 && q.correct === -1);
@@ -412,16 +432,92 @@ check('flag options are all different flags', flagQ.every(q => {
         Q.lensOf('capital').map(l => l.id).join(',') === '10,25,0' &&
         Q.lensOf('flag').map(l => l.id).join(',') === '10,25,0');
   check('a stored "All" cannot start a locate round of every city',
-        Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 0 }, 1).cfg.len === 4,
+        Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 0 }, 1).cfg.len === 3,
         Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 0 }, 1).cfg.len);
   /* every question of a locate round is a different city: the pool is walked, not sampled */
   const seen = {};
   const s3 = Q.newSession(CITIES, { mode: 'locate', zone: 'europe', difficulty: 'easy', len: 10 }, 11);
   let n3 = 0, dup = false;
   while (Q.nextQuestion(s3)) { n3++; }
-  check('a locate round of 4 easy cities in Europe asks 3 questions (Europe has 3)',
-        n3 === Q.cityPool(CITIES, 'europe', 'easy').length && n3 === 3, n3);
+  check('a locate round asks one question per easy city in Europe (2 of them)',
+        n3 === Q.cityPool(CITIES, 'europe', 'easy').length && n3 === 2, n3);
   void seen;
+})();
+
+/* ---------- 10. LOCATE PICKS A COUNTRY FIRST ----------
+   Drawing from the cities is what the first build did, and it made one easy question in
+   five Chinese (China is 18.6 % of the easy pool). The rule is now two-stage: a country,
+   then a city of it - so what these checks pin is that the COUNTRY is what is spread, that
+   a country is not asked twice in a round while an unasked one remains, and that a big
+   country is still visible without dominating. */
+(function () {
+  const C = (i, name, country, pop, cap) =>
+    ({ id: 'p' + i, idx: i, name: name, country: country, pop: pop, cap: cap || 0,
+       lat: 45 + (i % 7), lon: 5 + (i % 11), cont: 'Europe', sub: '', z: 4.0 });
+  /* one bloated country (20 cities) and five small ones (1 city each): a draw over the
+     CITIES makes the bloated one 80 %, a draw over the COUNTRIES makes it ~34 % at the
+     default weight and 17 % strictly equal */
+  const BIG = [];
+  for (let i = 0; i < 20; i++) BIG.push(C(i, 'Big ' + i, 'BIG', 2000000));
+  const SMALL = [C(100, 'S1', 'S1', 2000000), C(101, 'S2', 'S2', 2000000),
+                 C(102, 'S3', 'S3', 2000000), C(103, 'S4', 'S4', 2000000),
+                 C(104, 'S5', 'S5', 2000000)];
+  const ALL = BIG.concat(SMALL);
+  const grouped = Q.citiesByCountry(ALL);
+  check('the cities are grouped by country', Object.keys(grouped.by).length === 6 &&
+        grouped.by.BIG.length === 20, Object.keys(grouped.by).length);
+
+  const counts = {};
+  let rounds = 300, perRound = 0;
+  for (let i = 0; i < rounds; i++) {
+    const sess = Q.newSession(ALL, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 5 }, 100 + i);
+    let q, n = 0;
+    while ((q = Q.nextQuestion(sess))) {
+      counts[q.answer.country] = (counts[q.answer.country] || 0) + 1;
+      n++;
+    }
+    if (i === 0) perRound = n;
+  }
+  const tot = Object.values(counts).reduce((a, b) => a + b, 0);
+  const bigShare = counts.BIG / tot;
+  /* 6 is not a length locate offers (5 / 10 / 25), so this is also the resolution rule at
+     work: the round is 5, and it asks 5 DIFFERENT countries out of the 6 available */
+  check('a round of 5 in a 6-country zone asks 5 questions', perRound === 5, perRound);
+  check('the big country no longer takes most of the questions',
+        bigShare < 0.42, (100 * bigShare).toFixed(1) + '%');
+  check('...but it is still in the mix (a country, not an accident)',
+        bigShare > 0.15, (100 * bigShare).toFixed(1) + '%');
+  check('every small country is asked about as often as the big one is',
+        ['S1', 'S2', 'S3', 'S4', 'S5'].every(k => counts[k] > 0), JSON.stringify(counts));
+
+  /* a country is not asked twice in a round while an unasked one remains */
+  check('a round asks DIFFERENT countries (one question each)', (() => {
+    for (let i = 0; i < 40; i++) {
+      const sess = Q.newSession(ALL, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 5 }, 900 + i);
+      const seen = {}, names = [];
+      let q;
+      while ((q = Q.nextQuestion(sess))) {
+        if (seen[q.answer.country]) return false;
+        seen[q.answer.country] = 1; names.push(q.answer.country);
+      }
+    }
+    return true;
+  })());
+  /* ...and once every country HAS been asked, the round may repeat one rather than stop */
+  check('past the last country, a round goes on with the cities that are left', (() => {
+    const sess = Q.newSession(ALL, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 10 }, 77);
+    let n = 0, q, rep = false, seen = {};
+    while ((q = Q.nextQuestion(sess))) {
+      n++;
+      if (seen[q.answer.country]) rep = true;
+      seen[q.answer.country] = 1;
+    }
+    return n === 10 && rep;          /* 6 countries, 10 questions: it had to come round */
+  })());
+
+  /* the weight is the one design decision: 1.0 would be "proportional to cities" again */
+  check('the country weight is between the two extremes (0 = equal, 1 = by cities)',
+        Q.COUNTRY_WEIGHT > 0 && Q.COUNTRY_WEIGHT < 1, Q.COUNTRY_WEIGHT);
 })();
 
 console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));

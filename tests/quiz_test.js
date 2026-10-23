@@ -720,9 +720,23 @@ async function afterLoad() {
      comparing a label to `o.name` would compare French to French) */
   const enName = {};
   items.forEach(it => { enName[it.id] = it.name; });
+  /* AT LEAST ONE label must differ, and the reason is worth writing down: a handful of
+     countries are spelled the same in French and English (Portugal, Liechtenstein,
+     Ukraine, Monaco, Djibouti, Luxembourg...), so a random six can legitimately contain
+     several. "at least 4 of 6 differ" counted the language of the LAYER, not of the app,
+     and it failed one run in five for that reason - a flaky check teaches nobody
+     anything. What matters is that the switch happens at all. */
   check('...and the labels are not the English names',
-        Z().question.options.filter(o => enName[o.id] && M().label(o.id) !== enName[o.id]).length >= 4,
+        Z().question.options.filter(o => enName[o.id] && M().label(o.id) !== enName[o.id]).length >= 1,
         Z().question.options.map(o => M().label(o.id) + '/' + enName[o.id]).join(' '));
+  /* THE SWITCH, STATED DETERMINISTICALLY: a country whose French name is certain, so the
+     assertion cannot depend on which six the round happened to draw. Germany is
+     "Allemagne" - no accent to lean on (Albanie, Slovaquie and Italie have none either,
+     which is how a "look for an accent" version of this check flaked). */
+  const germany = items.filter(it => it.name === 'Germany' || it.nameEn === 'Germany')[0];
+  check('...and the French name of a known country is the French one',
+        !!germany && M().label(germany.id) === 'Allemagne',
+        germany ? M().label(germany.id) : 'no Germany in the layer');
   check('every option has a label in the chosen language',
         Z().question.options.every(o => !!M().label(o.id)));
   /* answering in French: the verdict, then the details panel in French */
@@ -1031,6 +1045,13 @@ async function afterLoad() {
   check('...and points out of a thousand', st1.qpoints >= 0 && st1.qpoints <= 1000, st1.qpoints);
   check('...the map shows BOTH marks now (the guess and the real city)',
         !!M().markState() && !!M().markState().target && !!M().markState().guess);
+  /* THE DISTANCE IS ON THE LINE. The km the verdict prints is also drawn along the dashed
+     line between the two marks - it is the answer to a locate question, and reading it
+     there is what makes the miss something you measure. The map is told the number, not
+     just the two points. */
+  check('...and the distance is handed to the map, to draw on the line',
+        M().markState().km != null && Math.abs(M().markState().km - st1.qkm) < 1e-6,
+        M().markState().km + ' vs ' + st1.qkm);
   check('...the aim is off, so a tap after the answer does not move the marker',
         M().aim() === false);
   check('...the verdict names the distance', new RegExp('[0-9]').test(
@@ -1059,6 +1080,46 @@ async function afterLoad() {
         M().projection ? M().projection() : '(none)');
   check('...and the aim with it', M().aim() === false);
   check('...and the marks', M().markState() === null);
+
+  /* ---------- 10. THE DIFFICULTY OF A LOCATE ROUND ----------
+     Two things were wrong when he played it, and both are fixed in quizcore:
+       * one easy question in five was Chinese, because a city was drawn from the CITIES
+         and the pool is spread over cities, not countries. The draw is now country-first
+         (quizcore_test.js measures the distribution);
+       * "Easy" was POPULATION, which made Duisburg (1.3 M, unknown) easy and Bern
+         (275 k, known) hard. Fame is now Natural Earth's min_zoom, with two floors.
+     What this section pins is what a player sees: the bands' membership, the tail that is
+     never asked, and the ?locz= knob that lets the three edges be tried without a rebuild. */
+  const QzL = global.window.Quizzy;
+  const citiesL = M().cities();
+  check('every locate city carries the fame rank the bands are built on',
+        citiesL.length > 5000 && citiesL.every(c => c.z != null && isFinite(c.z)), citiesL.length);
+  check('the easy band is a world-map set, not a population one: it contains Reykjavik',
+        (() => {
+          const p = global.window.QuizCore.cityPool(citiesL, 'world', 'easy');
+          const n = p.map(c => c.name);
+          return n.indexOf('Reykjavík') >= 0 || n.indexOf('Reykjavik') >= 0;
+        })());
+  check('...and NOT a big-but-obscure one: Duisburg is not Easy',
+        (() => {
+          const p = global.window.QuizCore.cityPool(citiesL, 'world', 'easy');
+          return !p.some(c => c.name === 'Duisburg');
+        })());
+  check('the tail above min_zoom 7 is asked at no difficulty',
+        (() => {
+          const bad = [];
+          ['easy', 'medium', 'hard'].forEach(d =>
+            global.window.QuizCore.cityPool(citiesL, 'world', d).forEach(c => {
+              if (c.z > global.window.QuizCore.CITY_Z.hard) bad.push(c.name);
+            }));
+          return bad.length === 0;
+        })());
+  check('the three edges are a tunable that a query string can move (?locz=)',
+        typeof global.window.QuizCore.CITY_Z.easy === 'number' &&
+        global.window.QuizCore.CITY_Z.easy < global.window.QuizCore.CITY_Z.medium &&
+        global.window.QuizCore.CITY_Z.medium <= global.window.QuizCore.CITY_Z.hard,
+        JSON.stringify(global.window.QuizCore.CITY_Z));
+  void QzL;
 
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   if (errors.length) console.log('errors: ' + errors.join(' | '));

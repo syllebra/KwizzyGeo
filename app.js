@@ -3385,7 +3385,7 @@ function buildQuizCities() {
     var cont = zn ? zoneOfContinent(zn[0], zn[1]) : null;
     out.push({
       id: 'p' + i, idx: i, name: cityName(i), lat: P.lat, lon: P.lon,
-      pop: P.p, cap: P.a ? 1 : 0,
+      pop: P.p, z: P.z, cap: P.a ? 1 : 0,
       cont: cont || '', sub: zn ? zn[1] : '',
       country: P.c || ''
     });
@@ -3661,6 +3661,15 @@ function screenOf(lon, lat) {
   return [o[0] * view.k + (W * 0.5 - view.cx * view.k),
           (H * 0.5 + view.cy * view.k) - o[1] * view.k];
 }
+/* kilometres as the line reads them: one decimal under 10 km (a bullseye is a real
+   number - "0 km" looks like a bug), whole kilometres above, and a thin space in the
+   thousands so "12 480 km" is not a wall of digits */
+function kmLabel(km) {
+  var v = km < 9.95 ? (Math.round(km * 10) / 10).toFixed(1) : String(Math.round(km));
+  var parts = v.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '\u2009');
+  return parts.join('.') + '\u00a0km';
+}
 function drawMarks() {
   if (!marks) return;
   var g = marks.guess ? screenOf(marks.guess.lon, marks.guess.lat) : null;
@@ -3670,7 +3679,7 @@ function drawMarks() {
      any pair that crosses it). Segments are broken, not bridged, where a point falls
      outside the figure (behind the horizon of a cone view). */
   if (marks.guess && marks.target) {
-    var prev = null;
+    var prev = null, run = [], runs = [];
     ctx.save();
     ctx.strokeStyle = 'rgba(238, 246, 255, .92)';
     ctx.lineWidth = 1.7;
@@ -3680,12 +3689,45 @@ function drawMarks() {
       var ll = slerpLL(marks.guess.lon, marks.guess.lat,
                        marks.target.lon, marks.target.lat, i / 48);
       var p = screenOf(ll[0], ll[1]);
-      if (!p) { prev = null; continue; }
+      if (!p) {
+        prev = null;
+        if (run.length > 1) runs.push(run);   /* a stretch that stayed on the figure */
+        run = [];
+        continue;
+      }
       if (prev) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
+      run.push(p);
       prev = p;
     }
     ctx.stroke();
     ctx.restore();
+    if (run.length > 1) runs.push(run);
+    /* HOW FAR OFF, ON THE LINE ITSELF. The number is the whole answer to a locate
+       question, and reading it at the end of a dashed line is what makes the miss a thing
+       you measure rather than a thing you are told. Placed at the MIDDLE of the longest
+       visible stretch (so it stays readable when the line wraps out of the figure),
+       nudged perpendicular to the line so the dashes do not run through it. */
+    if (marks.km != null && isFinite(marks.km) && runs.length) {
+      var best = runs[0], bi;
+      for (bi = 1; bi < runs.length; bi++) if (runs[bi].length > best.length) best = runs[bi];
+      var mid = best[Math.floor(best.length / 2)];
+      var a = best[Math.max(0, Math.floor(best.length / 2) - 1)];
+      var b2 = best[Math.min(best.length - 1, Math.floor(best.length / 2) + 1)];
+      var dx = b2[0] - a[0], dy = b2[1] - a[1], len = Math.sqrt(dx * dx + dy * dy) || 1;
+      /* the perpendicular, pointing away from the line, and never less than a nudge */
+      var nx = -dy / len, ny = dx / len, NUDGE = 15;
+      var lx = mid[0] + nx * NUDGE, ly = mid[1] + ny * NUDGE;
+      var txt = kmLabel(marks.km);
+      ctx.save();
+      ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 5; ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(4, 12, 20, .92)';
+      ctx.strokeText(txt, lx, ly);
+      ctx.fillStyle = '#eaf6ff';
+      ctx.fillText(txt, lx, ly);
+      ctx.restore();
+    }
   }
   /* the PLAYER'S point: a ring around a dot, in the accent - the same vocabulary as
      the picked country, so "the thing I chose" always looks the same */
@@ -3770,8 +3812,11 @@ window.MapApp = {
     return aimOn;
   },
   /* the two marks: the player's point and the real one, drawn on the canvas */
-  marks: function (guess, target, name) {
-    marks = (guess || target) ? { guess: guess || null, target: target || null, name: name || '' } : null;
+  marks: function (guess, target, name, km) {
+    marks = (guess || target)
+      ? { guess: guess || null, target: target || null, name: name || '',
+          km: (km == null || !isFinite(km)) ? null : km }
+      : null;
     return marks;
   },
   clearMarks: function () { marks = null; },
@@ -3811,7 +3856,7 @@ window.MapApp = {
   },
   /* the marks as they are, so a test can read what the map was told */
   markState: function () {
-    return marks ? { guess: marks.guess, target: marks.target, name: marks.name } : null;
+    return marks ? { guess: marks.guess, target: marks.target, name: marks.name, km: marks.km } : null;
   },
   /* Hand the map to the quiz. The layer is pinned to 50m - 2.5 MB, loaded with the
      first paint, 201 features - because the items the session holds are keyed to

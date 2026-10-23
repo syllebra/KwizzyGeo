@@ -320,20 +320,58 @@ nothing in Siberia and a lot in Belgium. Under 25 km counts as *found* (the ✓ 
 screen's dots); the points are what the round is measured in. `BULLSEYE_KM`,
 `POINTS_MAX` and `SCORE_KM` are at the top of the fame section in `quizcore.js`.
 
-**Difficulty is FAME, and it is the city's population** — with one exception that matters:
+**Difficulty is FAME, and the first build used population for it — which is a bad proxy
+and a player notices at once:** Duisburg has 1.3 million people and nobody outside Germany
+could place it, while Bern has 275 000 and everyone can. What actually encodes fame here is
+Natural Earth's own **`MIN_ZOOM`** — the zoom at which a map starts printing the city's name
+— because that is a cartographer's judgement about how much of the world knows the place:
+Paris/Tokyo/New York are at 1.7, a country's big cities at 4–5, regional centres at 6, small
+towns at 7–9. The bands are thresholds on it:
 
 | | what is asked |
 |---|---|
-| **Easy** | the million-plus cities, **and every national capital** |
-| **Normal** | 250 000 to 1 000 000 |
-| **Hard** | 40 000 to 250 000 |
+| **Easy** | `min_zoom ≤ 5.0` **and** (250 000 people **or** a national capital) |
+| **Normal** | `min_zoom ≤ 6.1` |
+| **Hard** | `min_zoom ≤ 7.0` |
 
-The bands are **disjoint**, so Hard is a category and not "Easy with bad luck". A national
-capital is Easy whatever its size (Bern 122 000, Reykjavik 115 000, Canberra 400 000) —
-those are names a map reader knows. And nothing below **40 000** is ever asked: a town
-nobody could place is not a hard question, it is a lottery. Measured on the shipped data
-(7 342 places): the world has 602 Easy, 1 164 Normal, 2 832 Hard; the tightest zone is
-Oceania with 19 / 6 / 43.
+with two floors, both measured against what a question can fairly ask:
+
+* **nothing above 7.0 at any difficulty.** The 8–9 tail is the towns only a regional map
+  names (Eger, Tatabánya, Wum), and asking about them is not a hard question, it is a
+  lottery. That tail was most of what made Hard feel unfair;
+* **nothing below 40 000 people unless it is a capital** (Vaduz, Monaco, Vatican City).
+
+The 250 000 condition on Easy removes min_zoom's own artifact: an **isolated speck gets a
+low zoom** because a map must label *something* in the emptiness — Abéché, Atar, Honiara,
+Alice Springs and Arctic Bay all came out "easy" — and a population floor is what tells
+those apart from Kathmandu. A capital is Easy when its zoom is low enough, not merely
+because it is a capital: Bern (z 5.6) is Normal.
+
+Measured on the shipped data: world pools of **448 easy / 1 957 normal / 2 013 hard**,
+spread over 165 / 179 / 154 countries. The three edges are a taste, so they are tunable
+without a rebuild: **`?locz=easy,medium,hard`** sets them for one session (the same idea as
+`?bloomtune=`).
+
+**A city is picked COUNTRY FIRST, then city inside it.** Drawing from the cities is what
+the first build did, and it made **one easy question in five Chinese**: the pool is spread
+over cities, and cities are wildly uneven — China alone is 18.6 % of the easy band (the USA
+8.4 %, India 7.9 %), so a ten-question round named 8 distinct countries, not ten. The draw
+is now two-stage, as a player expects a geography question to be:
+
+* a **country**, weighted by `cities^COUNTRY_WEIGHT`;
+* then a **city** of it, uniformly among its unasked ones;
+* and a country is **never asked twice in a round** while an unasked one remains.
+
+`COUNTRY_WEIGHT` is the whole design decision, so it is measured, not guessed:
+
+| weight | who dominates | why not |
+|---|---|---|
+| 1.0 | China 18.6 % | today's behaviour |
+| **0.5 (default)** | China 3.8 %, USA 2.5 %, India 2.1 % | **big countries stay in the mix, nothing dominates, ten distinct countries per round** |
+| 0.0 | every country equal — China 0.6 % | "Easy" becomes "the capital of some random small country"; the big countries nearly vanish |
+
+The round stays capped by its CITIES, not its countries: a zone with six cities in two
+countries really is a six-question zone, and capping at the country count turned 25 into 2.
 
 **Locate has its own round lengths — 5 / 10 / 25, and no "All".** Each question costs a
 pan, a zoom and a decision rather than a tap, so a round of 25 is already a long session;
@@ -378,7 +416,8 @@ a 4 598-question round.
 * after the answer it draws **both marks** on the canvas — your point as an accent ring,
   the real city as a green dot with its name, and the **great circle** between them as a
   dashed line sampled along the sphere (a straight segment in the plane cuts through the
-  pole) — then flies in on them, in angles, fitted above the reveal card; a guess more than
+  pole), **with the distance printed on the line itself** (placed at the middle of the
+  longest visible stretch, nudged off the dashes) — then flies in on them, in angles, fitted above the reveal card; a guess more than
   ~1.6 caps away (the other side of the planet) has no view holding both, so the reveal
   shows the real city and the card carries the distance;
 * the reveal carries the **city's own panel** (country, region, population, coordinates),
@@ -521,8 +560,8 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 
 | script | what it pins |
 |---|---|
-| `tests/quizcore_test.js` | 83 checks on a synthetic lattice (and a small city set for locate): the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) — plus **locate's rules**: the three fame bands are disjoint, a national capital is Easy whatever its size, nothing under 40 000 is ever asked, the points curve only falls and is the documented one, a locate question has no options, a guess on the city is a bullseye at full marks and cannot be scored twice, a far guess is measured in km and still scores, and locate's lengths are its own so a stored "All" cannot start a thousands-question round |
-| `tests/quiz_test.js` | 255 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back) |
+| `tests/quizcore_test.js` | 96 checks on a synthetic lattice (and a small city set for locate): the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) — plus **locate's rules**: the three fame bands are disjoint, a national capital is Easy whatever its size, nothing under 40 000 is ever asked, the points curve only falls and is the documented one, a locate question has no options, a guess on the city is a bullseye at full marks and cannot be scored twice, a far guess is measured in km and still scores, locate's lengths are its own so a stored "All" cannot start a thousands-question round, **the country-first draw** (a round asks different countries while unasked ones remain, a bloated country no longer takes most of the questions, every small country still appears) |
+| `tests/quiz_test.js` | 269 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back, the distance handed to the map for the line, and the fame bands stated on the real data: Reykjavík Easy, Duisburg not, the 7.0 tail never asked, `?locz=` tunable) |
 | `tests/drift_test.js` | 57 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; and the land **painted** grey in exploration and slate blue in the game |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
