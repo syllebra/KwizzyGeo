@@ -3834,13 +3834,6 @@ window.MapApp = {
     userPickedLayer = true;
     deferLayer = null;                 /* the deferred 10m swap must not land mid-round */
     if (layerName !== '50m') setLayer('50m');
-    /* THE LOCATE MODE PLAYS ON A FLAT, WHOLE-WORLD MAP, and that is not a taste:
-       the default perspective view is a 3-radius cone, so it shows one cap of the
-       sphere and hides the rest - measured, only 2 294 of the 4 598 cities were even
-       on screen at the world fit, which makes "where is Ouagadougou?" a question with
-       the answer off the picture half the time. Eckert IV shows the whole sphere at
-       once, it is the projection this viewer was built on, and a "point at the map"
-       game wants exactly that. The player's own projection comes back in exit(). */
     if (opts && opts.locate) {
       /* THE LOCATE MODE PLAYS ON A GLOBE. A planar projection (Eckert IV, plate carrée)
          re-centres its plane on every drag, and that machinery is what makes the mode
