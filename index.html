@@ -5,9 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0e141b">
 <title>KwizzyGeo — the geographical quiz</title>
+<!-- CRAZYGAMES: their SDK, from their CDN, as their docs prescribe. `defer`, so a slow
+     or blocked CDN can never hold up the first pixel: crazy.js waits for it and the
+     game plays exactly the same without it. Outside their domains the SDK reports the
+     `disabled` environment and crazy.js does not talk to it at all. -->
+<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" defer></script>
 <link rel="stylesheet" href="flags.css?v=1">
-<link rel="stylesheet" href="style.css?v=43">
-<link rel="stylesheet" href="quiz.css?v=41">
+<link rel="stylesheet" href="style.css?v=44">
+<link rel="stylesheet" href="quiz.css?v=42">
 </head>
 <body>
 <!-- THE MAP. Its bloom is composited INSIDE the same canvas (see paintGlow in app.js):
@@ -56,17 +61,20 @@
 <div id="qz-stats" class="qz-stats"></div>
 <!-- the particle bursts (juice.js). Decorative and empty: each spark removes itself -->
 <div id="burst" class="burst" aria-hidden="true"></div>
+<!-- FIRST, and before app.js: it answers "is this CrazyGames?" for the fullscreen disc
+     and puts the `cg` class on the body that the stylesheets hang the layout on -->
+<script src="crazy.js?v=1"></script>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=128"></script>
+<script src="app.js?v=129"></script>
 <script src="quizcore.js?v=3"></script>
 <!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
      source, so what a player hears is what the test checks -->
 <script src="media/music/playlist.js?v=1"></script>
-<script src="juice.js?v=2"></script>
+<script src="juice.js?v=3"></script>
 <script src="stats.js?v=1"></script>
 <!-- the quiz's UI strings in the map's 18 languages: one table, keyed by the same codes
      the burger's language chips use -->
 <script src="i18n.js?v=8"></script>
-<script src="quiz.js?v=28"></script>
+<script src="quiz.js?v=29"></script>
 </body>
 </html>

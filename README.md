@@ -177,9 +177,47 @@ Upload the app files at the root and `data/` + `media/` beside them (`i18n.js` i
 them); `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
 only the game. `index.html` needs `style.css`, `quiz.css`, `flags.css`, `core.js`,
-`app.js`, `quizcore.js`, `stats.js`, `juice.js` and `quiz.js` next to it (plus
-`media/` for the sound) — the layers must keep the `data/` prefix, or `DATA_DIR` must be
-changed to match.
+`app.js`, `quizcore.js`, `stats.js`, `juice.js`, `crazy.js` and `quiz.js` next to it
+(plus `media/` for the sound) — the layers must keep the `data/` prefix, or `DATA_DIR`
+must be changed to match.
+
+## Two homes: GitHub Pages and CrazyGames
+
+**One build, two hosts, no fork.** `crazy.js` asks where it is running and the rest of
+the code asks `crazy.js`; nothing else in the game touches `window.CrazyGames`.
+
+```js
+function isCrazyGames() {                     // the user's own test, as written
+  const hostname = window.location.hostname;
+  return hostname === 'crazygames.com' || hostname.endsWith('.crazygames.com');
+}
+```
+
+`?crazysdk=1` turns the same mode on anywhere else — that is how the integration is
+tested on localhost, where the SDK reports its `local` environment and logs what it
+would have done. On any other domain (GitHub Pages included) `crazy.js` is inert: no
+body class, not one call, and a missing or adblocked SDK is a non-event rather than a
+crash.
+
+| what the platform asks | where the answer is |
+|---|---|
+| the SDK, from their CDN | `index.html`, `<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" defer>` — `defer`, so a slow CDN cannot hold up the first pixel |
+| `init()`, awaited | `crazy.js` `boot()`, on DOMContentLoaded |
+| **no in-game fullscreen button** | `app.js` `wireFs()` hides the disc; the CSS moves the Back disc into the freed corner (`body.cg`) and closes the gap in the two quiz rows. CrazyGames fills the page itself |
+| `gameplayStart` / `gameplayStop` | `quiz.js` `render()` — start on a question, stop on every menu, and `hide()` (free exploration) stops it too. Deduped in `crazy.js`, so a re-render cannot repeat it |
+| `loadingStart` / `loadingStop` | at parse time in `crazy.js`, and at the end of `loadAll()` in `app.js` — the first frame of the map. The deferred 10m layer and the city files are NOT waited for |
+| `happytime()` | `quiz.js` `endScreen()`: a perfect round, and nothing else |
+| `game.settings.muteAudio` | `crazy.js` → `Juice.setMuted()`, a master gate in front of the effects and the music that leaves the player's own switches alone (un-muting gives back exactly what they had) |
+| `user.systemInfo.locale` | `app.js` `storedLang()` (before the map's names land) or `crazy.js` `applyLocale()` (late init), never over a language the player chose. `fr-FR` → `fr`; an unsupported one falls back to English inside `setLang` |
+| no text selection on mobile | `body { user-select: none }` — the magnifier and the contextual menu would otherwise open over the play area |
+| audio after an iOS interruption | `juice.js` listens to `touchend` as well as `pointerdown` |
+
+Two numbers worth knowing before a submission: the initial download is measured up to
+the first `gameplayStart`, and it is ~23 MB of assets (~6 MB gzipped) here, under their
+50 MB; the file count is 376, under their 1500. **The one requirement this build does
+not yet meet is the Full Launch "land in gameplay in ≤ 1 click"** — the walk is
+title → mode → zone → length → Play, four choices. Shortening it is a design decision,
+not an integration one.
 
 ## Sound, music, haptics and animation
 
@@ -655,6 +693,7 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | `tests/i18n_test.js` | 218 checks (174 keys): the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
 | `tests/stats_test.js` | 62 checks on the record: an empty record, one answer, the streak, the groupings (mode / zone / the two flag halves kept apart), what "best" means across lengths, the 60-run cap, every corrupt-blob shape, reset (and that the settings key survives it), a `localStorage` that refuses to write, and that 300 answers stay under 40 kB |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
+| `tests/crazy_test.js` | 60 checks on the CrazyGames adapter, with a fake SDK: the hostname test (including every near-miss that must NOT count), nothing at all off the platform, the queue and its order (`loadingStart` before `init()` resolves), `gameplayStart`/`gameplayStop` deduped across re-renders, `muteAudio` reaching the juice without touching the player's switches, the locale applied — but never over a chosen language — a rejected init and a throwing method both contained, and the wiring in `index.html` / `app.js` / `quiz.js` / the two stylesheets |
 
 Both new scripts run in node with a fake DOM, no browser and no network:
 `node tests/quiz_test.js`.

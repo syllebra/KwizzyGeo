@@ -890,8 +890,20 @@ function render() {
      switched off the moment a question is up, where the map is the QUESTION's picture
      and must hold still. */
   if (M.cinema) M.cinema(isMenu());
+  platformGameplay(screen === 'question');
 }
 function isMenu() { return STEPS.indexOf(screen) >= 0 || screen === 'about'; }
+/* THE PLATFORM'S GAME LOOP (crazy.js): gameplay starts when a question is up and stops
+   on every menu - CrazyGames uses that pair to tell "playing" from "in the menus", and
+   their initial-download measure ends at the first start. Called from render(), which is
+   the ONE place every screen change goes through, and deduped inside crazy.js because a
+   round re-renders on every answer. Off the platform it is a no-op. */
+function platformGameplay(on) {
+  var C = window.Crazy;
+  if (!C) return;
+  if (on) { if (C.gameplayStart) C.gameplayStart(); }
+  else if (C.gameplayStop) C.gameplayStop();
+}
 function info(msg) { infoMsg = msg || ''; if (isMenu()) render(); }
 
 /* ---------- the flow ---------- */
@@ -1049,6 +1061,15 @@ function endScreen() {
   screen = 'end';
   render();
   screenSfx('question');
+  /* A PERFECT ROUND IS THE ONE THING WORTH CELEBRATING on the platform ("use it
+     sparingly"): CrazyGames throws the confetti, we do not. A round is 10, 25 or All,
+     so the threshold is the round itself - every question right. */
+  var C = window.Crazy;
+  if (C && C.happytime && session && session.asked.length) {
+    var ok = 0;
+    for (var i = 0; i < session.asked.length; i++) if (session.asked[i].ok) ok++;
+    if (ok === session.asked.length) C.happytime();
+  }
 }
 /* the ✕ during a round: the map goes back to the viewer and the player lands on the
    title, where a run starts */
@@ -1108,6 +1129,7 @@ function hide() {
   /* ...and the chart turns GREY: free exploration is the map for its own sake, and its
      palette says so (see MapApp.explore / COL.landX in app.js) */
   if (M.explore) M.explore(true);
+  if (window.Crazy && window.Crazy.gameplayStop) window.Crazy.gameplayStop();
   quizEl.className = '';
   if (backEl) { backEl.hidden = true; backEl.setAttribute('hidden', ''); }
   if (bodyEl && bodyEl.classList) {

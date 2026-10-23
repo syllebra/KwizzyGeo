@@ -46,6 +46,12 @@ try {
    back to "all", a vol that is not a number in [0,1] is the default), so a partial,
    corrupt or stale blob loads as a working configuration instead of none. */
 var settings = { sfx: true, music: true, haptics: true, vol: 1, trk: 'all' };
+/* THE PLATFORM'S MUTE, which is NOT the player's: on CrazyGames `game.settings.
+   muteAudio` is the mute of their own player, it wins over our drawer, and it must not
+   touch what the player chose (their switches keep their state; un-muting the platform
+   gives back exactly the sound they had). It is a master gate in front of both the
+   effects and the music - see crazy.js applyMute and Juice.setMuted. */
+var muted = false;
 
 function loadSettings() {
   var o = null;
@@ -99,6 +105,7 @@ function clip(name) {
 var lastAttempt = null;
 
 function sfx(name) {
+  if (muted) return;                  // muted by the PLATFORM (CrazyGames): silence
   if (!settings.sfx) return;          // Sound effects OFF in the drawer: stay silent
   /* NOT gated by reduceMotion: that setting is about moving pixels, not about audio */
   if (sfxFailed[name]) return;
@@ -251,6 +258,7 @@ function musCtx() {
 function musRunning() { return !!Music.ctx && musNow() > 0.02; }
 
 function musVol() {
+  if (muted) return 0;                 // the platform's mute beats the volume slider
   var v = settings.vol;
   if (!isFinite(v) || v < 0) v = 0;
   if (v > 1) v = 1;
@@ -465,6 +473,10 @@ function musicBoot() {
   });
   window.addEventListener('pointerdown', musicUnlock, { passive: true });
   window.addEventListener('keydown', musicUnlock);
+  /* iOS: the AudioContext is INTERRUPTED by a call or another app, and WebKit only
+     revives it from a real touch - `pointerdown` alone is not enough there. Named
+     in CrazyGames' technical requirements, and harmless anywhere else. */
+  window.addEventListener('touchend', musicUnlock, { passive: true });
 }
 
 /* ---------- the switches ---------- */
@@ -484,6 +496,18 @@ function setHaptics(on) {
   saveSettings();
   if (settings.haptics) haptic(30);
 }
+/* THE PLATFORM'S MUTE (crazy.js). Deliberately NOT a setting: it is not saved, the
+   player's own switches are untouched, and turning it off restores exactly what they
+   had. The master gain is re-aimed at once, so a track already playing follows it. */
+function setMuted(on) {
+  on = !!on;
+  if (on === muted) return;
+  muted = on;
+  /* the level is a function of `muted`, so this is one ramp and a track already
+     playing follows it - the same 160 ms the volume slider uses */
+  if (Music.master) musGain(musVol(), 160);
+  notify();
+}
 function setVol(v) {
   v = isFinite(v) ? v : 1;
   if (v < 0) v = 0;
@@ -498,8 +522,9 @@ function setVol(v) {
 var Juice = {
   reduceMotion: function () { return reduceMotion; },
   sfx: sfx, haptic: haptic, burst: burst, burstAt: burstAt, thump: thump,
-  settings: function () { return { sfx: settings.sfx, music: settings.music, haptics: settings.haptics, vol: settings.vol, trk: settings.trk }; },
+  settings: function () { return { sfx: settings.sfx, music: settings.music, haptics: settings.haptics, vol: settings.vol, trk: settings.trk, muted: muted }; },
   setSfx: setSfx, setMusic: setMusic, setHaptics: setHaptics, setVol: setVol,
+  setMuted: setMuted, muted: function () { return muted; },
   setTrack: musicSelectTrack,
   tracks: function () { return PLAYLIST ? PLAYLIST.TRACKS : []; },
   trackLabel: function (id) { return PLAYLIST ? PLAYLIST.label(id) : id; },

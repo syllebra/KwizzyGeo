@@ -806,7 +806,19 @@ function cityName(i) {
 
 /* the language survives a reload; a browser in private mode simply forgets it */
 function storedLang() {
-  try { return window.localStorage.getItem('kwizzy.lang'); } catch (e) { return null; }
+  try { var v = window.localStorage.getItem('kwizzy.lang'); if (v) return v; } catch (e) {}
+  /* NOTHING CHOSEN YET: the PLATFORM may know the player's language (CrazyGames'
+     user.systemInfo.locale - crazy.js reads it), and only then. It is NOT written here:
+     a language this returns is applied by loadPlaces() below, and setLang() is what
+     stores a choice. Off the platform crazy.js answers null, so the default stays
+     English - the browser's own language is deliberately not used. The late path (the
+     SDK initialising after this ran) is crazy.js applyLocale(). */
+  if (window.Crazy && window.Crazy.locale) {
+    var c = null;
+    try { c = window.Crazy.locale(); } catch (e2) { c = null; }
+    if (c) return c;
+  }
+  return null;
 }
 function langLabel(code) {
   for (var i = 0; i < LANGS.length; i++) if (LANGS[i].c === code) return LANGS[i].label;
@@ -1230,6 +1242,10 @@ function loadAll() {
     setHud(hudText());
     helpEl.textContent = hudOn ? helpText() : '';
     loop();
+    /* THE MAP IS PLAYABLE, so the platform's `loading stop` fires HERE and not when the
+       10m layer or the city-name files have arrived: CrazyGames measures the initial
+       download up to this moment (crazy.js, no-op off the platform). */
+    if (window.Crazy) window.Crazy.loadingStop();
     loadPlaces();
     /* now go and get the real layer, in the background */
     if (deferLayer) {
@@ -1381,6 +1397,12 @@ function fsPaint() {
 function wireFs() {
   fsBtn = document.getElementById('fsbtn');
   if (!fsBtn) return;
+  /* ON CRAZYGAMES THE PLATFORM OWNS FULLSCREEN. Their requirement is explicit: no
+     in-game fullscreen button, because a second one fights their own (and their
+     monetisation). The disc is hidden here and the CSS moves the Back disc into the
+     corner it would have used - see `body.cg` in style.css. crazy.js sets that class,
+     so this reads its answer rather than guessing at the hostname twice. */
+  if (window.Crazy && window.Crazy.on && window.Crazy.on()) { fsBtn.style.display = 'none'; return; }
   if (!fsSupported()) { fsBtn.style.display = 'none'; return; }
   document.addEventListener('fullscreenchange', function () {
     var v = (document.documentElement || {}).isFullscreen;

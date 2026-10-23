@@ -1061,3 +1061,17 @@ body.qz-playing #menu { display: none; }
 #quiz.anim-in .qz-zcard:nth-child(6) { animation-delay: .19s; }
 #quiz.anim-in .qz-zcard:nth-child(7) { animation-delay: .22s; }
 #quiz.anim-in .qz-block { animation: fadeUp .46s cubic-bezier(.2,.9,.25,1) both; }
+
+/* ---------- ON CRAZYGAMES: the left column loses one disc ----------
+   The quiz's own rows start clear of the FULLSCREEN disc: `10 + 36 + 10` for a question's
+   ✕ and ♪ (.qz-top), `10 + 36 + 10 + 36 + 12` for a step's title (.qz-topbar). The
+   platform forbids that disc, so on `body.cg` the first sum disappears from both: the ✕
+   takes the corner (14 px, its symmetric right padding) and the title starts after the
+   BACK disc alone (10 + 36 + 12). The coarse-pointer / narrow numbers follow the 34 px
+   discs they clear, exactly as the rules above do. */
+body.cg .qz-top { padding-left: 14px; }
+body.cg .qz-topbar { padding-left: calc(10px + 36px + 12px); }
+@media (pointer: coarse), (max-width: 700px) {
+  body.cg .qz-top { padding-left: 8px; }
+  body.cg .qz-topbar { padding-left: calc(8px + 34px + 12px); }
+}
