@@ -122,10 +122,13 @@ Three folders, one job each: the code a player loads at the root, the data in
 `data/`, the node scripts in `tests/`.
 
 ```
-index.html  style.css  core.js  app.js                   <- the app
-data/   so50.geojson  countries.geojson  ne10m.geojson  places.json
-tests/  test_core.js  gesture_test.js  pole_test.js  ...   <- node only
-tools/  shp2geojson_places.py                              <- data prep, no runtime
+index.html  style.css  core.js  app.js  quiz.js  quizcore.js  ...   <- the app
+media/    logo.png  sfx/  music/                                     <- sound and the wordmark
+data/     so50.geojson  countries.geojson  ne10m.geojson  places.json
+tests/    test_core.js  gesture_test.js  quiz_test.js  ...           <- node only
+tools/    shp2geojson_places.py  screens.js                          <- data prep + the
+                                                                        README's screenshots
+docs/     screens/                                                   <- the pictures
 ```
 
 | file | role |
@@ -153,6 +156,7 @@ tools/  shp2geojson_places.py                              <- data prep, no runt
 | `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json` + the 18 `cities.<code>.json`) |
 | `tools/shp2geojson10m.py` | the 10m map-units converter, including every `NAME_<CODE>` the selector needs |
 | `tools/fetch_flags.py` | copies the flags the app can ask for and regenerates `flags.css` |
+| `tools/screens.js` | the README's screenshots: the real page in a real Chromium at three viewports (needs `playwright-core`; dev only, never shipped) |
 | `tests/` | the node test scripts (below) — development only |
 | `README.md`, `LICENSE` | this document, MIT |
 
