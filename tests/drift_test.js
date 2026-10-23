@@ -29,7 +29,10 @@ function ctxStub() {
   return { setTransform() {}, createLinearGradient() { return { addColorStop() {} }; },
     fillRect() {}, fill() {}, stroke() {}, beginPath() {}, rect() {}, closePath() {},
     moveTo() {}, lineTo() {}, arc() {}, fillText() {}, strokeText() {},
-    measureText(t) { return { width: String(t).length * 6.2 }; }, save() {}, restore() {}, clip() {} };
+    measureText(t) { return { width: String(t).length * 6.2 }; }, save() {}, restore() {}, clip() {},
+    /* the bloom's two passes: a context that cannot drawImage is a context the app
+       skips the glow on, which would make every repaint check below vacuous */
+    drawImage() {}, clearRect() {} };
 }
 /* WHAT COLOUR WAS THE LAND? The palette itself is the thing under test in section 9,
    and a pixel diff would say "different" for the wrong reason; so the stub remembers
@@ -221,6 +224,55 @@ setTimeout(function () {
   check('...it draws with `screen`', bloom.blend === 'screen', bloom.blend);
   check('...and it has an opacity below 1, or it would be a wash',
         bloom.op > 0 && bloom.op < 1, bloom.op);
+
+  /* ---------- 6b. WHEN the copy is repainted (the trailing-ghost bug) ----------
+     The blend runs on every frame, so the copy behind it must be of THIS frame. It used
+     to be a flat 12 Hz throttle: a drag put the halo median 19.5 px behind the map
+     (max 104 px) on half the frames. The rule is now "moved picture -> repaint at once,
+     still picture -> wait out the idle rate", and these checks pin the rule itself, the
+     signature it is decided on, and the counting that proves a drag repaints. */
+  const due = global.window.MapApp.bloomDue;
+  check('the repaint rule is exposed', typeof due === 'function');
+  check('...a STILL picture is not repainted inside the idle window', due('S', 'S', 1000, 990) === false);
+  check('...and is repainted once the idle window is out', due('S', 'S', 1000, 1000 - bloom.idleMs - 1) === true);
+  check('...a MOVED picture is repainted AT ONCE, with no wait at all', due('S2', 'S', 1000, 1000) === true);
+  check('...and the idle rate is the 12 Hz one that was measured', bloom.idleMs === 80, bloom.idleMs);
+
+  frames(30);                         /* let the glide from the checks above finish */
+  const sig0 = global.window.MapApp.bloomSignature();
+  check('the signature is stable while nothing moves', (frames(2), global.window.MapApp.bloomSignature() === sig0));
+  if (L['stage:mousedown']) L['stage:mousedown']({ offsetX: 600, offsetY: 400, clientX: 600, clientY: 400, preventDefault() {} });
+  if (L['stage:mousemove']) L['stage:mousemove']({ offsetX: 540, offsetY: 400, clientX: 540, clientY: 400, preventDefault() {} });
+  const sig1 = global.window.MapApp.bloomSignature();
+  check('...and it CHANGES on a pan (that is what makes the ghost impossible)', sig1 !== sig0, sig0 + ' -> ' + sig1);
+  check('...and on a zoom', (() => {
+    const before = global.window.MapApp.bloomSignature();
+    if (L['stage:wheel']) L['stage:wheel']({ deltaY: -240, offsetX: 600, offsetY: 400, shiftKey: false, preventDefault() {} });
+    return global.window.MapApp.bloomSignature() !== before;
+  })());
+  /* a drag frame must repaint the copy: every frame while the picture moves */
+  const p0 = global.window.MapApp.bloomPaints();
+  const moving = [];
+  for (let i = 0; i < 8; i++) {
+    if (L['stage:mousemove']) L['stage:mousemove']({ offsetX: 500 - i * 12, offsetY: 400, clientX: 500 - i * 12, clientY: 400, preventDefault() {} });
+    const a = global.window.MapApp.bloomPaints(); frame(); moving.push(global.window.MapApp.bloomPaints() - a);
+  }
+  check('every frame of a drag repaints the glow copy', moving.every(x => x === 1), moving.join(','));
+  if (L['stage:mouseup']) L['stage:mouseup']({ offsetX: 400, offsetY: 400, clientX: 400, clientY: 400, preventDefault() {} });
+  /* let every animation above (glide, zoom, tilt) finish: the check is about a STILL
+     map, so the map has to actually be still - asserted, not assumed */
+  let settled = false;
+  for (let i = 0; i < 400 && !settled; i++) {
+    const before = global.window.MapApp.bloomSignature();
+    frames(2);
+    settled = global.window.MapApp.bloomSignature() === before;
+  }
+  check('the map comes to rest (so the idle rate below is about an idle map)', settled, settled);
+  const stillA = global.window.MapApp.bloomPaints();
+  frames(10);
+  const stillN = global.window.MapApp.bloomPaints() - stillA;
+  check('...and a still map does NOT repaint every frame (it waits out the idle rate)',
+        stillN <= 2, stillN + ' repaints in 10 frames');
 
   /* ---------- 7. the fullscreen corner ---------- */
   check('the fullscreen button is in the markup', /id="fsbtn"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8')));

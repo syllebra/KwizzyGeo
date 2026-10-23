@@ -871,6 +871,20 @@ with it** (a 60 Hz map down to 30). Compositing the same glow in the 2D context 
 A test asserts the page has one `<canvas>` and no `.glow` rule, so the expensive
 version cannot come back by accident.
 
+**When it is repainted.** The copy has to be of *this* frame, or the halo trails the map.
+The first build throttled every repaint to 12 Hz while the blend ran on every frame, so a
+fast drag put the glow behind the picture: measured on a 1280x800 drag, the copy was out
+of place on **50 % of frames, median 19.5 px, max 104 px** - the "ghost of the countries"
+that shows up when the map moves quickly. The rule is now `glowDue()`: a **moved**
+picture (the view, the pick, the labels, the cities, the language, the size, a swap, a
+reprojection - all of it hashed into `glowSignature()`) is copied **at once**; a **still**
+one waits out `GLOW_MS` (80 ms), because copying an unchanged picture produces the same
+pixels. Measured A/B/A/B in one page, same drag: ghost **0 px on 0 of 64 frames**, and the
+frame period is unchanged (33.4 ms median with the bloom and without) - the extra
+repaints cost `draw()` 3.1 -> 11.0 ms of CPU. A coarser copy does not buy that back
+(divisor 6 and 8 measured 10.4 and 10.0 ms): the price is reading the map back, not the
+blur, so the copy stays at a quarter.
+
 On top of it, a static `#bloom` layer adds an atmosphere - soft accent halos, so the
 world reads as lit from above the horizon. It is deliberately faint: at high alpha it
 stops being light and becomes a haze over the whole picture.

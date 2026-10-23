@@ -35,9 +35,17 @@ var GLOW_ON = true;
 function glowOff() { return !GLOW_ON || /[?&]bloom=0/.test(urlSearch()); }
 function tuneGlow() { /* the numbers are read by paintGlow; kept as the one place a
                          caller (or a probe) can re-read them */ }
-/* ~12 Hz: the glow is a soft halo, so it does not need every frame, and the copy is the
-   only per-frame cost the bloom adds. It is repainted at once by anything that moves the
-   picture (a live 12 Hz halo behind a dragging map would trail it visibly). */
+/* THE IDLE RATE, and only that: a STILL picture is copied at most ~12 times a second,
+   because copying it again would produce the same pixels. A MOVING picture is copied on
+   every frame it moves (see glowDue) - that is what the halo needs, and it is the whole
+   story of the trailing-ghost bug: this number used to gate every repaint, so the blend
+   drew a copy up to 80 ms old. Measured on a fast drag, 1280x800: the copy was out of
+   place on 50 % of frames, median 19.5 px, max 104 px. With glowDue: 0 frames, 0 px.
+   Cost of the extra repaints, measured A/B/A/B in one page: frame period unchanged
+   (33.4 ms median, fast drag, with bloom and without), draw() 3.1 -> 11.0 ms, and a
+   quarter-size copy is where it stays - ?div 6 and 8 measured 10.4 and 10.0 ms, so the
+   price is reading the map back (it flushes the frame's own drawing), not the blur or
+   the size of the copy. */
 var GLOW_MS = 80;
 
 /* surface any runtime error visibly: this page has no console access */
@@ -1462,6 +1470,7 @@ function scheduleReproject() {
 /* the actual rebuild, once per frame at most */
 function reproject() {
   if (!feats.length) return;
+  reprojectSeq++;                 /* the glow's copy is of another picture now */
   /* the ladder level drawn: LOD_U[t] * k <= maxPx. `lodBias` shifts it, which is
      how the quality/speed tradeoff is tuned and how ?lod=-1 can be used to
      inspect a coarser level. 0.7 px error is the default budget. */
@@ -2314,11 +2323,37 @@ function blendGlow() {
     ctx.restore();                /* restores alpha AND the composite operation */
   } catch (e) { /* no drawImage: no bloom */ }
 }
+/* IS THE COPY DUE? Pure, so a test can state the rule without a canvas.
+   A MOVE means the copy is of a picture that is no longer on screen: repaint at once.
+   A STILL picture has nothing new to copy: GLOW_MS is the *idle* rate, and on a still
+   picture it is not a delay at all - the blend draws the same halo either way.
+   This split is the fix for the trailing halo: the copy used to be rate-limited to
+   12 Hz unconditionally while the blend ran every frame, so a pan put the glow 20-100 px
+   behind the map (measured: median 19.5 px, max 104 px, on half the frames of a drag). */
+function glowDue(sig, lastSig, now, lastAt) {
+  if (sig !== lastSig) return true;
+  return !(now - lastAt < GLOW_MS);
+}
+/* everything that changes the picture WITHOUT moving the view: a pick or a hover, the
+   labels, the cities, the language, the size, a layer swap, a reprojection. Cheap on
+   purpose - it is read once per frame - and coarse on purpose: a signature that is too
+   fine only repaints when it did not need to. */
+var glowSig = '', reprojectSeq = 0, glowPaints = 0;
+function glowSignature() {
+  return W + 'x' + H + ':' + view.cx.toFixed(2) + ',' + view.cy.toFixed(2) + ',' +
+    view.k.toFixed(5) + ',' + view.lon.toFixed(3) + ',' + view.lat.toFixed(3) +
+    ':' + picked + ',' + hover + ',' + pickedPlace + ',' + hoverPlace +
+    ':' + (citiesOn ? 1 : 0) + (quizLabels ? 1 : 0) + ':' + layerName + ':' + LANG +
+    ':' + reprojectSeq;
+}
 function paintGlow(force) {
   if (!glowCtx || glowOff() || typeof glowCtx.drawImage !== 'function') return;
   var now = loopNow || nowMs();
-  if (!force && now - glowAt < GLOW_MS) return;
+  var sig = glowSignature();
+  if (!force && !glowDue(sig, glowSig, now, glowAt)) return;
   glowAt = now;
+  glowSig = sig;
+  glowPaints++;
   try {
     var gw = glowCanvas.width, gh = glowCanvas.height;
     glowCtx.globalCompositeOperation = 'source-over';
@@ -3370,8 +3405,14 @@ window.MapApp = {
      and "the glow is on" is exactly the kind of thing that silently stops being true */
   bloom: function () {
     return { on: !glowOff(), div: GLOW_DIV, op: GLOW_OP, contrast: GLOW_CONTRAST,
-             blur: GLOW_BLUR, blend: 'screen', inside: 'canvas' };
+             blur: GLOW_BLUR, blend: 'screen', inside: 'canvas', idleMs: GLOW_MS };
   },
+  /* the repaint rule, so a test can state it: a moved picture is due at once, a still
+     one waits out idleMs. The real paintGlow calls this same function. */
+  bloomDue: function (sig, lastSig, now, lastAt) { return glowDue(sig, lastSig, now, lastAt); },
+  /* the signature paintGlow compares: it must notice a pan, a zoom and a pick */
+  bloomSignature: function () { return glowSignature(); },
+  bloomPaints: function () { return glowPaints; },
   /* plane units per degree at a point, in the projection in play: the fit floor's own
      measurement, exposed so a test can state the visible window in degrees */
   planePerDeg: function (lon, lat) { return planePerDeg(lon, lat, C.CUR); },
