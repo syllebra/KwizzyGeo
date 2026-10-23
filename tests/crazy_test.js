@@ -42,20 +42,52 @@ function host(opts) {
   const log = [], listeners = {};
   let settingsListeners = [];
   const juice = { setMuted(v) { log.push('juice:muted:' + v); } };
-  const body = { cls: [], classList: { add(c) { body.cls.push(c); } } };
+  /* the REAL classList contract, because the fallback path REMOVES the class: a stub
+     with only add() would have made "the cg class is taken back off" pass vacuously */
+  const body = { cls: [], classList: {
+    add(c) { if (body.cls.indexOf(c) < 0) body.cls.push(c); },
+    remove(c) { const i = body.cls.indexOf(c); if (i >= 0) body.cls.splice(i, 1); },
+    contains(c) { return body.cls.indexOf(c) >= 0; }
+  } };
+  /* EVERY TIMER THE MODULE ARMS IS RECORDED, so a test can fire them: the version that
+     went deaf after 10 s armed one and never cancelled it, and nothing else could see it. */
+  const timers = [];
+  const consoleLines = [];
   const win = {
     location: { hostname: opts.hostname, search: opts.search || '' },
     addEventListener(t, f) { listeners['win:' + t] = f; },
+    setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length; },
+    clearTimeout() {},
+    console: { log(l) { consoleLines.push(String(l)); } },
     localStorage: opts.storage || { getItem() { return null; }, setItem() {} },
-    MapApp: opts.mapReady === undefined ? undefined : { placesReady() { return opts.mapReady; } },
+    MapApp: { placesReady() { return !!opts.mapReady; },
+              recheckFullscreen() { win.MapApp.recheckCalls = (win.MapApp.recheckCalls || 0) + 1; } },
     ViewState: opts.onLang ? { setLang(c) { log.push('lang:' + c); } } : undefined,
     Juice: juice,
-    document: { readyState: 'complete', body: body, addEventListener(t, f) { listeners['doc:' + t] = f; } }
+    document: {
+      readyState: 'complete', body: body,
+      addEventListener(t, f) { listeners['doc:' + t] = f; },
+      /* the debug panel: one element, created on demand */
+      _els: {},
+      getElementById(id) { return win.document._els[id] || null; },
+      createElement() { return { style: {}, setAttribute() {}, textContent: '' }; }
+    }
   };
+  body.appendChild = function (el) { if (el.id) win.document._els[el.id] = el; return el; };
   if (opts.sdk !== false) {
+    let release = null;
     const sdk = {
-      environment: opts.environment || 'crazygames',
-      init() { log.push('init'); return opts.initFails ? Promise.reject(new Error('no')) : Promise.resolve(); },
+      environment: opts.disabled ? 'disabled' : (opts.environment || 'crazygames'),
+      init() {
+        log.push('init');
+        /* the domain the SDK only refuses AFTER init: that is the real shape of it */
+        if (opts.disabledAfterInit) sdk.environment = 'disabled';
+        if (opts.initFails) return Promise.reject(new Error('no'));
+        /* a slow init: the promise is resolved by the test, which is how a 'pending'
+           state is observable at all */
+        if (opts.initPending) return new Promise(res => { release = res; });
+        return Promise.resolve();
+      },
       user: { systemInfo: opts.systemInfo === undefined ? { locale: 'en-US' } : opts.systemInfo },
       game: {
         settings: opts.settings || { muteAudio: false, disableChat: false },
@@ -72,12 +104,17 @@ function host(opts) {
       sdk.init = function () { log.push('init'); throw new Error('boom'); };
     }
     win.CrazyGames = { SDK: sdk };
+    win.__release = () => { if (release) release(); };
   }
   global.window = win;
   global.document = win.document;
-  new Function(SRC).call(win);
+  const realSetTimeout = global.setTimeout;
+  global.setTimeout = win.setTimeout;
+  try { new Function(SRC).call(win); } finally { global.setTimeout = realSetTimeout; }
   return {
-    win, log, body,
+    win, log, body, timers, consoleLines,
+    resolve() { win.__release(); },
+    panel() { return win.document._els['cglog'] || null; },
     Crazy: win.Crazy,
     fire(patch) { settingsListeners.forEach(f => f(patch)); return log; },
     settingsListeners
@@ -219,6 +256,208 @@ const tick = () => new Promise(r => setTimeout(r, 0));
     let threw = false;
     try { await tick(); } catch (e) { threw = true; }
     check('an init() that throws at call time is contained', !threw && h.Crazy.ready() === false, h.log.join(','));
+  }
+
+  /* ---------- 5b. NOTHING EVER DISABLES THE MODULE (the bug their QA found) ----------
+     The first version armed a 10 s timer that set DEAD when init had not resolved, and
+     never cancelled it when init HAD. Ten seconds into every session the module went
+     deaf: loadingStart/loadingStop had been sent (their debug panel showed them green)
+     while gameplayStart, gameplayStop and happytime - everything that happens once the
+     player actually plays - were dropped in silence. So: fire every timer the module
+     armed, then prove the calls still reach the SDK. */
+  {
+    const h = host({ hostname: 'www.crazygames.com' });
+    await tick();
+    h.Crazy.loadingStart(); h.Crazy.loadingStop();
+    /* THERE IS ONE DEADLINE NOW, and it is the right kind: init() gets 9 s before the
+       game stops waiting for the platform. What must NEVER happen again is that such a
+       timer, once the init has SUCCEEDED, turns the module off. So the test fires every
+       timer the module armed - the timer that killed the old build - and requires the
+       calls to keep arriving. */
+    check('the only timer armed is the init deadline, and init is already done',
+          h.timers.length === 1 && h.timers[0].ms >= 5000,
+          h.timers.map(t => t.ms + 'ms').join(' '));
+    h.timers.forEach(t => t.fn());
+    const before = h.log.length;
+    h.Crazy.gameplayStart(); h.Crazy.gameplayStop(); h.Crazy.happytime();
+    check('...firing it after a successful init does not make the module deaf',
+          h.log.slice(before).join(',') === 'gameplayStart,gameplayStop,happytime',
+          h.log.slice(before).join(',') || 'nothing');
+    check('...and the platform is still on', h.Crazy.on() === true && h.Crazy.initState() === 'ready',
+          h.Crazy.initState());
+  }
+  {
+    /* the same shape from the other side: a call made long after init must still be sent.
+       The clock is the only thing that moved in the real bug, so here the module is
+       driven twice with an idle gap and both halves must arrive. */
+    const h = host({ hostname: 'crazygames.com' });
+    await tick();
+    h.Crazy.gameplayStart();
+    await new Promise(r => setTimeout(r, 30));
+    h.Crazy.gameplayStop(); h.Crazy.happytime(); h.Crazy.loadingStop();
+    check('every call after the first one keeps arriving, in order',
+          h.log.filter(x => /^(gameplay|happy|loading)/.test(x)).join(',') ===
+          'loadingStart,gameplayStart,gameplayStop,happytime,loadingStop',
+          h.log.join(','));
+  }
+
+  /* ---------- 5c. GAME COMPLETION ---------- */
+  {
+    const h = host({ hostname: 'www.crazygames.com' });
+    await tick();
+    check('progress(0) is sent', h.Crazy.progress(0) === true && h.log.indexOf('progress:0') >= 0, h.log.join(','));
+    check('...the same value again is not', h.Crazy.progress(0) === false &&
+          h.log.filter(x => x === 'progress:0').length === 1);
+    check('progress(50) is sent', h.Crazy.progress(50) === true && h.log.indexOf('progress:50') >= 0);
+    check('...and the last value is readable', h.Crazy.progressSent() === 50);
+    check('a value out of range is clamped, not passed on',
+          h.Crazy.progress(140) === true && h.log.indexOf('progress:100') >= 0, h.log.join(','));
+    check('a NaN is refused', h.Crazy.progress('abc') === false);
+  }
+  {
+    /* before init resolves, the figure is QUEUED (a returning player reports on arrival) */
+    const h = host({ hostname: 'www.crazygames.com' });
+    h.Crazy.progress(75);
+    check('a completion figure sent before init is queued, not lost',
+          h.Crazy.queued() === 2, h.Crazy.queued() + ' queued');   /* loadingStart + this */
+    await tick();
+    check('...and flushed once init resolves', h.log.indexOf('progress:75') >= 0, h.log.join(','));
+  }
+
+  /* ---------- 5d. THE LOG IS THE CONSOLE'S, AND NOTHING IS DRAWN ON THE PAGE ----------
+     Instrumentation over the map is noise for a player; a tester has devtools open. So the
+     module must never touch the DOM to report itself - and events() still has to carry
+     what happened, which is what a test reads. */
+  {
+    const h = host({ hostname: 'www.crazygames.com' });
+    await tick();
+    h.Crazy.gameplayStart();
+    check('nothing is added to the page', h.panel() === null && !h.win.document._els['cglog'],
+          Object.keys(h.win.document._els).join(','));
+    check('...and there is no debug switch on the public shape', h.Crazy.debug === undefined);
+    check('the events are still readable programmatically',
+          h.Crazy.events().some(e => e.kind === 'sent' && e.name === 'gameplayStart'),
+          JSON.stringify(h.Crazy.events().slice(-1)));
+    check('...and every event is written to the console with a [crazy] prefix',
+          h.consoleLines.some(l => /^\[crazy\] sent gameplayStart$/.test(l)),
+          h.consoleLines.slice(-3).join(' | '));
+  }
+  {
+    /* a broken SDK reports ONCE, in the console, and the game goes on */
+    const h = host({ hostname: 'www.crazygames.com' });
+    await tick();
+    h.win.CrazyGames.SDK.game.happytime = undefined;
+    h.Crazy.happytime();
+    check('a missing SDK method is reported as an error', h.Crazy.failed() === true &&
+          h.Crazy.events().some(e => e.kind === 'error' && /happytime/.test(e.name)),
+          JSON.stringify(h.Crazy.events().slice(-1)));
+    check('...in the console, not on the page', !!h.panel() === false &&
+          h.consoleLines.some(l => /^\[crazy\] error happytime/.test(l)),
+          h.consoleLines.slice(-2).join(' | '));
+  }
+
+  /* ---------- 5d-bis. THE SDK'S `disabled` ENVIRONMENT (found in testing) ----------
+     On a domain the SDK does not serve, `init()` RESOLVES - it even logs "HTML SDK
+     initialized" - and then every game method throws "CrazySDK is disabled on this
+     domain". The build that trusted the resolution went into platform mode, showed the
+     loader and then sprayed an error per queued call. The rule now: `environment` is
+     checked BEFORE and AFTER init, and 'disabled' means the game plays normally. */
+  {
+    const h = host({ hostname: 'www.crazygames.com', disabled: true, initPending: true });
+    await tick();
+    check('a disabled environment is detected before init', h.Crazy.on() === false,
+          h.Crazy.initState() + ' / on=' + h.Crazy.on());
+    check('...the platform mode is dropped at once (no loader to wait for)',
+          h.Crazy.initState() === 'failed' && h.body.cls.indexOf('cg') < 0, h.body.cls.join(','));
+    check('...init is not even called', h.log.indexOf('init') < 0, h.log.join(','));
+    check('...and it says so once, in the console',
+          h.Crazy.events().some(e => e.kind === 'off' && /disabled/.test(e.detail)) &&
+          h.consoleLines.some(l => /^\[crazy\] off platform .*disabled/.test(l)),
+          h.consoleLines.slice(-2).join(' | '));
+  }
+  {
+    /* the same domain, but the SDK only reveals it once init has resolved: the check
+       after init catches it, and the queue is NOT replayed into a dead SDK */
+    const h = host({ hostname: 'www.crazygames.com', disabledAfterInit: true });
+    h.Crazy.gameplayStart();
+    await tick();
+    check('a disabled environment revealed by init is caught too', h.Crazy.on() === false &&
+          h.Crazy.initState() === 'failed', h.Crazy.initState());
+    check('...the cg class is taken off', h.body.cls.indexOf('cg') < 0, h.body.cls.join(','));
+    /* init() is the one call made (it is how the environment becomes visible); not one
+       event goes out, and the queued loadingStart is dropped rather than replayed */
+    check('...nothing is sent to a disabled SDK',
+          h.log.filter(x => x !== 'init').length === 0 && h.Crazy.queued() === 0,
+          h.log.join(','));
+    check('...and the game keeps playing', (() => { try { h.Crazy.gameplayStart(); return true; } catch (e) { return false; } })());
+  }
+
+  /* ---------- 5e. INIT IS PART OF LOADING, AND A FAILURE GIVES THE GAME BACK ----------
+     The title waits on initState(): 'pending' shows a loader, 'ready' the buttons, and
+     'failed' the buttons again WITH the platform mode off. The state has to be readable
+     at every point, and a failure has to roll back the three things the platform mode
+     changed (the flag, the `cg` body class, the hidden fullscreen disc). */
+  {
+    /* a pending init: the state is 'pending' until it resolves */
+    const h = host({ hostname: 'www.crazygames.com', initPending: true });
+    check('a slow init reads as pending', h.Crazy.initState() === 'pending', h.Crazy.initState());
+    check('...and the game is not ready yet', h.Crazy.ready() === false);
+    check('...and the platform is still on, so the layout stays the platform one',
+          h.Crazy.on() === true && h.body.cls.indexOf('cg') >= 0);
+    h.resolve();
+    await tick();
+    check('a resolved init reads as ready', h.Crazy.initState() === 'ready', h.Crazy.initState());
+    check('...and the queue went out', h.Crazy.queued() === 0 && h.log.indexOf('loadingStart') >= 0,
+          h.log.join(','));
+  }
+  {
+    /* a REJECTED init: the game gets its controls back, the platform goes off */
+    const h = host({ hostname: 'www.crazygames.com', initFails: true });
+    await tick();
+    check('a rejected init reads as failed', h.Crazy.initState() === 'failed', h.Crazy.initState());
+    check('...the platform mode is turned OFF', h.Crazy.on() === false);
+    check('...the cg body class is taken back off', h.body.cls.indexOf('cg') < 0, h.body.cls.join(','));
+    check('...the queued calls are dropped, not left to fire at nothing', h.Crazy.queued() === 0);
+    check('...and MapApp is asked to put the fullscreen disc back',
+          h.win.MapApp && h.win.MapApp.recheckCalls === 1, h.win.MapApp ? h.win.MapApp.recheckCalls : 'no MapApp');
+    check('...and the refusal is recorded once, naming init()',
+          h.Crazy.events().filter(e => e.kind === 'off' && /init\(\)/.test(e.detail)).length === 1,
+          JSON.stringify(h.Crazy.events().slice(-2)));
+    /* and it stays usable: the game must not throw when it plays normally afterwards */
+    let threw = false;
+    try { h.Crazy.gameplayStart(); h.Crazy.gameplayStop(); } catch (e) { threw = true; }
+    check('...and the game can keep playing (calls are simply not sent)', !threw);
+  }
+  {
+    /* an init that THROWS synchronously is the same story */
+    const h = host({ hostname: 'www.crazygames.com', throwers: true });
+    check('an init() that throws is a failed init too', h.Crazy.initState() === 'failed', h.Crazy.initState());
+    check('...and turns the platform off', h.Crazy.on() === false && h.body.cls.indexOf('cg') < 0);
+  }
+  {
+    /* THE DEADLINE. init never answers: after the timeout the game gives itself back. */
+    const h = host({ hostname: 'www.crazygames.com', initPending: true });
+    check('a pending init arms the deadline', h.timers.length === 1, h.timers.map(t => t.ms + 'ms').join(' '));
+    h.timers[0].fn();                       /* the deadline fires */
+    check('...which gives up when it fires', h.Crazy.initState() === 'failed', h.Crazy.initState());
+    check('...turning the platform mode off', h.Crazy.on() === false && h.body.cls.indexOf('cg') < 0);
+    /* and a LATE success must not put the game back into a half-platform state */
+    h.resolve();
+    await tick();
+    check('...and a late init does not resurrect the platform', h.Crazy.on() === false,
+          h.Crazy.initState());
+  }
+  {
+    /* the settle hook: called once, and it says which state it settled in */
+    const h = host({ hostname: 'www.crazygames.com', initPending: true });
+    const seen = [];
+    h.Crazy.onSettled(st => seen.push(st));
+    h.resolve();
+    await tick();
+    check('onSettled fires once with the final state', seen.join(',') === 'ready', JSON.stringify(seen));
+    h.Crazy.onSettled(st => seen.push('again:' + st));
+    check('...and a listener added after it settles is NOT called',
+          seen.length === 1, JSON.stringify(seen));
   }
 
   /* ---------- 6. the wiring in the other files ----------
