@@ -32,47 +32,47 @@ fps counter and the hint line — stays out of the frame. Nothing is a mockup an
 montage: each picture is one state, produced through the app's own entry points, and the
 script *waits for a good draw* rather than bending the app to look right.
 
-**The title** — the globe drifts behind the wordmark
+**The title** — the globe drifts behind the wordmark. Desktop, then phone:
 
-<table><tr>
-<td><img src="docs/screens/title-desktop.jpg" width="660" alt="The title screen on a desktop"></td>
-<td><img src="docs/screens/title-phone.jpg" width="198" alt="The title screen on a phone"></td>
-</tr></table>
+<p align="center">
+<img src="docs/screens/title-desktop.jpg" width="620" alt="The title screen on a desktop">
+<img src="docs/screens/title-phone.jpg" width="186" alt="The title screen on a phone">
+</p>
 
-**Four ways to play** — find the country, the capital, the flag, or locate a city
+**Four ways to play** — find the country, the capital, the flag, or locate a city:
 
-<table><tr>
-<td><img src="docs/screens/modes-desktop.jpg" width="660" alt="The mode screen on a desktop"></td>
-<td><img src="docs/screens/modes-phone.jpg" width="198" alt="The mode screen on a phone"></td>
-</tr></table>
+<p align="center">
+<img src="docs/screens/modes-desktop.jpg" width="620" alt="The mode screen on a desktop">
+<img src="docs/screens/modes-phone.jpg" width="186" alt="The mode screen on a phone">
+</p>
 
-**Locate the city** — the city is named, the globe opens on its continent
+**Locate the city** — the city is named, and the globe opens on its continent:
 
-<table><tr>
-<td><img src="docs/screens/locate-desktop.jpg" width="660" alt="A locate question on a desktop"></td>
-<td><img src="docs/screens/locate-phone.jpg" width="198" alt="A locate question on a phone"></td>
-</tr></table>
+<p align="center">
+<img src="docs/screens/locate-desktop.jpg" width="620" alt="A locate question on a desktop">
+<img src="docs/screens/locate-phone.jpg" width="186" alt="A locate question on a phone">
+</p>
 
-**The reveal** — your marker, the city, and the distance written on the line
+**The reveal** — your marker, the city, and the distance written on the line:
 
-<table><tr>
-<td><img src="docs/screens/reveal-desktop.jpg" width="660" alt="The reveal after a locate answer"></td>
-<td><img src="docs/screens/reveal-phone.jpg" width="198" alt="The reveal on a phone"></td>
-</tr></table>
+<p align="center">
+<img src="docs/screens/reveal-desktop.jpg" width="620" alt="The reveal after a locate answer">
+<img src="docs/screens/reveal-phone.jpg" width="186" alt="The reveal on a phone">
+</p>
 
-**The flag question** — the country is named, the six answers are flags
+**The flag question** — the country is named, the six answers are flags:
 
-<table><tr>
-<td><img src="docs/screens/flag-desktop.jpg" width="660" alt="A flag question on a desktop"></td>
-<td><img src="docs/screens/flag-phone.jpg" width="198" alt="A flag question on a phone"></td>
-</tr></table>
+<p align="center">
+<img src="docs/screens/flag-desktop.jpg" width="620" alt="A flag question on a desktop">
+<img src="docs/screens/flag-phone.jpg" width="186" alt="A flag question on a phone">
+</p>
 
-**Explore the map** — the grey chart, a country picked, its own facts
+**Explore the map** — the grey chart, a country picked, its own facts:
 
-<table><tr>
-<td><img src="docs/screens/explore-desktop.jpg" width="660" alt="Explore the map with a country panel"></td>
-<td><img src="docs/screens/explore-phone.jpg" width="198" alt="Explore the map on a phone"></td>
-</tr></table>
+<p align="center">
+<img src="docs/screens/explore-desktop.jpg" width="620" alt="Explore the map with a country panel">
+<img src="docs/screens/explore-phone.jpg" width="186" alt="Explore the map on a phone">
+</p>
 
 To take them again after a UI change: serve the root, then `node tools/screens.js`
 (it needs `playwright-core`; `--only=reveal` re-shoots one scene, `--url=` points it at
