@@ -57,6 +57,11 @@ if (!Q || !M) return;
 
 var quizEl = document.getElementById('quiz');
 var bodyEl = document.body;
+/* THE BACK DISC: app chrome, in index.html next to the fullscreen button, NOT inside a
+   page. `position: fixed` is measured against the nearest TRANSFORMED ancestor, and #quiz
+   animates a transform on every screen change - so a fixed Back button inside the page
+   drifted with that animation and never lined up exactly with the other two discs. */
+var backEl = document.getElementById('qback');
 
 /* the config survives a reload; a private-mode browser simply forgets it */
 var STORE = 'kwizzy.quiz.cfg';
@@ -158,8 +163,10 @@ function shellHTML(o) {
      inherited all the way down the title screen and stopped the tagline wrapping.
      Every screen class is `qz-<screen>`, so no component class may be named that way. */
   if (o.title) {
+    /* THE BACK DISC IS NOT IN HERE. It is app chrome (#qback in index.html), next to the
+       fullscreen button: see setBack() for the transform that made an in-page fixed
+       button drift off the other two. The bar only carries the step's own words. */
     h += '<div class="qz-topbar">' +
-         '<button class="qz-back" data-act="back" aria-label="' + esc(T('back')) + '">\u2190</button>' +
          '<div class="qz-titles">' +
          (o.step ? '<span class="qz-kicker">' + esc(T('step_of', { i: o.step, n: o.steps })) + '</span>' : '') +
          '<h2 class="qz-steptitle">' + esc(o.title) + '</h2></div>' +
@@ -712,9 +719,25 @@ function applyDir() {
   if (statsEl) statsEl.setAttribute('dir', d);
 }
 
+/* show the Back disc on every screen that HAS a way back, and name it in the language
+   in play. The title has none (there is nowhere to go), a question has its own ✕. */
+function setBack() {
+  if (!backEl) return;
+  var on = isMenu() && screen !== 'title';
+  if (on) {
+    if (backEl.removeAttribute) backEl.removeAttribute('hidden');
+    backEl.hidden = false;
+  } else {
+    backEl.setAttribute('hidden', '');
+    backEl.hidden = true;
+  }
+  backEl.setAttribute('aria-label', T('back'));
+  backEl.setAttribute('title', T('back'));
+}
 function render() {
   if (!quizEl) return;
   applyDir();
+  setBack();
   if (screen === 'title') quizEl.innerHTML = titleHTML();
   else if (screen === 'mode') quizEl.innerHTML = modeHTML();
   else if (screen === 'zone') quizEl.innerHTML = zoneHTML();
@@ -876,9 +899,17 @@ function back() {
   if (i <= 0) return false;
   return go(STEPS[i - 1]);
 }
+/* "EXPLORE THE MAP INSTEAD": the viewer gets the whole screen back, and the BACKGROUND
+   ANIMATION STOPS. It used to keep running here - the drift is switched from render(),
+   and hide() never rendered - so free exploration was a map that wandered off on its own
+   at twice the fit: the player could not hold a view. Leaving the game is also the moment
+   the drift gives back the view it found (MapApp.cinema(false) restores the centre and
+   the fitted zoom, see driftRestore in app.js). */
 function hide() {
   if (M.quizOn()) M.exit();
+  if (M.cinema) M.cinema(false);
   quizEl.className = '';
+  if (backEl) { backEl.hidden = true; backEl.setAttribute('hidden', ''); }
   if (bodyEl && bodyEl.classList) {
     bodyEl.classList.remove('qz-playing');
     bodyEl.classList.remove('qz-owning');
@@ -957,6 +988,12 @@ function onQuizClick(e) {
     }
 }
 
+if (backEl && backEl.addEventListener) {
+  backEl.addEventListener('click', function () {
+    tapSfx();
+    if (isMenu()) back(); else quit();
+  });
+}
 if (quizEl && quizEl.addEventListener) {
   quizEl.addEventListener('click', onQuizClick);
   if (soundEl) soundEl.addEventListener('click', onQuizClick);
@@ -1135,6 +1172,9 @@ window.Quizzy = {
   /* the sound drawer, and the juice module itself (null when absent) */
   sound: function () { return { open: soundOpen, html: soundEl ? soundEl.innerHTML : '' }; },
   soundToggle: function (open) { soundToggle(open); return soundOpen; },
+  /* the burger's sound switches live in app.js: after one of them changes the engine,
+     the drawer (open behind it, or opened later) must show the same state */
+  soundRender: function () { soundRender(); },
   juice: function () { return J(); }
 };
 

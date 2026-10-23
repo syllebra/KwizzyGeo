@@ -238,6 +238,29 @@ setTimeout(function () {
   L['doc:fullscreenchange']({});
   check('an undefined read-back is ignored, not read as off', fsbtn.classList.contains('on'), fsbtn.className);
 
+  /* ---------- 8. THE THIRD DISC, AND WHAT IT MUST NOT SIT ON ----------
+     A question screen has its own ✕ and ♪ over the map, and the fullscreen disc is
+     fixed at 10 px from the same corner: the row's own left padding has to be the sum
+     that clears it, in BOTH the desktop and the coarse-pointer size, or the two discs
+     overlap (measured: the ✕ sat at 14 px, UNDER a z 26 button, showing through it and
+     eating its corner). And the Back disc is chrome, not part of a step, for the same
+     reason the other two are: `position: fixed` inside #quiz follows the page's
+     entrance transform. */
+  const styleCss = fs.readFileSync(__dirname + '/../style.css', 'utf8');
+  const quizCss = fs.readFileSync(__dirname + '/../quiz.css', 'utf8');
+  check('the Back disc is in the markup, beside the fullscreen one',
+        /<button id="qback"/.test(page));
+  check('...drawn as the same 36 px glass disc, shifted one place along',
+        /\.backbtn\s*\{[\s\S]*?left:\s*calc\(10px \+ 36px \+ 10px\)/.test(styleCss));
+  check('...and 34 px on a coarse pointer, like the corner it mirrors',
+        /\(pointer: coarse\)[\s\S]{0,400}?\.backbtn\s*\{\s*left:\s*calc\(8px \+ 34px \+ 8px\)/.test(styleCss));
+  check('a question\'s controls start clear of the fullscreen disc',
+        /\.qz-top\s*\{[\s\S]*?padding:\s*10px 14px 10px calc\(10px \+ 36px \+ 10px\)/.test(quizCss));
+  check('...and of the smaller disc on a phone',
+        /\(pointer: coarse\), \(max-width: 700px\)\s*\{\s*\.qz-top\s*\{[^}]*calc\(8px \+ 34px \+ 8px\)/.test(quizCss));
+  check('the question buttons are 36 px too, so the row is one line',
+        /\.qz-x\s*\{[\s\S]*?width:\s*36px;\s*height:\s*36px/.test(quizCss));
+
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   process.exit(fails ? 1 : 0);
 }, 500);

@@ -178,6 +178,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 #scrim.on { opacity: 1; pointer-events: auto; }
 
 #menu {
+  box-sizing: border-box;                  /* 36 px INCLUDING the border (it was 38) */
   /* TOP RIGHT, the mirror of the fullscreen disc on the top left: the two fixed
      corners of the app, on every screen. A 36 px SQUARE with one glyph in it, as in
      Kwizzy - the name of the active view lives INSIDE the sheet (#mview), because a
@@ -388,8 +389,36 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .fsbtn:active { transform: scale(.92); }
 .fsbtn svg { display: block; }
 .fsbtn.on { color: #06121e; background: #8ed0ff; border-color: rgba(255, 255, 255, .22); }
+/* THE BACK DISC: the same disc as the fullscreen one, one place along. It is a separate
+   element (index.html) rather than part of a page, so it cannot drift with the page's
+   entrance animation - see quiz.js setBack(). */
+.backbtn {
+  position: fixed;
+  left: calc(10px + 36px + 10px);
+  top: max(10px, env(safe-area-inset-top));
+  z-index: 26;
+  width: 36px; height: 36px; border-radius: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #eaf3fb;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-hi);
+  box-shadow: var(--glass-shadow);
+  cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .14s linear, border-color .14s linear, transform .12s ease,
+              box-shadow .14s linear;
+}
+.backbtn[hidden] { display: none; }
+.backbtn svg { display: block; }
+.backbtn:hover {
+  background: rgba(22, 44, 66, .82); border-color: rgba(142, 208, 255, .45);
+  box-shadow: 0 0 18px rgba(142, 208, 255, .22), var(--glass-shadow);
+}
+.backbtn:active { transform: scale(.92); }
 @media (pointer: coarse), (max-width: 700px) {
   .fsbtn { left: 8px; top: max(8px, env(safe-area-inset-top)); width: 34px; height: 34px; }
+  .backbtn { left: calc(8px + 34px + 8px); top: max(8px, env(safe-area-inset-top)); width: 34px; height: 34px; }
 }
 
 /* ---------- BLOOM ----------
@@ -449,3 +478,68 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .qz-verdict.bad { text-shadow: 0 0 14px rgba(255, 130, 130, .50); }
 .qz-endh, .qz-endh.fresh { text-shadow: 0 0 26px rgba(142, 208, 255, .35); }
 .qz-brand .qz-halo { opacity: 1; }
+
+/* ---------- the sound switches, in the sheet ----------
+   Three switches and a volume, inside the burger. Same glass as a menu row, with the
+   knob of the quiz's drawer (`.qz-set .sw`) so the app has ONE switch look, drawn here
+   because these live in app.js's sheet and not in quiz.js's drawer. */
+.msound { display: flex; flex-direction: column; gap: 4px; }
+.msw {
+  pointer-events: auto; cursor: pointer;
+  display: flex; align-items: center; gap: 9px;
+  min-height: 30px; padding: 5px 10px;
+  border: 1px solid rgba(198, 224, 246, .16); border-radius: 9px;
+  background: rgba(142, 208, 255, .06);
+  color: rgba(234, 243, 251, .88);
+  font: 12px/16px system-ui, sans-serif;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: background .12s linear, border-color .12s linear;
+}
+.msw:hover { background: rgba(142, 208, 255, .13); }
+.msw .mi-lab { flex: 1 1 auto; }
+.msw .knob {
+  flex: 0 0 auto; position: relative;
+  width: 34px; height: 20px; border-radius: 99px;
+  background: rgba(10, 24, 38, .75);
+  border: 1px solid rgba(198, 224, 246, .24);
+  transition: background .16s ease, border-color .16s ease;
+}
+.msw .knob::after {
+  content: ''; position: absolute; left: 2px; top: 50%; margin-top: -8px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(198, 224, 246, .75);
+  transition: transform .16s cubic-bezier(.2,.9,.25,1.1), background .16s ease;
+}
+.msw.on { color: #ffffff; border-color: rgba(142, 208, 255, .40); }
+.msw.on .knob { background: rgba(142, 208, 255, .55); border-color: rgba(198, 236, 255, .7); }
+.msw.on .knob::after { transform: translateX(14px); background: #ffffff; }
+/* a device with no vibration: the row is shown greyed, never hidden (the setting still
+   exists, it just cannot do anything here) */
+.msw.off { opacity: .45; }
+
+.mvol {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 30px; padding: 5px 10px;
+  border: 1px solid rgba(198, 224, 246, .16); border-radius: 9px;
+  background: rgba(142, 208, 255, .06);
+  font: 12px/16px system-ui, sans-serif; color: rgba(234, 243, 251, .88);
+}
+.mvol .mi-lab { flex: 0 0 auto; }
+.mvol input[type=range] {
+  flex: 1 1 auto; min-width: 60px; height: 20px; margin: 0;
+  -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+}
+.mvol input[type=range]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 99px; background: rgba(142, 208, 255, .22);
+}
+.mvol input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -4.5px;
+  border-radius: 50%; background: #8ed0ff; border: 0;
+  box-shadow: 0 0 8px rgba(142, 208, 255, .5);
+}
+.mvol input[type=range]::-moz-range-track { height: 5px; border-radius: 99px; background: rgba(142, 208, 255, .22); }
+.mvol input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #8ed0ff; }
+.mvol .pill {
+  flex: 0 0 auto; font: 10px/13px ui-monospace, Menlo, monospace;
+  color: rgba(198, 230, 255, .95); min-width: 34px; text-align: right;
+}

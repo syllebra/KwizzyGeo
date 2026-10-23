@@ -162,15 +162,26 @@ body.qz-playing #menu { display: none; }
 /* ---------- the question screen ---------- */
 .qz-top {
   position: absolute; top: 0; left: 0; right: 0;
-  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px;
+  /* CLEAR OF THE FULLSCREEN DISC. The quiz's ✕ was at 14 px, i.e. UNDER the app's
+     fullscreen disc at 8-42 px (z 26 against the page's 18): a dark glass button on a
+     dark glass button, with the ✕ showing through as a ghost and its top-left corner
+     eating the clicks. The row now starts where the discs end (10 + 36 + 10), the same
+     sum .backbtn uses - only the fullscreen one is there during a question, the Back
+     disc belongs to the choice screens. */
+  padding: 10px 14px 10px calc(10px + 36px + 10px);
+  padding-top: max(10px, env(safe-area-inset-top));   /* the discs' own top (style.css) */
   pointer-events: none;
 }
 .qz-x {
   pointer-events: auto; cursor: pointer;
-  width: 38px; height: 38px; flex: 0 0 auto;
+  /* 36 px, the size of the app's own discs (#fsbtn, #qback, #menu), so a question's ✕
+     and ♪ sit on the SAME line as the fullscreen disc instead of 2 px below it: they are
+     one row of controls and they looked like a row of near-misses. */
+  width: 36px; height: 36px; flex: 0 0 auto;
   border-radius: 11px; border: 1px solid var(--glass-border);
   background: var(--glass-tint-strong); color: rgba(234, 243, 251, .90);
-  font: 15px/36px system-ui, sans-serif; text-align: center;
+  font: 15px/34px system-ui, sans-serif; text-align: center;
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
 }
@@ -411,6 +422,11 @@ body.qz-playing #menu { display: none; }
 @media (pointer: coarse) {
   .qz-ans { min-height: 50px; }
   .chip { min-height: 36px; }
+}
+/* the discs are 34 px on a coarse pointer / a narrow window (style.css), so the row of
+   question controls starts after THOSE (8 + 34 + 8) and not after the desktop sum */
+@media (pointer: coarse), (max-width: 700px) {
+  .qz-top { padding-left: calc(8px + 34px + 8px); padding-top: max(8px, env(safe-area-inset-top)); }
 }
 
 /* ═══════════════ ANIMATIONS (Kwizzy's vocabulary) ═══════════════ */
@@ -731,37 +747,26 @@ body.qz-playing #menu { display: none; }
 .qz-page-title { height: 100vh; height: 100dvh; }
 .qz-page > * { pointer-events: auto; }
 
-/* ---------- the top bar: back arrow, step, title ----------
-   The back arrow sits clear of the fullscreen button (top-left, 34 px wide at 10 px)
-   and the title clear of the burger (top-right, same size): the two corners belong
-   to the app on EVERY screen, exactly as in Kwizzy. */
+/* ---------- the top bar: the step's own words ----------
+   THE THREE DISCS ARE APP CHROME, not part of this bar: fullscreen at 10 px, Back at
+   56 px, the burger at the far right - same size, same glass, same top, in index.html
+   and style.css (see .backbtn). The bar only carries the kicker and the title, and its
+   LEFT padding clears the two discs so a long title never slides under them. */
 .qz-topbar {
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 54px 0 56px;
-  padding-top: max(12px, env(safe-area-inset-top));
+  /* clear of BOTH left-hand discs (10 + 36 + 10 + 36 + 12) and of the burger on the
+     right (10 + 36 + 12): a long title must never slide under a control.
+     THE SAME TOP AS THE DISCS, and the same height: the bar's two lines are centred on
+     the discs' centre line (10 + 18), so the kicker is not clipped at the top edge. */
+  /* the bar CENTRES its two lines against the discs: same top, same 36 px min height,
+     and the content is allowed to grow downwards from there (it used to be `padding-top`
+     only, so the kicker's own line-height pushed the title down and clipped the kicker) */
+  padding: 0 58px 0 104px;
+  min-height: 70px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-bottom: 8px;
 }
-.qz-back {
-  flex: 0 0 auto; width: 36px; height: 36px; border-radius: 11px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font: 16px/1 system-ui, sans-serif; color: var(--ink);
-  background: var(--glass-tint-strong);
-  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
-  cursor: pointer; touch-action: manipulation;
-  transition: background .12s linear, transform .12s ease;
-}
-.qz-back:hover { background: rgba(22, 44, 66, .72); }
-.qz-back:active { transform: scale(.94); }
 .qz-titles { flex: 1 1 auto; min-width: 0; }
-/* ON A PHONE the step title drops to its own line rather than being ellipsised into
-   "What do you w…": the back arrow and the three dots keep the first row, and the
-   title gets the full width under them. */
-@media (max-width: 560px) {
-  .qz-topbar { flex-wrap: wrap; row-gap: 2px; padding-left: 52px; padding-right: 50px; }
-  .qz-titles { flex: 1 1 100%; order: 3; }
-  .qz-steps { order: 2; margin-left: auto; }
-  .qz-steptitle { white-space: normal; font-size: 19px; line-height: 24px; }
-}
 /* THE TOP BAR SITS ON THE MAP, not on a card: its words are white with a dark halo,
    like the title screen's - ink on the ocean would be unreadable, and giving the bar
    its own paper slab would cut the map in two for one line of text */
@@ -790,6 +795,20 @@ body.qz-playing #menu { display: none; }
 }
 .qz-stepd.done { background: rgba(255, 255, 255, .85); }
 .qz-stepd.on { background: #8ed0ff; box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); transform: scale(1.15); }
+
+/* ON A PHONE the step title drops to its own line rather than being ellipsised into
+   "What do you want t…": the kicker and the three dots keep the first row, and the title
+   gets the whole width under them, clear of the corner discs.
+   DECLARED AFTER the base rule on purpose: same specificity, so written above it the
+   base `white-space: nowrap` would win and the title stayed on one line (measured at
+   390 px: "What do you want t…"). */
+@media (max-width: 560px) {
+  .qz-topbar { flex-wrap: wrap; row-gap: 0; padding-left: 96px; padding-right: 52px; }
+  .qz-titles { flex: 1 1 100%; order: 3; min-width: 0; }
+  .qz-kicker { order: 1; }
+  .qz-steps { order: 2; margin-left: auto; }
+  .qz-steptitle { white-space: normal; font-size: 18px; line-height: 23px; }
+}
 
 .qz-pagebody {
   flex: 1 1 auto; min-height: 0;

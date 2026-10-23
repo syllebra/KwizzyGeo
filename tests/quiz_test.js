@@ -53,6 +53,17 @@ function DivEl(name) {
     remove(c) { el.className = (el.className || '').split(' ').filter(x => x && x !== c).join(' '); },
     contains(c) { return (el.className || '').split(' ').indexOf(c) >= 0; }
   };
+  /* the recursive class lookup app.js uses to find the sheet's rows and switches */
+  el.getElementsByClassName = function (cn) {
+    const out = [];
+    (function walk(n) {
+      for (const c of n.children || []) {
+        if (c.className && (' ' + c.className + ' ').indexOf(' ' + cn + ' ') >= 0) out.push(c);
+        walk(c);
+      }
+    })(el);
+    return out;
+  };
   return el;
 }
 const canvasEl = {
@@ -72,6 +83,8 @@ const els = {
   spot: DivEl('spot'), quiz: DivEl('quiz'),
   /* the burger's sheet: the active view's line and the rows (app.js builds them) */
   mview: DivEl('mview'), fsbtn: DivEl('fsbtn'),
+  /* the Back disc: app chrome, next to the fullscreen one */
+  qback: DivEl('qback'),
   /* the juice: the drawer (a sibling of #quiz) and the particle layer */
   'qz-sound': DivEl('qz-sound'), 'qz-stats': DivEl('qz-stats'), burst: DivEl('burst')
 };
@@ -188,7 +201,9 @@ async function afterLoad() {
   check('the mode screen offers the three modes',
         /data-mode="country"/.test(h) && /data-mode="capital"/.test(h) && /data-mode="flag"/.test(h));
   check('the mode screen has a Continue button', /data-act="go" data-to="zone"/.test(h));
-  check('a top bar with a Back arrow', /qz-back/.test(h) && /data-act="back"/.test(h));
+  /* THE BACK DISC is chrome (#qback), not markup inside the step: it is shown on every
+     screen that has a way back, and it is hidden on the title */
+  check('the Back disc is on for a step', els.qback.hidden === false, els.qback.hidden);
 
   Qz.go('zone');
   const hz = Qz.html();
@@ -208,6 +223,16 @@ async function afterLoad() {
   check('the length note says what the round will be', /A short round/.test(hd),
         (hd.match(/class="qz-note">[^<]*/) || [''])[0]);
   check('the last step is the one that starts the round', /data-act="start"/.test(hd));
+
+  /* the Back disc: chrome, so it lines up with the fullscreen and burger discs */
+  check('the Back disc shows on a step and names itself in the language',
+        els.qback.hidden === false && els.qback.getAttribute('aria-label') === 'Back',
+        els.qback.getAttribute('aria-label'));
+  check('the step markup does not carry a Back button of its own',
+        !/qz-back/.test(Qz.html()));
+  Qz.go('title');
+  check('...and it is hidden on the title (there is nowhere to go)', els.qback.hidden === true);
+  Qz.go('diff');
 
   /* the arrows walk both ways */
   check('Back goes to the previous step', (Qz.back(), Z().screen === 'zone'), Z().screen);
@@ -770,12 +795,69 @@ async function afterLoad() {
   check('there is no layer row at all',
         !rowsAll.some(r => /^layer:/.test((r.dataset || {}).id || '')),
         rowsAll.map(r => r.dataset.id).join(','));
-  const sndRow = rowsAll.filter(r => (r.dataset || {}).id === 'snd')[0];
-  check('the sheet has a Sound & music row', !!sndRow, rowsAll.map(r => r.dataset.id).join(','));
+  /* SOUND & MUSIC LIVES IN THE SHEET ITSELF (2026-10-22, late): three switches and a
+     volume, not one row that opens another panel. The engine is juice.js, which this
+     test loads for real, so flipping a switch here flips a real setting. */
+  check('there is no "sound" row opening a sub-panel any more',
+        !rowsAll.some(r => (r.dataset || {}).id === 'snd'), rowsAll.map(r => r.dataset.id).join(','));
+  const swRows = [];
+  (function walk2(n) {
+    for (const c of n.children || []) {
+      if (/msw/.test(c.className || '')) swRows.push(c);
+      walk2(c);
+    }
+  })(els.items);
+  check('the sheet carries the three sound switches', swRows.length === 3,
+        swRows.map(r => r.dataset.id).join(','));
+  const JU2 = Qz.juice();
+  check('the engine is there to drive them', !!JU2);
+  /* open the sheet so the switches are painted from the engine, then flip one */
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
+  L['menu:click']({ target: els.burger, clientX: 0, clientY: 0 });
+  const sfxRow = swRows.filter(r => r.dataset.id === 'snd:sfx')[0];
+  check('a switch shows the setting it controls', sfxRow.classList.contains('on'), sfxRow.className);
+  const was = JU2.settings().sfx;
+  L['menu:pointerdown']({ clientX: 10, clientY: 10 });
+  L['menu:click']({ target: sfxRow, clientX: 10, clientY: 10 });
+  check('...and flipping it flips the setting', JU2.settings().sfx === !was,
+        'was ' + was + ', now ' + JU2.settings().sfx);
+  check('...and the switch follows', sfxRow.classList.contains('on') === !was, sfxRow.className);
+  JU2.setSfx(was);
+  /* A DEVICE THAT CANNOT VIBRATE: the row stays in the sheet (the setting travels with
+     the player), greyed out, and its switch reads OFF - "on" would be a promise the
+     device cannot keep. The engine's support is asked at paint time, so taking
+     navigator.vibrate away and reopening the sheet is the whole test. */
+  const hapRow = swRows.filter(r => r.dataset.id === 'snd:haptics')[0];
+  check('with a vibration API, the haptics row is not greyed',
+        !hapRow.classList.contains('off') && hapRow.classList.contains('on'), hapRow.className);
+  const hadVibrate = navigator.vibrate;
+  /* the press record is where the 12 px scroll-slop is measured from, so EVERY click
+     on the burger is anchored first: a click at (0,0) after a switch clicked at (10,10)
+     reads as a 14 px scroll and is correctly ignored, which once made this block assert
+     on a sheet that had not reopened */
+  function reopenSheet() {
+    L['menu:pointerdown']({ clientX: 0, clientY: 0 });
+    L['menu:click']({ target: els.burger, clientX: 0, clientY: 0 });
+  }
+  try { delete navigator.vibrate; } catch (e) { navigator.vibrate = undefined; }
+  reopenSheet();                     /* the sheet is open -> this closes it */
+  reopenSheet();                     /* ...and this is the repaint */
+  check('...and greyed, showing OFF, where it has none',
+        hapRow.classList.contains('off') && !hapRow.classList.contains('on'), hapRow.className);
+  try { navigator.vibrate = hadVibrate; } catch (e) {}
+  reopenSheet();
+  reopenSheet();
+  check('...and back to normal when the API is there again',
+        !hapRow.classList.contains('off'), hapRow.className);
+  /* the press record is what the 12 px scroll-slop is measured from, and it survives a
+     click: re-anchor it, or the next click at (0,0) reads as a scroll and is ignored */
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
+  L['menu:click']({ target: els.burger, clientX: 0, clientY: 0 });
+  /* the other way to the sound (mid-question, the ♪ button) still exists: the drawer
+     was not removed, it is simply no longer the only door */
   Qz.soundToggle(false);
-  L['menu:click']({ target: sndRow, clientX: 10, clientY: 10 });
-  check('...and it opens the drawer', Qz.sound().open === true);
-  Qz.soundToggle(false);
+  check('the drawer itself still opens and closes', Qz.soundToggle(true) === true &&
+        Qz.soundToggle(false) === false);
 
   /* ---------- 8. the way back in, from the viewer's sheet ---------- */
   function findRow(node, id) {

@@ -7,7 +7,7 @@
 <title>KwizzyGeo — the geographical quiz</title>
 <link rel="stylesheet" href="flags.css?v=1">
 <link rel="stylesheet" href="style.css?v=39">
-<link rel="stylesheet" href="quiz.css?v=26">
+<link rel="stylesheet" href="quiz.css?v=35">
 </head>
 <body>
 <!-- THE MAP. Its bloom is composited INSIDE the same canvas (see paintGlow in app.js):
@@ -25,6 +25,17 @@
   <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
     <path d="M3 9V3H9 M15 3H21V9 M21 15V21H15 M9 21H3V15" fill="none"
           stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+  </svg>
+</button>
+<!-- THE THIRD DISC. Fullscreen, Back, burger: the app's three fixed controls, all in
+     the markup for the same reason - `position: fixed` only means "against the
+     viewport" when no ancestor is transformed, and #quiz animates a transform on every
+     screen change. A Back button inside the page drifted with that animation and sat a
+     fraction of a pixel off the other two. -->
+<button id="qback" class="backbtn" aria-label="Back" hidden>
+  <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+    <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
+          stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
 </button>
 <div id="menu" class="menu"><div id="burger" class="burger" role="button" tabindex="0" aria-label="Pick a view">&#9776;</div><!-- the name of the active view: INSIDE the sheet, never on the closed button -     the corner is a 36 px disc, as in Kwizzy, and a tag beside it made it 160 px     wide, which on a phone ate the whole top right --><div id="mview" class="mview"></div><div id="items" class="items"></div></div>
@@ -46,7 +57,7 @@
 <!-- the particle bursts (juice.js). Decorative and empty: each spark removes itself -->
 <div id="burst" class="burst" aria-hidden="true"></div>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=97"></script>
+<script src="app.js?v=102"></script>
 <script src="quizcore.js?v=3"></script>
 <!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
      source, so what a player hears is what the test checks -->
@@ -56,6 +67,6 @@
 <!-- the quiz's UI strings in the map's 18 languages: one table, keyed by the same codes
      the burger's language chips use -->
 <script src="i18n.js?v=3"></script>
-<script src="quiz.js?v=17"></script>
+<script src="quiz.js?v=20"></script>
 </body>
 </html>

@@ -186,47 +186,81 @@ setTimeout(function () {
   check('burger click opens the menu', menu.classList.contains('open'));
   check('scrim is shown with the menu', scrim.classList.contains('on'));
 
-  /* THE SHEET'S SHAPE, 2026-10-22: the layer choice is GONE (the map is 10m always),
-     so the Game group is the quiz row and the sound row, the Language group is the 18
-     chips and the Overlay group is the two toggles. The projection group is archived. */
+  /* THE SHEET'S SHAPE, 2026-10-22 (late): no layer choice, the sound switches live IN
+     the sheet (not one row that opens another panel), and the Game group is the quiz
+     plus free exploration. */
   const rows = items.getElementsByClassName('menuitem');
-  check('menu has rows', rows.length === 4, rows.length + ' rows (quiz, sound, cities, north)');
-  check('rows are grouped', items.getElementsByClassName('mgroup').length === 3,
-        items.getElementsByClassName('mgroup').length + ' groups (Game, Language, Overlay)');
+  check('menu has rows', rows.length === 4, rows.length + ' rows (quiz, explore, cities, north)');
+  check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
+        items.getElementsByClassName('mgroup').length + ' groups (Game, Sound, Language, Overlay)');
   check('the projection rows are archived, not rendered',
         !items.getElementsByClassName('menuitem').some(r => /^proj:/.test(r.dataset.id)));
   check('there is no LAYER row to pick', !items.getElementsByClassName('menuitem').some(r => /^layer:/.test(r.dataset.id)));
   check('the map is on 10m and says so', /Natural Earth 10m map units/.test(hud.textContent),
         hud.textContent.split('\n').pop());
-  /* The quiz row exists because the start page is only otherwise reachable by
-     reloading: after "explore the map instead" it is the way back in. */
   const quizRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'quiz'; })[0];
   check('the quiz row is in the sheet', !!quizRow);
-  /* SOUND & MUSIC FROM THE SHEET: the drawer is a setting of the whole app, so the
-     burger - the one thing on every screen - must reach it, not only the quiz's own
-     start page. Clicking the row opens `#qz-sound`. */
-  const sndRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'snd'; })[0];
-  check('the sound row is in the sheet', !!sndRow);
-  /* the drawer itself lives in quiz.js, which this harness does not load (it drives
-     the VIEWER): the row's contract is that the click reaches that module, so the
-     module is stubbed - and the real drawer is opened end-to-end in quiz_test.js */
-  const sndCalls = [];
-  global.window.Quizzy = { soundToggle: function (on) { sndCalls.push(on); } };
-  L['menu:click']({ target: sndRow, clientX: 10, clientY: 10 });
+  const exploreRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'explore'; })[0];
+  check('the free-exploration row is in the sheet', !!exploreRow);
+
+  /* THE SOUND SWITCHES, in the sheet itself: three rows with the drawer's knob, and a
+     volume slider. This harness does not load quiz.js or juice.js, so the ENGINE is
+     stubbed - what is asserted here is the sheet's own wiring; the end-to-end (a real
+     switch flipping a real setting) is in quiz_test.js. */
+  const sws = items.getElementsByClassName('msw');
+  check('the sheet carries three sound switches', sws.length === 3,
+        sws.map(s2 => s2.dataset.id).join(','));
+  check('...sound effects, music, haptics',
+        sws.map(s2 => s2.dataset.id).join(',') === 'snd:sfx,snd:music,snd:haptics');
+  check('...and a volume slider', items.getElementsByClassName('mslider').length === 1);
+  const setCalls = [];
+  global.window.Juice = {
+    settings: function () { return { sfx: true, music: true, haptics: false, vol: 0.5 }; },
+    setSfx: function (v) { setCalls.push('sfx:' + v); },
+    setMusic: function (v) { setCalls.push('music:' + v); },
+    setHaptics: function (v) { setCalls.push('haptics:' + v); },
+    setVol: function (v) { setCalls.push('vol:' + v); },
+    hapticsSupported: function () { return true; }
+  };
+  /* opening the sheet paints the switches from the engine (the sheet is already open at
+     this point in the test, so close it first and open it again - that is the path a
+     player takes, and it is the only one that repaints them) */
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  check('the sheet is closed before the reopen', !menu.classList.contains('open'));
+  L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  check('opening the sheet paints the switches from the engine',
+        sws[0].classList.contains('on') && sws[1].classList.contains('on') &&
+        !sws[2].classList.contains('on'),
+        sws.map(s2 => s2.dataset.id + '=' + s2.classList.contains('on')).join(' '));
+  L['menu:pointerdown']({ clientX: 10, clientY: 10 });
+  L['menu:click']({ target: sws[0], clientX: 10, clientY: 10 });
+  check('...a switch asks the engine to flip it', setCalls.join(',') === 'sfx:false', setCalls.join(','));
+  check('...and the sheet STAYS OPEN (a switch is not a choice from a list)',
+        menu.classList.contains('open'));
+  void setCalls;
+  global.window.Juice = undefined;
+
+  /* a row that goes somewhere DOES close the sheet */
+  L['menu:pointerdown']({ clientX: 10, clientY: 10 });
+  L['menu:click']({ target: exploreRow, clientX: 10, clientY: 10 });
   check('clicking a row closes the menu', !menu.classList.contains('open'));
   check('scrim hidden again', !scrim.classList.contains('on'));
-  check('...and the sound drawer is asked to open', sndCalls.length === 1 && sndCalls[0] === true,
-        sndCalls.join(','));
-  global.window.Quizzy = undefined;
+  /* the press record survives a click (it is what the 12 px scroll-slop is measured
+     from), and this harness fires the burger's clicks at (0,0): re-anchor it, or the
+     next burger click reads as a 14 px scroll and is correctly ignored */
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
 
   /* the CITY overlay row: a toggle, and the HUD must say which state it is in */
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
   const cityRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities');
   check('the cities row exists', !!cityRow);
   check('the cities row starts on', cityRow.classList.contains('on'));
+  L['menu:pointerdown']({ clientX: 10, clientY: 10 });
   L['menu:click']({ target: cityRow, clientX: 10, clientY: 10 });
   check('clicking the cities row turns the overlay off', !/ cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
+  L['menu:pointerdown']({ clientX: 10, clientY: 10 });
   L['menu:click']({ target: items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities'), clientX: 10, clientY: 10 });
   check('clicking it again turns the overlay back on', / cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
   /* the `c` key is the shortcut for the same toggle */
@@ -236,16 +270,19 @@ setTimeout(function () {
   check('and toggles it back', / cities/.test(hud.textContent), hud.textContent.split('\n')[0]);
 
   /* reopen and close via the scrim */
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
   L['scrim:click']({});
   check('scrim click closes the menu', !menu.classList.contains('open'));
 
   /* a press that travels (scrolling the sheet) must NOT activate a row */
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
   L['menu:click']({ target: burger, clientX: 0, clientY: 0 });
   const travelRow = items.getElementsByClassName('menuitem').find(r => r.dataset.id === 'cities');
   L['menu:pointerdown']({ clientX: 10, clientY: 10 });
   L['menu:click']({ target: travelRow, clientX: 10, clientY: 90 });
-  check('a scrolled press does not activate a row', menu.classList.contains('open'));
+  check('a scrolled press does not activate a row', menu.classList.contains('open'),
+        'menu className=' + menu.className);
 
   /* ---------- 7. the north-up tilt ----------
      A straight drag in SCREEN space is not a great circle, so parallel transport

@@ -121,6 +121,11 @@ var DRIFT_REST_MS = 1600;             /* the player moved the map: leave it alon
    and `?driftzoom=1` gives back the fitted view. */
 var DRIFT_ZOOM = 2.0;
 var driftBase = 12;                   /* deg: the middle of the sway */
+/* THE VIEW THE DRIFT FOUND, so it can give it back. The drift zooms to 2x the fit and
+   wanders; a player who leaves the menu for FREE EXPLORATION must get the map they can
+   actually explore - the fitted world at the k it was - not wherever the background had
+   carried it. Captured when the drift takes the map over, restored when it lets go. */
+var driftK0 = null, driftLon0 = null, driftLat0 = null;
 function driftZoomK() {
   var m = /[?&]driftzoom=([0-9.]+)/.exec(urlSearch());
   var z = m ? parseFloat(m[1]) : DRIFT_ZOOM;
@@ -180,6 +185,26 @@ function driftRebase() {
   driftPrev = 0;
   driftBase = Math.max(-46, Math.min(46, view.lat));
 }
+/* hand the view back exactly as it was found: the same centre, the fitted zoom */
+function driftRestore() {
+  if (driftK0 == null) return;
+  var lon = driftLon0, lat = driftLat0;
+  driftK0 = driftLon0 = driftLat0 = null;
+  /* THE CURRENT FIT, not the k that was captured: the zoom that means "the world, whole"
+     depends on the layer and the projection, and both can change while the menu is up
+     (the 10m swap changes fitK by more than 2x). Restoring the captured number left free
+     exploration at 239 px/unit on a map whose fit was 531 - it looked like a broken
+     zoom, not like a reset. */
+  var k = fitK;
+  /* NOT while a flight owns the map: the quiz calls cinema(false) on the frame after it
+     has flown to a country, and resetting the zoom under that flight would make it
+     stutter. A flight is going somewhere else; the restore is for the player who simply
+     left the menu. */
+  if (fly) return;
+  view.k = clampK(k);
+  setCenter(lon, lat);
+  scheduleReproject();
+}
 
 /* ---------- FLY-TO (double click) ----------
    "Dezoom, translate, zoom": one 950 ms timeline with three overlapping phases, so
@@ -221,6 +246,15 @@ var menuEl = document.getElementById('menu');
 var burgerEl = document.getElementById('burger');
 var mviewEl = document.getElementById('mview');
 var itemsEl = document.getElementById('items');
+/* THE SOUND ROWS OF THE SHEET. Declared HERE, above buildMenu(), which runs at load:
+   `var` hoists the NAME but not the value, so a table written next to the function that
+   uses it is still `undefined` at the first build (this cost me a whole load: the menu
+   threw and app.js never finished initialising). */
+var SND_ROWS = [
+  { id: 'sfx', label: 'Sound effects', ico: '\u266A' },
+  { id: 'music', label: 'Music', ico: '\u266B' },
+  { id: 'haptics', label: 'Haptic feedback', ico: '\u25A4' }
+];
 
 /* the burger menu: closed it is only the burger, whose tag names the active
    view; opening it stacks the choices in a column underneath. A chip is a PICK,
@@ -262,10 +296,15 @@ function menuGroups() {
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
     /* THE GAME'S OWN MENU: back to the title (only otherwise reachable by reloading
-       the page) and the sound, which is a setting of the WHOLE app - it belongs in
-       the one sheet that is on every screen, not only on the quiz's start page. */
+       the page) and out to free exploration - which used to be a link on the quiz's
+       start page only, so leaving a round and coming back to the map meant a reload. */
     { title: 'Game', items: [{ id: 'quiz', label: 'Play the quiz', ico: '\u25C8' },
-                             { id: 'snd', label: 'Sound & music', ico: '\u266A' }] },
+                             { id: 'explore', label: 'Explore the map', ico: '\u25CB' }] },
+    /* SOUND & MUSIC, IN THIS SHEET - not one row that opens another panel. These are
+       settings of the whole app, and the burger is the one control on every screen, so
+       the switches live where a player looks for them: `sound: true` tells buildMenu to
+       render the three switches and the volume here. */
+    { title: 'Sound', sound: true },
     /* one chip per language, in a wrapping row: 18 rows of a full-width menu item
        would be 800 px of sheet on a phone for something most sessions never touch */
     { title: 'Language', chips: LANGS.map(function (L) { return { id: 'lang:' + L.c, label: L.label }; }) },
@@ -282,6 +321,7 @@ function menuOpen() { return menuEl.classList.contains('open'); }
 function openMenu() {
   menuEl.classList.add('open');
   if (scrimEl) scrimEl.classList.add('on');
+  refreshSound();          /* the switches show the engine's state as it is NOW */
   /* opening the menu stops the map dead: an inertia glide under an open sheet
      would keep repainting the whole layer for nothing */
   stopInertia();
@@ -331,6 +371,11 @@ function buildMenu() {
     title.className = 'mtitle';
     title.textContent = grp.title;
     box.appendChild(title);
+    if (grp.sound) {
+      box.appendChild(soundRows());
+      itemsEl.appendChild(box);
+      continue;
+    }
     if (grp.chips) {
       /* a wrapping row of small chips: one line of type each, no icon, so 18
          languages cost ~5 rows of sheet instead of 18 */
@@ -393,6 +438,10 @@ function refreshBurger() {
 function burgerClick() { if (menuOpen()) closeMenu(); else openMenu(); }
 function menuClick(el) {
   var id = el.dataset.id;
+  /* A SWITCH IS NOT A CHOICE FROM A LIST: it stays where it is and the sheet stays open,
+     so a player can turn sound off, music off and haptics off in one visit. The sheet
+     only gets out of the way for a row that means "go somewhere" or "pick that". */
+  if (id && id.indexOf('snd:') === 0) { soundToggle(id.slice(4)); return; }
   /* close FIRST, then act: closing last meant that an action which throws (a
      failed layer fetch) left the sheet open on top of the error, and the tap
      looked ignored. It also just feels right: the row is a choice, and the sheet
@@ -400,17 +449,45 @@ function menuClick(el) {
   closeMenu();
   if (!id) return;
   if (id === 'quiz') { if (window.Quizzy) window.Quizzy.open(); return; }
-  /* the sound & music drawer, from the sheet that is on every screen. The drawer lives
-     in quiz.js (it is the only place that owns the audio state), so the row asks it -
-     and it works whether the quiz is on screen or the map is being explored, because
-     the drawer is a sibling of #quiz and not part of a screen. */
-  if (id === 'snd') { if (window.Quizzy) window.Quizzy.soundToggle(true); return; }
+  if (id === 'explore') {
+    /* free exploration: the viewer owns the whole screen again, and the background
+       animation stands down (quiz.js hide() does both) */
+    if (window.Quizzy) window.Quizzy.close();
+    return;
+  }
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
   if (id === 'north') { toggleNorth(); refreshMenu(); return; }
   if (id.indexOf('lang:') === 0) { setLang(id.slice(5)); return; }
 }
+/* ONE SWITCH, from the sheet to the engine and back into the sheet. juice.js owns the
+   state (and persists it); this only asks and then repaints. */
+function soundToggle(which) {
+  var j = juice();
+  if (!j) return;
+  var st = j.settings();
+  if (which === 'sfx') j.setSfx(!st.sfx);
+  else if (which === 'music') j.setMusic(!st.music);
+  else if (which === 'haptics') { if (!j.hapticsSupported()) return; j.setHaptics(!st.haptics); }
+  refreshSound();
+  /* the quiz's own drawer (mid-question) shows the same state: keep it in step */
+  if (window.Quizzy && window.Quizzy.soundRender) window.Quizzy.soundRender();
+}
+/* the volume slider inside the sheet: `input` fires while it is dragged */
+function wireSoundInput() {
+  if (!menuEl || !menuEl.addEventListener) return;
+  menuEl.addEventListener('input', function (e) {
+    var t = e.target;
+    if (!t || t.dataset == null || t.dataset.id !== 'snd:vol') return;
+    var j = juice();
+    if (j) j.setVol(parseInt(t.value, 10) / 100);
+    var pill = t.parentNode && t.parentNode.getElementsByClassName ? t.parentNode.getElementsByClassName('pill')[0] : null;
+    if (pill) pill.textContent = t.value + '%';
+    if (window.Quizzy && window.Quizzy.soundRender) window.Quizzy.soundRender();
+  });
+}
+wireSoundInput();
 /* pick a layer by id (menu row, ?layer=, or the t key) */
 function setLayer(id) {
   userPickedLayer = true;
@@ -447,7 +524,8 @@ function itemFromNode(node) {
   var t = node;
   while (t && t !== menuEl) {
     if (t === burgerEl) return burgerEl;
-    if (t.classList && (t.classList.contains('menuitem') || t.classList.contains('chip'))) return t;
+    if (t.classList && (t.classList.contains('menuitem') || t.classList.contains('chip') ||
+                        t.classList.contains('msw'))) return t;
     t = t.parentNode;
   }
   return null;
@@ -1844,6 +1922,73 @@ function doPick(px, py) {
   refreshUI();
 }
 
+/* THE SOUND GROUP OF THE SHEET: three switches and a volume, in the burger where a
+   player looks for a setting. juice.js owns the state; this draws it and asks it to
+   change - app.js is loaded BEFORE juice.js, so every read happens lazily (at paint
+   time, from refreshSound), never at build time. */
+function juice() { return window.Juice || null; }
+function soundRows() {
+  var wrap = document.createElement('div');
+  wrap.className = 'msound';
+  for (var i = 0; i < SND_ROWS.length; i++) {
+    var r = SND_ROWS[i];
+    var row = document.createElement('div');
+    row.className = 'msw';
+    row.dataset.id = 'snd:' + r.id;
+    row.setAttribute('role', 'switch');
+    row.setAttribute('aria-checked', 'true');
+    row.innerHTML = '<span class="mi-ico" aria-hidden="true">' + r.ico + '</span>' +
+                    '<span class="mi-lab">' + r.label + '</span>' +
+                    '<span class="knob" aria-hidden="true"></span>';
+    wrap.appendChild(row);
+  }
+  /* the volume: a real slider, dragged or arrowed, with the % written beside it so the
+     state is READ rather than felt. Built with createElement, not innerHTML: the fake DOM
+     the tests run on has no parser, so a slider written as markup would be invisible to
+     every test that wants to assert it exists. */
+  var vol = document.createElement('div');
+  vol.className = 'mvol';
+  var lab = document.createElement('span');
+  lab.className = 'mi-lab';
+  lab.textContent = 'Volume';
+  var rng = document.createElement('input');
+  rng.type = 'range'; rng.min = '0'; rng.max = '100'; rng.step = '1'; rng.value = '100';
+  rng.className = 'mslider';
+  rng.dataset.id = 'snd:vol';
+  rng.setAttribute('aria-label', 'Music volume');
+  var pill = document.createElement('span');
+  pill.className = 'pill';
+  pill.textContent = '100%';
+  vol.appendChild(lab); vol.appendChild(rng); vol.appendChild(pill);
+  wrap.appendChild(vol);
+  return wrap;
+}
+/* paint the switches from the engine - on open, and after every change */
+function refreshSound() {
+  var j = juice();
+  if (!j || !itemsEl || !itemsEl.getElementsByClassName) return;
+  var st = j.settings();
+  var rows = itemsEl.getElementsByClassName('msw');
+  for (var i = 0; i < rows.length; i++) {
+    var el = rows[i], key = String(el.dataset.id || '').slice(4);
+    var on = key === 'sfx' ? st.sfx : key === 'music' ? st.music : st.haptics;
+    /* A DEVICE WITH NO VIBRATION greys the row rather than hiding it: the setting still
+       exists and travels with the player's other settings - it simply cannot do anything
+       here. The switch is drawn OFF, because "on" would be a promise the device breaks. */
+    var dead = key === 'haptics' && !j.hapticsSupported();
+    if (dead) on = false;
+    if (on) el.classList.add('on'); else el.classList.remove('on');
+    if (dead) el.classList.add('off'); else el.classList.remove('off');
+    el.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+  var rng = itemsEl.getElementsByClassName('mslider');
+  for (var r = 0; r < rng.length; r++) {
+    var v = Math.round((st.vol == null ? 1 : st.vol) * 100);
+    rng[r].value = v;
+    var pill = rng[r].parentNode ? rng[r].parentNode.getElementsByClassName('pill')[0] : null;
+    if (pill) pill.textContent = v + '%';
+  }
+}
 function refreshMenu() {
   var rows = itemsEl.getElementsByClassName('menuitem');
   var chips = itemsEl.getElementsByClassName('chip');
@@ -3112,12 +3257,21 @@ window.MapApp = {
      a question, where the map is the question's own picture. Turning it back on
      re-bases the sway on the centre the player is looking at NOW, so a drift that is
      resumed after a round does not jump back to where the previous one stopped. */
+  /* THE MENU'S BACKGROUND ANIMATION, and the handle on it: on for the title and the
+     choice screens, off for a question and off for FREE EXPLORATION (where the player
+     drives). Turning it on remembers the view it found; turning it off gives that view
+     back - see driftRestore. */
   cinema: function (on) {
     if (on === undefined) return driftOn;        /* read-only form, for the tests */
     var want = !!on;
     if (want === driftOn) return driftOn;
     driftOn = want;
-    if (want) driftRebase();
+    if (want) {
+      if (driftK0 == null) { driftK0 = view.k; driftLon0 = view.lon; driftLat0 = view.lat; }
+      driftRebase();
+    } else {
+      driftRestore();
+    }
     return driftOn;
   },
   clear: function () { picked = -1; },
