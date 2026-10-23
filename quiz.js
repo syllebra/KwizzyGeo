@@ -41,12 +41,17 @@ function T(key, vars) {
 function dirOf() { return I18 ? I18.dir(lang()) : 'ltr'; }
 /* the id -> key maps for the vocabularies that live in quizcore (which is language
    neutral by design: it holds ids and rules, never words) */
-var K_MODE = { country: 'm_country', capital: 'm_capital', flag: 'm_flag' };
-var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag_s' };
+var K_MODE = { country: 'm_country', capital: 'm_capital', flag: 'm_flag', locate: 'm_locate' };
+var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag_s',
+                   locate: 'm_locate_s' };
 var K_ZONE = { world: 'z_world', africa: 'z_africa', asia: 'z_asia', europe: 'z_europe',
                'north-america': 'z_na', 'south-america': 'z_sa', oceania: 'z_oceania' };
 var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard' };
 var K_DIFF_SUB = { easy: 'd_easy_s', medium: 'd_medium_s', hard: 'd_hard_s' };
+/* In locate mode "the wrong answers are neighbours" would be meaningless - there are no
+   answers to choose from. The difficulty there is how famous the city is, so the three
+   subs are their own sentences. */
+var K_DIFF_SUB_LOCATE = { easy: 'd_l_easy_s', medium: 'd_l_medium_s', hard: 'd_l_hard_s' };
 var K_VARIANT = { name: 'v_name', flags: 'v_flags' };
 var K_VARIANT_SUB = { name: 'v_name_s', flags: 'v_flags_s' };
 var K_LEN_SUB = { 10: 'l_short', 25: 'l_long', 0: 'l_all' };
@@ -95,6 +100,10 @@ var statsOpen = false;       /* the record of everything played */
 var statsEl = document.getElementById('qz-stats');
 var statsArmed = false;      /* the Reset button has been pressed once */
 var session = null, q = null, answered = false, chosen = -1;
+/* LOCATE: the point the player has put on the map, {lon, lat}, and the answer once it
+   is given. `guess` lives outside the question so a re-render (a language change, a
+   resize) does not throw away the marker the player placed. */
+var guess = null;
 var infoMsg = '';
 var bumped = false;          /* the score just went up: its next render bumps */
 var lastHover = -1;          /* which answer the pointer is on, for the select pip */
@@ -110,7 +119,10 @@ function flagSpan(code, cls) {
 }
 function zoneLabel(id) { return K_ZONE[id] ? T(K_ZONE[id]) : id; }
 function diffLabel(id) { return K_DIFF[id] ? T(K_DIFF[id]) : id; }
-function diffSub(id) { return K_DIFF_SUB[id] ? T(K_DIFF_SUB[id]) : ''; }
+function diffSub(id) {
+  var k = (cfg.mode === 'locate' ? K_DIFF_SUB_LOCATE : K_DIFF_SUB)[id];
+  return k ? T(k) : '';
+}
 function modeLabel(id) { return K_MODE[id] ? T(K_MODE[id]) : id; }
 function modeSub(id) { return K_MODE_SUB[id] ? T(K_MODE_SUB[id]) : ''; }
 function variantLabel(id) { return K_VARIANT[id] ? T(K_VARIANT[id]) : id; }
@@ -282,9 +294,10 @@ function diffHTML() {
   }
   b += '</div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('h_len')) + '</div><div class="chips qz-row">';
-  for (var L = 0; L < Q.LENS.length; L++) {
-    b += '<button class="chip' + (cfg.len === Q.LENS[L].id ? ' on' : '') + '" data-len="' +
-         Q.LENS[L].id + '">' + esc(Q.LENS[L].id ? String(Q.LENS[L].id) : T('all_tracks')) + '</button>';
+  var LENS = Q.lensOf(cfg.mode), cur = chosenLen();
+  for (var L = 0; L < LENS.length; L++) {
+    b += '<button class="chip' + (cur === LENS[L].id ? ' on' : '') + '" data-len="' +
+         LENS[L].id + '">' + esc(LENS[L].id ? String(LENS[L].id) : T('all_tracks')) + '</button>';
   }
   b += '</div><div class="qz-note">' + esc(lenSub()) + '</div></div>';
   var best = bestText();
@@ -331,9 +344,26 @@ function aboutHTML() {
 
 /* the note under the length chips: "All" needs to say how many that actually is, and
    a zone smaller than the asked length says so instead of silently repeating */
+/* THE POOL A CONFIG MEANS - the one call the length note, the "not enough" message and
+   the session all agree on. Locate asks about CITIES, so its pool comes from the cities
+   and from the difficulty (the fame band), not from the countries. */
+function poolOf(c) {
+  var cc = c || cfg;
+  if (!flagsReady()) return [];
+  if (cc.mode === 'locate') return Q.cityPool(M.cities(), cc.zone, cc.difficulty);
+  return Q.poolFor(M.items(), cc.zone, cc.mode);
+}
+/* the length a round would actually play: the same resolution newSession does, so a
+   stored 10 carried over from a country round cannot light up a chip locate does not
+   offer */
+function chosenLen() {
+  var L = Q.lensOf(cfg.mode);
+  for (var i = 0; i < L.length; i++) if (cfg.len === L[i].id) return cfg.len;
+  return L[0].id;
+}
 function lenSub() {
-  var want = cfg.len;
-  var n = flagsReady() ? Q.poolFor(M.items(), cfg.zone, cfg.mode).length : 0;
+  var want = chosenLen();
+  var n = poolOf(cfg).length;
   if (!want) {
     return n ? T('l_note_all', { zone: zoneLabel(cfg.zone), n: n }) : T('l_all');
   }
@@ -362,6 +392,12 @@ function askHTML() {
   } else if (q.mode === 'capital') {
     h += '<div class="qz-q">' + askCapital(q) + '</div>' +
          '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
+  } else if (q.mode === 'locate') {
+    /* THE CITY IS THE QUESTION: named, in the language in play, and split at {city} so a
+       language can put the name where its own sentence wants it */
+    var cityN = M.placeLabel(q.answer.id) || q.answer.name;
+    h += '<div class="qz-q">' + named('ask_locate', cityN, 'city') + '</div>' +
+         '<div class="qz-sub">' + esc(subZoneDiff(q)) + '</div>';
   } else if (q.variant === 'flags') {
     /* the country is NAMED and lit up on the map, with its capital: the flag is the
        answer, so it must not be anywhere on screen */
@@ -382,9 +418,11 @@ function askHTML() {
 /* THE THREE PROMPTS THAT NAME SOMETHING. Split at {country} so the country can be bold
    WITHOUT the sentence being glued together here: a language that puts the name at the
    end, or wraps it in its own punctuation, only has to move {country} in its own string. */
-function named(tpl, name) {
+function named(tpl, name, varName) {
   var mark = '\u0001';
-  var s2 = esc(T(tpl, { country: mark }));
+  var vars = {};
+  vars[varName || 'country'] = mark;
+  var s2 = esc(T(tpl, vars));
   return s2.replace(mark, '<b>' + esc(name) + '</b>');
 }
 function askCapital(q) { return named('ask_capital', M.label(q.answer.id) || q.answer.name); }
@@ -479,6 +517,43 @@ function revealHTML() {
     (details ? '<div class="qz-details">' + details + '</div>' : '') +
     '</div>';
 }
+/* THE LOCATE BAR. There are no answers to press, so the bottom of the screen holds the
+   one thing there is to do. Before a marker is placed it says what to do; after, it
+   confirms, and it is the only enabled control in the game that is not a six-option
+   grid. Written as its own builder so the question screen stays one branch per mode. */
+function locateBarHTML() {
+  return '<div class="qz-locbar">' +
+    '<div class="qz-lochint">' + esc(T(guess ? 'loc_place_ok' : 'loc_place')) + '</div>' +
+    '<button class="qz-play qz-locgo" data-act="confirm"' + (guess ? '' : ' disabled') + '>' +
+    esc(T('loc_confirm')) + '</button>' +
+    '</div>';
+}
+/* kilometres as a player reads them: one decimal under 10 km (a bullseye is a real
+   number, "0 km" would look like a bug), whole kilometres above */
+function fmtKm(km) {
+  if (!isFinite(km)) return '0';
+  return km < 9.95 ? (Math.round(km * 10) / 10).toFixed(1) : String(Math.round(km));
+}
+/* the verdict of a locate answer: how far, how many points - and the city's own panel,
+   so the round teaches where it was as well as how close you got */
+function locateRevealHTML() {
+  var a = q.answer, nm = M.placeLabel(a.id) || a.name;
+  var details = '';
+  try { details = M.placePanel ? M.placePanel(a.id) : ''; } catch (e) { details = ''; }
+  var last = (session.i >= session.cfg.len);
+  return '<div class="qz-reveal">' +
+    '<div class="qz-head">' +
+    '<span class="qz-verdict ' + (q.ok ? 'good' : 'bad') + '">' +
+    (q.ok ? '\u2713 ' + esc(T('correct')) : '\u2715 ' + esc(T('wrong'))) + '</span>' +
+    '<span class="qz-facts"><b>' + esc(nm) + '</b>' +
+    (a.country ? ' <span class="qz-dim">· ' + esc(a.country) + '</span>' : '') +
+    ' <span class="qz-locres">' + esc(T('loc_away', { n: fmtKm(q.km) })) + ' · ' +
+    esc(T('loc_pts', { n: q.points })) + '</span></span>' +
+    '<button class="qz-next" data-act="next">' + esc(last ? T('results') : T('next')) +
+    '</button></div>' +
+    (details ? '<div class="qz-details">' + details + '</div>' : '') +
+    '</div>';
+}
 function questionHTML() {
   var h = '';
   h += '<div class="qz-top">' +
@@ -490,11 +565,17 @@ function questionHTML() {
        '<div class="qz-mid"><span class="qz-prog">' +
        esc(T('question_of', { i: session.i, n: session.cfg.len })) +
        '</span><span class="qz-score' + (bumped ? ' bump' : '') + '">' +
-       esc(T('score_mark', { n: session.score })) + '</span></div>' +
+       esc(q.mode === 'locate' ? T('loc_pts', { n: session.points || 0 })
+                              : T('score_mark', { n: session.score })) + '</span></div>' +
        '</div>';
-  h += '<div class="qz-ask' + (q.mode === 'flag' && q.variant === 'name' ? ' qz-ask-flag' : '') + '">' +
+  h += '<div class="qz-ask' + (q.mode === 'flag' && q.variant === 'name' ? ' qz-ask-flag' : '') +
+       (q.mode === 'locate' ? ' qz-ask-locate' : '') + '">' +
        askHTML() + '</div>';
-  h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
+  if (q.mode === 'locate') {
+    h += '<div class="qz-bottom">' + (answered ? locateRevealHTML() : locateBarHTML()) + '</div>';
+  } else {
+    h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
+  }
   return h;
 }
 
@@ -525,7 +606,10 @@ function endHTML() {
   return '<div class="qz-scrim"></div><div class="qz-card qz-endcard">' +
     '<div class="qz-h">' + esc(modeLabel(session.cfg.mode)) + ' · ' + esc(zoneLabel(session.cfg.zone)) +
     ' · ' + esc(diffLabel(session.cfg.difficulty)) + '</div>' +
-    '<div class="qz-endh' + (fresh ? ' fresh' : '') + '">' + ok + ' <span>/ ' + n + '</span></div>' +
+    (session.cfg.mode === 'locate'
+      ? '<div class="qz-endh' + (fresh ? ' fresh' : '') + '">' + (session.points || 0) +
+        ' <span>/ ' + (n * Q.POINTS_MAX) + '</span></div>'
+      : '<div class="qz-endh' + (fresh ? ' fresh' : '') + '">' + ok + ' <span>/ ' + n + '</span></div>') +
     '<div class="qz-dots">' + dots + '</div>' +
     '<div class="qz-endmsg">' + esc(msg) + '</div>' +
     '<div class="qz-note' + (fresh ? ' qz-best-new' : '') + '">' +
@@ -783,14 +867,19 @@ function startSession() {
      the list must be the one the pinned layer actually draws (app.js paints the 50m
      layer and swaps the 10m one in when its 11 MB arrive - building the items before
      that would key a session to a layer that is no longer on screen). */
-  if (!M.enter()) { info(T('map_not_ready')); return false; }
-  var items = M.items();
-  var pool = Q.poolFor(items, cfg.zone, cfg.mode);
-  if (pool.length < Q.N_OPT) {
+  if (!M.enter({ flat: cfg.mode === 'locate' })) { info(T('map_not_ready')); return false; }
+  /* the items the session holds are the mode's own: countries for the three
+     multiple-choice modes, cities for locate. */
+  var items = cfg.mode === 'locate' ? M.cities() : M.items();
+  var pool = poolOf(cfg);
+  /* "six options" is the multiple-choice rule; locate needs a pool at all, and its
+     round is capped to that pool by newSession. */
+  if (pool.length < (cfg.mode === 'locate' ? 1 : Q.N_OPT)) {
     M.exit();
     info(T('not_enough', { zone: zoneLabel(cfg.zone) }));
     return false;
   }
+  guess = null;
   session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0);
   infoMsg = '';
   var j = J();
@@ -825,9 +914,67 @@ function nextQuestion() {
      So the label follows the QUESTION, not the mode: the same flag mode has one half
      that may say the name and one that may not. */
   if (M.labels) M.labels(q.mode === 'capital' || (q.mode === 'flag' && q.variant === 'flags'));
+  guess = null;
+  if (q.mode === 'locate') { locateArm(); render(); return; }
+  if (M.aim) M.aim(false);
+  if (M.clearMarks) M.clearMarks();
   M.show(q.answer.id);
   render();
 }
+/* ---------- LOCATE: arming the map ----------
+   A locate question hands the map three things: an opening view of the ZONE (never of
+   the city - that would be the answer), the COUNTRY NAMES left visible (the question is
+   where a city is, not which country it is in - the shapes alone would make a 50 000
+   town a lottery), and the aim: from now on a tap on the map reports a point instead of
+   picking a country. */
+function locateArm() {
+  if (!q || q.mode !== 'locate') return;
+  if (M.labels) M.labels(false);          /* no single country lit up: nothing is "the" one */
+  if (M.countryNames) M.countryNames(true);
+  if (M.clearMarks) M.clearMarks();
+  if (M.goZone) M.goZone(q.answer && q.answer.cont, q.answer);
+  if (M.aim) M.aim(true, onAim);
+}
+function onAim(pt) {
+  if (!pt || screen !== 'question' || !q || q.mode !== 'locate' || answered) return;
+  guess = { lon: pt.lon, lat: pt.lat };
+  /* the marker is drawn by the map itself, so the player sees what they chose before
+     they confirm - the picture is the state */
+  if (M.marks) M.marks(guess, null, '');
+  render();
+}
+function aimOff() {
+  if (M.aim) M.aim(false);
+  if (M.countryNames) M.countryNames(false);
+}
+/* CONFIRM: the answer is a point, so it goes through the point rule - distance,
+   points, and the two marks that show the miss. */
+function confirmGuess() {
+  if (!q || q.mode !== 'locate' || answered || !guess) return false;
+  var res = Q.answerPoint(session, q, guess);
+  if (!res) return false;
+  answered = true;
+  bumped = res.ok;
+  aimOff();
+  var nm = M.placeLabel(q.answer.id) || q.answer.name;
+  if (M.marks) M.marks(guess, { lon: q.answer.lon, lat: q.answer.lat }, nm);
+  /* frame both points: the reveal is a picture, and two marks 200 km apart have to be
+     two marks, not one */
+  if (M.fitMarks) M.fitMarks();
+  if (S()) S().answer(q, res.ok, { id: q.answer.id, name: nm });
+  render();
+  bumped = false;
+  var j = J();
+  if (j) {
+    /* the juice says the same thing the number does: a bullseye gets the correct clip,
+       a miss the wrong one - and 500+ points is neither, so it gets the neutral tap */
+    var good = res.ok, half = res.points >= 500;
+    j.haptic(good ? 60 : (half ? 30 : [25, 40, 25]));
+    j.sfx(good ? 'correct' : (half ? 'tap' : 'wrong'));
+  }
+  return res.ok;
+}
+
 function choose(i) {
   if (!q || answered || screen !== 'question') return false;
   if (i < 0 || i >= q.options.length) return false;
@@ -871,7 +1018,9 @@ function endScreen() {
 /* the ✕ during a round: the map goes back to the viewer and the player lands on the
    title, where a run starts */
 function quit() {
-  session = null; q = null; answered = false; chosen = -1;
+  aimOff();
+  if (M.clearMarks) M.clearMarks();
+  session = null; q = null; answered = false; chosen = -1; guess = null;
   screen = 'title';
   infoMsg = '';
   M.exit();
@@ -881,7 +1030,8 @@ function quit() {
 function open() {
   if (screen === 'question' && session) return;
   screen = 'title';
-  session = null; q = null; answered = false;
+  aimOff();
+  session = null; q = null; answered = false; guess = null;
   M.exit();
   /* the map goes back to the GAME's palette: the title is a game screen */
   if (M.explore) M.explore(false);
@@ -894,6 +1044,8 @@ function go(to) {
   if (to !== 'about' && STEPS.indexOf(to) < 0) return false;
   if (to === 'question' || to === 'end') return false;
   var was = screen;
+  aimOff();
+  guess = null;
   session = null; q = null; answered = false; chosen = -1;
   screen = to;
   infoMsg = '';
@@ -914,6 +1066,8 @@ function back() {
    the drift gives back the view it found (MapApp.cinema(false) restores the centre and
    the fitted zoom, see driftRestore in app.js). */
 function hide() {
+  aimOff();
+  if (M.clearMarks) M.clearMarks();
   if (M.quizOn()) M.exit();
   if (M.cinema) M.cinema(false);
   /* ...and the chart turns GREY: free exploration is the map for its own sake, and its
@@ -951,6 +1105,7 @@ function onQuizClick(e) {
       else if (act === 'back') back();
       else if (act === 'about') go('about');
       else if (act === 'next') next();
+      else if (act === 'confirm') confirmGuess();
       else if (act === 'quit') quit();
       else if (act === 'menu') go('diff');
       else if (act === 'explore') hide();
@@ -1077,7 +1232,11 @@ window.addEventListener('keydown', function (e) {
   if (!quizEl || !quizEl.className) return;      /* the quiz is not on screen */
   if (screen === 'question') {
     if (e.key >= '1' && e.key <= '6') { tapSfx(); choose(parseInt(e.key, 10) - 1); e.preventDefault(); return; }
-    if (e.key === 'Enter' || e.key === ' ') { next(); e.preventDefault(); return; }
+    if (e.key === 'Enter' || e.key === ' ') {
+      /* a locate question has two states under Enter: confirm the marker, then go on */
+      if (q && q.mode === 'locate' && !answered) confirmGuess(); else next();
+      e.preventDefault(); return;
+    }
     if (e.key === 'Escape') {
       if (soundOpen || statsOpen) { soundToggle(false); statsToggle(false); return; }
       quit(); return;
@@ -1143,6 +1302,10 @@ window.Quizzy = {
       variant: cfg.variant,
       index: session ? session.i : 0, score: session ? session.score : 0,
       answered: answered, chosen: chosen,
+      points: session ? (session.points || 0) : 0,
+      km: session ? (session.km || 0) : 0,
+      guess: guess ? { lon: guess.lon, lat: guess.lat } : null,
+      qkm: (q && q.km != null) ? q.km : null, qpoints: (q && q.points != null) ? q.points : null,
       question: q ? {
         mode: q.mode, variant: q.variant, correct: q.correct,
         answer: q.answer.name, answerId: q.answer.id, flag: q.answer.flag,
@@ -1169,6 +1332,11 @@ window.Quizzy = {
   go: function (to) { return go(to); },
   back: function () { return back(); },
   choose: function (i) { return choose(i); },
+  /* LOCATE's own two entries: a point answer has no button index, so the test (and the
+     keyboard, and the Confirm button) go through this, and the state above reports the
+     marker so a test can see what the player would be confirming */
+  confirm: function () { return confirmGuess(); },
+  guess: function () { return guess ? { lon: guess.lon, lat: guess.lat } : null; },
   next: function () { return next(); },
   quit: function () { quit(); },
   html: function () { return quizEl ? quizEl.innerHTML : ''; },

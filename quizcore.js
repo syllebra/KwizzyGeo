@@ -5,11 +5,17 @@
    checkable: "six options, always" and "easy = far, hard = neighbours" are
    properties of this file alone.
 
-   THREE MODES
+   FOUR MODES
      country - a country is lit up on the map, the six options are country names;
      capital - the country is named and lit up, the options are its capital cities;
-     flag    - a flag is shown, the options are country names.
-   ONE LENGTH: six options, always (N_OPT).
+     flag    - a flag is shown, the options are country names;
+     locate  - a CITY is named and the player puts a marker on the map. There are no
+               options at all: the answer is a geographic point, and what it scores is
+               the DISTANCE between that point and the real one (see answerPoint).
+
+   "Six options, always" (N_OPT) is a property of the three multiple-choice modes. Locate
+   is the fourth mode precisely because it cannot be one of them: its answer is a place
+   on the map, and its verdict is a number of kilometres.
 
    DIFFICULTY is the DISTANCE of the wrong answers, measured between the two places
    the options themselves name:
@@ -29,7 +35,8 @@ var R_KM = 6371.0088;
 var MODES = [
   { id: 'country', label: 'Find the country', sub: 'A country is lit up: name it.', ico: '\u25C9' },
   { id: 'capital', label: 'Find the capital', sub: 'Pick the capital city.', ico: '\u2605' },
-  { id: 'flag',    label: 'Find the flag',    sub: 'a flag, or the country of a flag', ico: '\u2691' }
+  { id: 'flag',    label: 'Find the flag',    sub: 'a flag, or the country of a flag', ico: '\u2691' },
+  { id: 'locate',  label: 'Locate the city',  sub: 'a city is named: put it on the map', ico: '\u25CE' }
 ];
 
 /* The zone list is the CONTINENT vocabulary of the layers, minus the two that are
@@ -64,6 +71,17 @@ var LENS = [
   { id: 25, label: '25',  sub: 'a long round' },
   { id: 0,  label: 'All', sub: 'every country of the zone, once' }
 ];
+
+/* A LOCATE ROUND IS SHORTER, and "All" is not an option there: the pool is every city
+   of a zone (thousands in the world), and each question costs a pan, a zoom and a
+   decision rather than a tap. 5 / 10 / 25 - a round of 25 cities is already a long
+   session when you have to find each one. */
+var LENS_LOCATE = [
+  { id: 5,  label: '5',  sub: 'a short round' },
+  { id: 10, label: '10', sub: 'a round' },
+  { id: 25, label: '25', sub: 'a long round' }
+];
+function lensOf(mode) { return mode === 'locate' ? LENS_LOCATE : LENS; }
 
 var DIFFS = [
   { id: 'easy',   label: 'Easy',   sub: 'the wrong answers are far away' },
@@ -170,6 +188,82 @@ function poolFor(items, zone, mode) {
   return out;
 }
 
+/* ---------- LOCATE: the city pool, and how hard a city is ----------
+   A locate ITEM is a city, built by quiz.js from the map's own places layer:
+   { id:'p<index>', idx, name, lat, lon, pop, cap (ADM0CAP 0/1), cont, sub, country }
+
+   DIFFICULTY IS FAME, and fame is the city's population - with ONE exception that
+   matters: a national capital is a city a map reader knows whatever its size (Bern
+   122 000, Reykjavik 115 000, Canberra 400 000). So the bands are
+
+     easy   - the million-plus cities, and every national capital;
+     medium - 250 000 to 1 000 000, and not a capital;
+     hard   - 40 000 to 250 000, and not a capital.
+   The band IS the difficulty id (easy / medium / hard), so a pool never has to be
+   translated from one vocabulary into another - the first build had a 'normal' band
+   and a 'medium' difficulty, and cityPool('medium') matched nothing.
+
+   The bands are DISJOINT on purpose: hard is not "any city, unluckily", it is a
+   category, so a hard round is a hard round. Below 40 000 nothing is asked at all:
+   a town nobody could place is not a hard question, it is a lottery. Measured on the
+   shipped data (7 342 places, cities with a country and a population): World has
+   602 easy, 1 164 medium, 2 832 hard; the tightest zone is Oceania (19 / 6 / 43). */
+var CITY_FAME = { easy: 1000000, medium: 250000, hard: 40000 };
+var BULLSEYE_KM = 25;            /* "you found it" - the dot on the score screen */
+var POINTS_MAX = 1000;           /* per question; a round is n x 1000 */
+var SCORE_KM = 1500;             /* the distance that costs 63 % of the points */
+
+function cityBand(it) {
+  var p = it && it.pop;
+  if (!it) return null;
+  if (it.cap) return 'easy';     /* ADM0CAP: a national capital is a famous name */
+  if (p == null || !isFinite(p) || p <= 0) return null;
+  if (p >= CITY_FAME.easy) return 'easy';
+  if (p >= CITY_FAME.medium) return 'medium';
+  if (p >= CITY_FAME.hard) return 'hard';
+  return null;
+}
+/* the cities a round can ask about: the zone's, in the difficulty's band */
+function cityPool(items, zone, difficulty) {
+  var z = byId(ZONES, zone) || ZONES[0];
+  var band = byId(DIFFS, difficulty) ? difficulty : 'medium';
+  var out = [], seen = {}, i, it, k;
+  for (i = 0; i < (items || []).length; i++) {
+    it = items[i];
+    if (!it || !norm(it.name)) continue;
+    if (it.lat == null || it.lon == null || !isFinite(it.lat) || !isFinite(it.lon)) continue;
+    if (cityBand(it) !== band) continue;
+    if (z.cont && zoneOf(it) !== z.cont) continue;
+    k = norm(it.name) + '|' + it.lat.toFixed(2) + ',' + it.lon.toFixed(2);
+    if (seen[k]) continue;               /* the same name at the same place, twice */
+    seen[k] = 1;
+    out.push(it);
+  }
+  return out;
+}
+/* THE SCORE OF ONE ANSWER. Points fall off with the distance: a bullseye is the full
+   1000, 100 km is 936, 500 km 717, 1 000 km 513, 2 000 km 264, 5 000 km 36. The curve
+   is exponential because a mistake's cost is proportional to the scale you were
+   already working at: being 200 km off is nothing in Siberia and a lot in Belgium. */
+function pointsFor(km) {
+  if (!isFinite(km) || km < 0) return 0;
+  return Math.round(POINTS_MAX * Math.exp(-km / SCORE_KM));
+}
+/* one locate question: a city nobody has been asked yet this session */
+function cityQuestion(sess, r) {
+  var pool = sess.pool;
+  if (!pool.length) return null;
+  var free = [], i;
+  for (i = 0; i < pool.length; i++) if (!sess.used[pool[i].id]) free.push(pool[i]);
+  if (!free.length) { sess.used = {}; free = pool.slice(0); }
+  var answer = free[Math.floor(r() * free.length)];
+  sess.used[answer.id] = 1;
+  return {
+    mode: 'locate', zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
+    variant: null, answer: answer, options: [], correct: -1
+  };
+}
+
 /* ---------- the distractors ---------- */
 /* cands: [{it, d}] sorted by distance. The band is a SLICE of that order, so
    "easy" can only ever offer far countries and "hard" only near ones; the choice
@@ -265,20 +359,31 @@ function newSession(items, cfg, seed) {
     variant: null
   };
   if (c.mode === 'flag') c.variant = (byId(FLAG_ASK, cfg.variant) || FLAG_ASK[0]).id;
-  var pool = poolFor(items, c.zone, c.mode);
-  var want = (cfg.len === 0 || cfg.len === 'all' || cfg.len === 'All') ? 0 : (cfg.len | 0);
-  if (!want) want = pool.length;
+  if (c.mode === 'locate') c.variant = null;
+  var pool = (c.mode === 'locate')
+    ? cityPool(items, c.zone, c.difficulty)
+    : poolFor(items, c.zone, c.mode);
+  /* THE LENGTH IS RESOLVED AGAINST THIS MODE'S OWN LIST: a stored 10 (a country round)
+     is not a length locate offers, and "All" is not one of its choices at all. An
+     unknown or absent choice falls back to the list's first entry, so a config carried
+     from one mode to another can never start a round the player did not ask for. */
+  var lens = lensOf(c.mode), want = null, i;
+  for (i = 0; i < lens.length; i++) {
+    if (cfg.len === lens[i].id || String(cfg.len) === String(lens[i].id)) want = lens[i].id;
+  }
+  if (want == null) want = lens[0].id;
+  if (want === 0) want = pool.length;          /* "All" = the zone's whole pool */
   c.lenWanted = want;
   c.len = Math.max(1, Math.min(want, pool.length || want, 500));
   return {
     cfg: c, pool: pool,
-    used: {}, i: 0, score: 0, asked: [],
+    used: {}, i: 0, score: 0, points: 0, km: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };
 }
 function nextQuestion(sess) {
   if (!sess || sess.i >= sess.cfg.len) return null;
-  var q = question(sess, sess.rnd);
+  var q = (sess.cfg.mode === 'locate') ? cityQuestion(sess, sess.rnd) : question(sess, sess.rnd);
   if (!q) return null;
   sess.i++;
   sess.asked.push(q);
@@ -295,10 +400,31 @@ function answerQuestion(sess, q, chosen) {
   return { ok: q.ok, correct: q.correct };
 }
 
+/* ONE ANSWER, GIVEN AS A POINT: the locate mode's verdict. `guess` is {lat, lon} - what
+   the player pointed at. The rule lives here, next to the score curve, so the UI cannot
+   disagree with the tests about what a kilometre is worth. */
+function answerPoint(sess, q, guess) {
+  if (!q || q._done) return null;
+  if (!guess || !isFinite(guess.lat) || !isFinite(guess.lon)) return null;
+  q._done = true;
+  q.guess = { lat: guess.lat, lon: guess.lon };
+  q.km = distanceKm({ lat: q.answer.lat, lon: q.answer.lon }, q.guess);
+  q.points = pointsFor(q.km);
+  q.ok = q.km <= BULLSEYE_KM;
+  sess.points = (sess.points || 0) + q.points;
+  sess.km = (sess.km || 0) + q.km;
+  if (q.ok) sess.score++;
+  return { ok: q.ok, km: q.km, points: q.points };
+}
+
 var QUIZCORE = {
   N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
+  LENS_LOCATE: LENS_LOCATE, lensOf: lensOf,
+  BULLSEYE_KM: BULLSEYE_KM, POINTS_MAX: POINTS_MAX, SCORE_KM: SCORE_KM, CITY_FAME: CITY_FAME,
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
+  cityBand: cityBand, cityPool: cityPool, pointsFor: pointsFor,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,
+  answerPoint: answerPoint,
   /* exposed for the tests, and for nothing else */
   _rng: rng, _shuffle: shuffle, _question: question, _keyOf: keyOf
 };

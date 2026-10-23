@@ -921,6 +921,91 @@ async function afterLoad() {
   check('the quiz row reopens the title', Z().screen === 'title' && /qz-on/.test(els.quiz.className),
         Z().screen);
 
+  /* ---------- 9. LOCATE THE CITY: the fourth mode, end to end ----------
+     The mode that is not multiple choice: a city is named, the player puts a marker on
+     the map, and what it scores is the distance. What this section pins is the HAND-OVER
+     to the map (a flat whole-world picture, the country names on, the city names off, a
+     tap that reports a point) and the SCORE (kilometres, points, two marks, and the end
+     screen in points rather than hits) - because all of that is app.js and quiz.js
+     agreeing, and each is one line away from silently not happening. */
+  Qz.set({ mode: 'locate', zone: 'europe', difficulty: 'easy', len: 5 });
+  Qz.go('mode'); Qz.go('zone'); Qz.go('diff');
+  const hDiff = Qz.html();
+  check('the locate difficulty screen offers the mode its own lengths',
+        /data-len="5"/.test(hDiff) && /data-len="25"/.test(hDiff) && !/data-len="0"/.test(hDiff),
+        (hDiff.match(/data-len="\d+"/g) || []).join(','));
+  const hMode = (Qz.go('mode'), Qz.html());
+  check('the mode screen offers Locate the city', /data-mode="locate"/.test(hMode));
+  Qz.go('zone'); Qz.go('diff');
+  check('a locate round starts', Qz.start() === true, Z().info);
+  check('...and the map is handed over', M().quizOn() === true);
+  const projNow = M().projection ? M().projection() : null;
+  check('...on the flat whole-world projection (a cone would hide half the globe)',
+        projNow === 'eckert4', projNow);
+  check('...with the country names ON (the country is a clue here, not the answer)',
+        M().labelsOn() === true || M().countryNames() === true, M().countryNames());
+  check('...and the aim on: a tap reports a place, it does not pick a country',
+        M().aim() === true);
+  check('...and no country lit up', M().pickedFeature() === -1);
+  check('a locate question has no answer grid', !/qz-answers/.test(Qz.html()));
+  check('...it has a Confirm that starts disabled', /data-act="confirm" disabled/.test(Qz.html()));
+  check('...and it names the city in the question',
+        /class="qz-q">[\s\S]*?<b>[^<]+<\/b>/.test(Qz.html()));
+  check('the city is not on the map (its panel is not open)', M().markState() === null);
+
+  /* a tap on the map: the pixel under the middle of the screen, which the fake canvas
+     maps to a geographic point */
+  L['stage:click']({ offsetX: 720, offsetY: 450, preventDefault() {} });
+  const g1 = Z().guess;
+  check('a tap places the marker, and the question keeps it', !!g1, JSON.stringify(g1));
+  check('...and the Confirm wakes up', !/data-act="confirm" disabled/.test(Qz.html()));
+  check('...the marker is on the map as the player\'s point only',
+        !!M().markState() && M().markState().guess && !M().markState().target);
+  /* a DRAG is not an answer: the slop is the touch handler's 8 px */
+  L['stage:mousedown']({ offsetX: 400, offsetY: 400, preventDefault() {} });
+  L['stage:mousemove']({ offsetX: 460, offsetY: 400, preventDefault() {} });
+  L['stage:mouseup']({ offsetX: 460, offsetY: 400, preventDefault() {} });
+  L['stage:click']({ offsetX: 460, offsetY: 400, preventDefault() {} });
+  check('a drag does not count as aiming', JSON.stringify(Z().guess) === JSON.stringify(g1),
+        JSON.stringify(Z().guess) + ' vs ' + JSON.stringify(g1));
+
+  /* answer it, and read the verdict off the screen */
+  const answeredOk = Qz.confirm();
+  const st1 = Z();
+  check('confirming answers the question', st1.answered === true, JSON.stringify(st1));
+  check('...with a distance in kilometres', typeof st1.qkm === 'number' && st1.qkm >= 0, st1.qkm);
+  check('...and points out of a thousand', st1.qpoints >= 0 && st1.qpoints <= 1000, st1.qpoints);
+  check('...the map shows BOTH marks now (the guess and the real city)',
+        !!M().markState() && !!M().markState().target && !!M().markState().guess);
+  check('...the aim is off, so a tap after the answer does not move the marker',
+        M().aim() === false);
+  check('...the verdict names the distance', new RegExp('[0-9]').test(
+        (Qz.html().match(/qz-locres">([^<]*)/) || ['', ''])[1]),
+        (Qz.html().match(/qz-locres">([^<]*)/) || ['', ''])[1]);
+  check('...and it offers the next question', /data-act="next"/.test(Qz.html()));
+  void answeredOk;
+
+  /* walk the round out: the end screen must be in POINTS */
+  let guard9 = 0;
+  while (Z().screen === 'question' && guard9++ < 10) {
+    L['stage:click']({ offsetX: 700, offsetY: 430, preventDefault() {} });
+    Qz.confirm();
+    Qz.next();
+  }
+  check('the locate round ends', Z().screen === 'end', Z().screen);
+  check('...scored in points, not in hits', /qz-endh[\s\S]*?<span>\s*\/\s*\d+/.test(Qz.html()) &&
+        (Z().points || 0) >= 0, Z().points);
+  check('...and the record took the round', (() => {
+    const sum = global.window.KwizzyStats.summary();
+    return sum.modes.some(m => m.key === 'locate');
+  })());
+  /* the map goes back to how it was found */
+  Qz.quit();
+  check('quitting gives the projection back', (M().projection ? M().projection() : 'persp') !== 'eckert4',
+        M().projection ? M().projection() : '(none)');
+  check('...and the aim with it', M().aim() === false);
+  check('...and the marks', M().markState() === null);
+
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   if (errors.length) console.log('errors: ' + errors.join(' | '));
   process.exit(fails || errors.length ? 1 : 0);

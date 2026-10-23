@@ -231,9 +231,16 @@ check('flag options are all different flags', flagQ.every(q => {
 
 /* ---------- 5. the session ---------- */
 (function () {
-  const sess = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 50 }, 4);
+  const sess = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 25 }, 4);
   check('session clamps and normalises its config',
-        sess.cfg.len === 50 && sess.cfg.mode === 'country' && sess.cfg.difficulty === 'medium');
+        sess.cfg.len === 25 && sess.cfg.mode === 'country' && sess.cfg.difficulty === 'medium');
+  /* A LENGTH THE MODE DOES NOT OFFER RESOLVES TO ITS FIRST ONE. It used to be taken
+     as-is (50 stayed 50); locate offers 5 / 10 / 25 and no "All", so the choice has to
+     be resolved against the mode's own list - and doing that for every mode keeps one
+     rule instead of a special case. */
+  const offList = Q.newSession(ALL, { mode: 'country', zone: 'world', difficulty: 'medium', len: 50 }, 4);
+  check('a length the mode does not offer falls back to its first',
+        offList.cfg.len === Q.lensOf('country')[0].id, offList.cfg.len);
   /* `len: 0` is "All", not a bad value: the whole pool. A bad MODE / zone / difficulty
      still falls back, and the length then follows the fallback's pool. */
   const bad = Q.newSession(ALL, { mode: 'nope', zone: 'nope', difficulty: 'nope', len: 10 }, 4);
@@ -247,7 +254,7 @@ check('flag options are all different flags', flagQ.every(q => {
   const ids = {}, order = [];
   let q, n = 0;
   while ((q = Q.nextQuestion(sess))) { n++; ids[q.answer.id] = (ids[q.answer.id] || 0) + 1; order.push(q); }
-  check('a session asks exactly len questions', n === 50, n);
+  check('a session asks exactly len questions', n === 25, n);
   check('a country is never asked twice in one session',
         order.every(q => ids[q.answer.id] === 1));
   check('nextQuestion returns null at the end', Q.nextQuestion(sess) === null);
@@ -313,10 +320,108 @@ check('flag options are all different flags', flagQ.every(q => {
   check('every zone in the list has a continent', Q.ZONES.every(z => z.id === 'world' ? z.cont === null : !!z.cont));
   check('the difficulty list is easy / normal / hard',
         Q.DIFFS.map(d => d.id).join(',') === 'easy,medium,hard');
-  check('the mode list is country / capital / flag',
-        Q.MODES.map(m => m.id).join(',') === 'country,capital,flag');
+  check('the mode list is country / capital / flag / locate',
+        Q.MODES.map(m => m.id).join(',') === 'country,capital,flag,locate');
   check('six options is the rule', Q.N_OPT === 6);
   void zoneUnion;
+})();
+
+/* ---------- 9. LOCATE: the fourth mode, scored in kilometres ----------
+   What has to be true, and why each one is a check and not a comment:
+     * a city's difficulty is its FAME, and the three bands are DISJOINT - otherwise
+       "hard" is just "easy with bad luck";
+     * no town below 40 000 people is ever asked: a place nobody could find is not a
+       hard question, it is a lottery;
+     * the points curve is monotone, full marks at zero, and worth what it says;
+     * an answer is a POINT, given once, and it scores by distance - not right/wrong;
+     * locate's lengths are its own (5 / 10 / 25, no "All"), so a stored "All" from a
+       country round cannot start a 4 598-question round. */
+(function () {
+  const C = (i, name, lat, lon, pop, cap, cont) =>
+    ({ id: 'p' + i, idx: i, name: name, lat: lat, lon: lon, pop: pop, cap: cap || 0,
+       cont: cont || 'Europe', sub: '', country: 'X' });
+  const CITIES = [
+    C(1, 'Paris', 48.85, 2.35, 9904000, 0),
+    C(2, 'Lyon', 45.76, 4.83, 472000, 0),
+    C(3, 'Villeurbanne', 45.77, 4.88, 124000, 0),
+    C(4, 'Annonay', 45.24, 4.67, 16000, 0),        /* too small to be asked */
+    C(5, 'Bern', 46.95, 7.44, 122000, 1),          /* a capital: easy whatever its size */
+    C(6, 'Marseille', 43.30, 5.40, 1400000, 0),
+    C(7, 'Ouagadougou', 12.37, -1.52, 1800000, 0, 'Africa'),
+    C(8, 'Bobo-Dioulasso', 11.18, -4.30, 200000, 0, 'Africa')
+  ];
+  const names = (list) => list.map(c => c.name).join(',');
+
+  check('the fame bands are disjoint',
+        ['easy', 'medium', 'hard'].map(d => names(Q.cityPool(CITIES, 'world', d))).join('|') ===
+        'Paris,Bern,Marseille,Ouagadougou|Lyon|Villeurbanne,Bobo-Dioulasso',
+        ['easy', 'medium', 'hard'].map(d => names(Q.cityPool(CITIES, 'world', d))).join('|'));
+  check('...no city in two bands at once', (() => {
+    const seen = {};
+    return ['easy', 'medium', 'hard'].every(d => Q.cityPool(CITIES, 'world', d).every(c => {
+      if (seen[c.id]) return false;
+      seen[c.id] = 1; return true;
+    }));
+  })());
+  check('a national capital is easy however small it is',
+        Q.cityBand(C(9, 'Reykjavik', 64.1, -21.9, 115000, 1)) === 'easy');
+  check('a town below 40 000 is never asked',
+        Q.cityBand(C(10, 'Nowhere', 0, 0, 39999, 0)) === null && Q.cityBand(C(10, 'x', 0, 0, 40000, 0)) === 'hard');
+  check('a city with no population and no capital is not asked', Q.cityBand(C(11, 'y', 0, 0, null, 0)) === null);
+  check('a zone still filters the cities',
+        names(Q.cityPool(CITIES, 'africa', 'hard')) === 'Bobo-Dioulasso', names(Q.cityPool(CITIES, 'africa', 'hard')));
+  check('the point of a bullseye is the full 1000', Q.pointsFor(0) === Q.POINTS_MAX, Q.pointsFor(0));
+  check('points only fall with distance, and never below zero', (() => {
+    let last = Infinity;
+    for (let km = 0; km <= 20000; km += 50) {
+      const p = Q.pointsFor(km);
+      if (p > last || p < 0) return false;
+      last = p;
+    }
+    return Q.pointsFor(100000) === 0;
+  })());
+  check('the curve is the one documented (1000 km -> 513, 5000 km -> 36)',
+        Q.pointsFor(1000) === 513 && Q.pointsFor(5000) === 36,
+        Q.pointsFor(1000) + ' / ' + Q.pointsFor(5000));
+
+  const sess = Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'medium', len: 5 }, 3);
+  check('a locate session asks CITIES, from the difficulty band',
+        sess.pool.length === 1 && sess.pool[0].name === 'Lyon', sess.pool.length);
+  check('...and its length is capped to that pool', sess.cfg.len === 1, sess.cfg.len);
+  const q = Q.nextQuestion(sess);
+  check('a locate question has no options at all',
+        !!q && q.mode === 'locate' && q.options.length === 0 && q.correct === -1);
+  const res = Q.answerPoint(sess, q, { lat: 45.76, lon: 4.83 });
+  check('a guess on the city is a bullseye and scores full marks',
+        res.ok === true && res.km < 1 && res.points === 1000, JSON.stringify(res));
+  check('...and the session counts it', sess.score === 1 && sess.points === 1000);
+  check('the same answer cannot be scored twice', Q.answerPoint(sess, q, { lat: 0, lon: 0 }) === null);
+
+  const sess2 = Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'medium', len: 5 }, 3);
+  const q2 = Q.nextQuestion(sess2);
+  const far = Q.answerPoint(sess2, q2, { lat: 48.85, lon: 2.35 });   /* Paris: ~392 km */
+  check('a far guess is measured in kilometres, not right or wrong',
+        far.ok === false && Math.abs(far.km - 391.6) < 5, far.km);
+  check('...and still scores something (points, not a verdict)', far.points > 600 && far.points < 850, far.points);
+  check('a session adds up the distance it was off', Math.abs(sess2.km - far.km) < 1e-6);
+
+  check('locate has its own lengths: 5 / 10 / 25, and no "All"',
+        Q.lensOf('locate').map(l => l.id).join(',') === '5,10,25');
+  check('...while the three other modes keep 10 / 25 / All',
+        Q.lensOf('country').map(l => l.id).join(',') === '10,25,0' &&
+        Q.lensOf('capital').map(l => l.id).join(',') === '10,25,0' &&
+        Q.lensOf('flag').map(l => l.id).join(',') === '10,25,0');
+  check('a stored "All" cannot start a locate round of every city',
+        Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 0 }, 1).cfg.len === 4,
+        Q.newSession(CITIES, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 0 }, 1).cfg.len);
+  /* every question of a locate round is a different city: the pool is walked, not sampled */
+  const seen = {};
+  const s3 = Q.newSession(CITIES, { mode: 'locate', zone: 'europe', difficulty: 'easy', len: 10 }, 11);
+  let n3 = 0, dup = false;
+  while (Q.nextQuestion(s3)) { n3++; }
+  check('a locate round of 4 easy cities in Europe asks 3 questions (Europe has 3)',
+        n3 === Q.cityPool(CITIES, 'europe', 'easy').length && n3 === 3, n3);
+  void seen;
 })();
 
 console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));

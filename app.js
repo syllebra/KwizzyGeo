@@ -541,6 +541,8 @@ function setProjection(id) {
   if (!C.PROJ[id]) return;
   projID = id;
   C.setProjection(id);
+  /* the zones' opening views are plane boxes, and a plane belongs to a projection */
+  zoneTargets = {};
   fitView(worldBounds());
   reproject();
   /* the tick and the burger tag both follow the projection: without this the menu
@@ -1651,6 +1653,9 @@ function draw() {
   /* cities sit ON the land, under the labels and under the frame edge */
   drawCities(zNow);
   drawLabels(zNow);
+  /* the locate mode's two marks, over the labels - they are the answer being looked at
+     - and under the bloom, so they glow with the rest of the picture */
+  drawMarks();
   ctx.strokeStyle = COL.frame; ctx.lineWidth = 1; ctx.stroke(framePath);
   /* THE BLOOM, composited into this very canvas: one drawImage of a quarter-size copy,
      scaled up, blended with `screen`. It is what the CSS layer used to do (see the
@@ -1742,6 +1747,12 @@ function drawTracked(txt, cx, cy, track, fill, halo, lw) {
    answer). Only the LIT country is named - the neighbours stay anonymous, or the
    question turns into a map-reading exercise with the answers printed on it. */
 var quizLabels = false;
+/* LOCATE MODE ONLY: the country names stay on the map. In the other modes a name on
+   the map can BE the answer, so the quiz's label pass is a single lit country; here the
+   answer is a city's position, and the country it belongs to is a clue a player needs
+   (without it, "where is Bobo-Dioulasso?" is a shape-recognition test). The CITY dots
+   and names stay off in every mode - they are the answer. */
+var quizNames = false;
 function drawQuizLabel() {
   if (!quizLabels || picked < 0 || !feats[picked]) return;
   var i = picked, p = feats[i].props || {};
@@ -1761,7 +1772,11 @@ function drawQuizLabel() {
 function drawLabels(z) {
   /* during a quiz this also drops the CITY labels, which are drawn further down in
      this same function: a capital's name next to its dot is the answer */
-  if (quizOn) { drawQuizLabel(); return; }
+  if (quizOn && !quizNames) { drawQuizLabel(); return; }
+  /* THE LOCATE MODE'S CARVE-OUT: the COUNTRY names stay, the CITY names go. They are
+     drawn by this same function further down, and a city's name on the map is the
+     answer to "where is Karlsruhe?" - so the pass stops before them. */
+  var countriesOnly = quizOn && quizNames;
   ctx.textBaseline = 'middle';
   var placed = [], shown = 0;
   var stC = labelStyle('country');
@@ -1784,6 +1799,8 @@ function drawLabels(z) {
     drawTracked(cTxt, px, py + stC.dy, stC.track, COL[stC.fill], stC.halo, stC.haloLw);
     if (++shown > 80) break;
   }
+  if (countriesOnly) { ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic'; return; }
+
   /* ---- city labels, placed after the country names and against the same boxes,
      so a city never lands on a country name. Order is what matters when they
      compete: LABELRANK first (Natural Earth's own priority: 0 = Paris, Tokyo),
@@ -2386,6 +2403,7 @@ function bindPointer(el) {
     closeSpot();                   /* any new press dismisses the menu */
     fly = null;                    /* the finger takes over from any flight */
     lastMoveT = loopNow;
+    aimMoved = 0;
     drag = { x: e.offsetX, y: e.offsetY };
     startMotion(e.offsetX, e.offsetY);
   });
@@ -2393,7 +2411,12 @@ function bindPointer(el) {
     mouse.x = e.offsetX; mouse.y = e.offsetY; mouse.inside = true;
     if (drag) {
       var dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
-      if (dx || dy) { pan(dx, dy); drag.x = e.offsetX; drag.y = e.offsetY; addMotion(e.offsetX, e.offsetY); }
+      if (dx || dy) {
+        pan(dx, dy); drag.x = e.offsetX; drag.y = e.offsetY; addMotion(e.offsetX, e.offsetY);
+        /* THE AIM SLOP: a pan ends with a click on the same element, and a locate
+           answer must not be a marker dropped where a drag happened to stop */
+        aimMoved += Math.abs(dx) + Math.abs(dy);
+      }
     }
     setHover(e.offsetX, e.offsetY);
   });
@@ -2405,7 +2428,7 @@ function bindPointer(el) {
     mouse.inside = false;
     if (hover !== -1) { hover = -1; refreshUI(); }
   });
-  el.addEventListener('click', function (e) { doPick(e.offsetX, e.offsetY); });
+  el.addEventListener('click', function (e) { tapAt(e.offsetX, e.offsetY); });
   /* right click: the spot menu. preventDefault keeps the BROWSER's menu away - this
      is a map, and "Save image as..." is not what a right click is asking for here. */
   el.addEventListener('contextmenu', function (e) {
@@ -2413,6 +2436,7 @@ function bindPointer(el) {
     openSpot(e.offsetX, e.offsetY);
   });
   el.addEventListener('dblclick', function (e) {
+    if (aimOn) { gestureGo(e.offsetX, e.offsetY); refreshUI(); return; }   /* aiming: zoom, no marker */
     doPick(e.offsetX, e.offsetY);
     /* one gesture for "take me there", ANIMATED: the view pulls back (so the
        target and its surroundings stay in view while the world turns), travels the
@@ -3014,13 +3038,13 @@ function touchEnd(e) {
            question ("show me that country") than a mouse did - no flight, no
            fitted zoom, and it threw away the selection. */
         lastTap.t = 0;
-        doPick(x, y);
+        if (!aimOn) doPick(x, y);
         setHover(x, y);
         gestureGo(x, y);
         refreshUI();
       } else {
         lastTap.t = now; lastTap.x = x; lastTap.y = y;
-        doPick(x, y);
+        tapAt(x, y);
         setHover(x, y);
       }
     }
@@ -3247,6 +3271,7 @@ function quizKm(lon0, lat0, lon1, lat1) {
    Luxembourg is not a shape in an empty field. */
 var QUIZ_MIN_WINDOW_DEG = 6;
 var quizSavedLayer = null;
+var quizSavedProj = null;   /* the locate mode plays flat, and hands the view back */
 
 function quizIndexOf(key) {
   for (var i = 0; i < feats.length; i++) {
@@ -3257,17 +3282,409 @@ function quizIndexOf(key) {
   return -1;
 }
 
+/* the INDEX of a place from a locate item's id ('p<index>') - the mirror of
+   quizIndexOf, over the places layer instead of the countries */
+function placeIndexOf(key) {
+  var m = /^p(\d+)$/.exec(String(key == null ? '' : key));
+  if (!m) return -1;
+  var i = +m[1];
+  return (i >= 0 && i < places.length) ? i : -1;
+}
+
+/* ---------- THE LOCATE MODE'S ARM ON THE MAP ----------
+   "Locate the city" asks where a city is and takes its answer from the map. Three
+   pieces live here, because all three are the map's business and none of them is a
+   rule: the CITY LIST the game asks about, the ZONE view a question opens on, and the
+   two MARKS (your point and the real one) drawn on the canvas with the great circle
+   between them.
+
+   The zone view is the delicate one: a locate question must NOT be flown to, or the
+   answer would be on screen before the player moves. What the question shows instead is
+   the whole ZONE, so the work is to find the city inside a continent. */
+
+/* A CITY HAS NO CONTINENT: places.json names its country (ADM0NAME) and the continent
+   lives on the country feature. So the same index buildCityFlagIdx builds for flags,
+   built again for the zone - over EVERY spelling a feature offers, because the two
+   files disagree on eighteen names ("Congo (Kinshasa)" against "Dem. Rep. Congo").
+   The table below is the residue those spellings cannot cover: it is the whole of it,
+   measured - thirty-four names, 175 of the 7 342 places, and after it one city is
+   still unmatched. */
+var CITY_ALIAS = {
+  'Congo (Kinshasa)': 'Dem. Rep. Congo', 'Congo (Brazzaville)': 'Congo',
+  'Guinea Bissau': 'Guinea-Bissau', 'Cape Verde': 'Cabo Verde',
+  'Sao Tome and Principe': 'São Tomé and Principe', 'Necw Zealand': 'New Zealand',
+  /* territories: their SOVEREIGN's continent is the zone a player would put them in */
+  'Greenland': 'Denmark', 'Faroe Islands': 'Denmark', 'Aland': 'Finland',
+  'Isle of Man': 'United Kingdom', 'Gibraltar': 'United Kingdom',
+  'Cayman Islands': 'United Kingdom', 'Bermuda': 'United Kingdom',
+  'Turks and Caicos Islands': 'United Kingdom', 'Falkland Islands': 'Argentina',
+  'Aruba': 'Netherlands', 'Curacao': 'Netherlands',
+  'French Polynesia': 'France', 'New Caledonia': 'France',
+  'Puerto Rico': 'United States of America',
+  'United States Virgin Islands': 'United States of America',
+  'American Samoa': 'United States of America', 'Guam': 'United States of America',
+  'Northern Mariana Islands': 'United States of America',
+  'Cook Islands': 'New Zealand', 'Niue': 'New Zealand', 'Tokelau': 'New Zealand',
+  'Chatham Islands': 'New Zealand', 'Kermadec Islands': 'New Zealand',
+  'Hong Kong S.A.R.': 'China', 'Macau S.A.R': 'China',
+  'Svalbard and Jan Mayen Islands': 'Norway', 'Palestine': 'Israel'
+};
+/* quizcore's SUB_ZONE, needed here too: three island nations are filed under "Seven
+   seas (open ocean)" and would otherwise have no zone at all */
+var CONTINENT_FALLBACK = {
+  'Eastern Africa': 'Africa', 'Western Africa': 'Africa', 'Middle Africa': 'Africa',
+  'Southern Africa': 'Africa', 'Northern Africa': 'Africa',
+  'Western Asia': 'Asia', 'Southern Asia': 'Asia', 'Eastern Asia': 'Asia',
+  'South-Eastern Asia': 'Asia', 'Central Asia': 'Asia',
+  'Northern Europe': 'Europe', 'Southern Europe': 'Europe', 'Eastern Europe': 'Europe',
+  'Western Europe': 'Europe',
+  'Caribbean': 'North America', 'Central America': 'North America',
+  'Northern America': 'North America',
+  'South America': 'South America',
+  'Micronesia': 'Oceania', 'Melanesia': 'Oceania', 'Polynesia': 'Oceania',
+  'Australia and New Zealand': 'Oceania'
+};
+var cityZoneIdx = null;
+function buildCityZoneIdx() {
+  cityZoneIdx = {};
+  for (var i = 0; i < feats.length; i++) {
+    var p = feats[i].props || {};
+    var keys = [p.NAME, p.NAME_LONG, p.ADMIN, p.GEOUNIT, p.SOVEREIGNT];
+    for (var q = 0; q < keys.length; q++) {
+      if (keys[q] && !cityZoneIdx[keys[q]]) {
+        cityZoneIdx[keys[q]] = [p.CONTINENT || '', p.SUBREGION || ''];
+      }
+    }
+  }
+}
+function cityZoneOf(name) {
+  if (!cityZoneIdx) buildCityZoneIdx();
+  if (!name) return null;
+  return cityZoneIdx[name] || cityZoneIdx[CITY_ALIAS[name]] || null;
+}
+/* the SAME definition of a zone as quizcore's zoneOf: the continent, or the subregion
+   when Natural Earth files the unit under "Seven seas (open ocean)" */
+function zoneOfContinent(cont, sub) {
+  if (!cont) return CONTINENT_FALLBACK[sub] || null;
+  for (var i = 0; i < CONTINENTS.length; i++) if (CONTINENTS[i] === cont) return cont;
+  return CONTINENT_FALLBACK[sub] || null;
+}
+var CONTINENTS = ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
+
+/* THE LOCATE MODE'S ITEMS. Only what a question needs, and only places a question can
+   ask about: no scientific stations (Antarctica's 40), no meteorological stations, no
+   historic sites - they are on the layer as points, and none of them is a city anyone
+   could find. */
+function buildQuizCities() {
+  var out = [], i;
+  for (i = 0; i < places.length; i++) {
+    var P = places[i];
+    if (!P || !P.n || P.lat == null || P.lon == null) continue;
+    if (P.f === 'S' || P.f === 'M' || P.f === 'H') continue;
+    var zn = cityZoneOf(P.c);
+    var cont = zn ? zoneOfContinent(zn[0], zn[1]) : null;
+    out.push({
+      id: 'p' + i, idx: i, name: cityName(i), lat: P.lat, lon: P.lon,
+      pop: P.p, cap: P.a ? 1 : 0,
+      cont: cont || '', sub: zn ? zn[1] : '',
+      country: P.c || ''
+    });
+  }
+  return out;
+}
+
+/* WHERE A ZONE OPENS: the view a locate question starts from.
+   It frames the ZONE'S OWN CITIES - the places a question can actually name - and not
+   the countries' label points. Label points were the first attempt and they are the
+   wrong points: Natural Earth files Russia under Europe and puts its label at 96 E, so
+   "Europe" stretched to Siberia and the fit came out as the whole world (measured:
+   Europe at 0.96 x the world fit, and Asia at 0.64 - a zoom OUT beyond the world).
+   Oceania was worse: its labels run from -180 to 180, so the box centred on 0.5 E, in
+   the Atlantic.
+
+   So: the spherical centroid of the zone's cities (which cannot be fooled by the
+   antimeridian, because it is computed on the sphere), then the extent of those same
+   cities projected in the PLANE around that centre - the projection is continuous
+   there, so a Pacific zone is one compact box instead of two halves at the edges.
+   Cached per continent: 7 000 projections are cheap but not per frame. */
+var zoneTargets = {};
+function zoneCities(cont) {
+  var out = [], i, all = places;
+  for (i = 0; i < all.length; i++) {
+    var P = all[i];
+    if (!P || P.lat == null || P.lon == null) continue;
+    if (P.f === 'S' || P.f === 'M' || P.f === 'H') continue;
+    var zn = cityZoneOf(P.c);
+    if (!zn) continue;
+    var z = zoneOfContinent(zn[0], zn[1]);
+    if (!z || (cont && z !== cont)) continue;
+    /* the same fame floor quizcore asks about (40 000, or a national capital): a view
+       stretched to a hamlet nobody can be asked about is a view stretched for nothing */
+    if (!P.a && !(P.p >= 40000)) continue;
+    out.push(P);
+  }
+  return out;
+}
+/* THE ZONE'S OWN GEOMETRY: its centre (the mean of its cities' unit vectors, which is
+   the only kind of average that cannot be fooled by the antimeridian) and the list of
+   its cities as lon/lat. Kept per continent, because a zone does not change and this
+   walks 7 000 places. A plane box is NOT cached with it: the plane belongs to a
+   projection and to a centre, and both move (see setProjection and zoneTarget). */
+function zoneFrame(cont) {
+  if (zoneTargets[cont]) return zoneTargets[cont];
+  var pts = zoneCities(cont), i;
+  if (!pts.length) return null;
+  var x = 0, y = 0, z = 0;
+  for (i = 0; i < pts.length; i++) {
+    var la = pts[i].lat * C.DEG, lo = pts[i].lon * C.DEG;
+    x += Math.cos(la) * Math.cos(lo); y += Math.cos(la) * Math.sin(lo); z += Math.sin(la);
+  }
+  var f = {
+    lon: Math.atan2(y, x) / C.DEG,
+    lat: Math.atan2(z, Math.sqrt(x * x + y * y)) / C.DEG,
+    pts: pts.map(function (P) { return { lon: P.lon, lat: P.lat }; })
+  };
+  zoneTargets[cont] = f;
+  return f;
+}
+/* the box of a list of lon/lat points, PROJECTED IN THE FRAME THAT CENTRES ON (lon0,
+   lat0): this is the only correct way to box a zone, because a plane box is a property
+   of the centre as well as of the projection (measured: a 2.6 deg move of the centre
+   changes Russia's box by half). Returns null when nothing lands on the figure. */
+function boxIn(pts, lon0, lat0, extra) {
+  var m = C.rotMat(lon0, lat0, new Float64Array(9));
+  var o = [0, 0], lo = 1e9, hi = -1e9, la = 1e9, lb = -1e9, any = false, i;
+  function add(p) {
+    if (!p) return;
+    if (!C.projectRotLLVis(p.lon, p.lat, m, C.CUR, o)) return;
+    if (!isFinite(o[0]) || !isFinite(o[1])) return;
+    lo = Math.min(lo, o[0]); hi = Math.max(hi, o[0]);
+    la = Math.min(la, o[1]); lb = Math.max(lb, o[1]);
+    any = true;
+  }
+  for (i = 0; i < pts.length; i++) add(pts[i]);
+  if (extra) add(extra);
+  if (!any || !(hi > lo) || !(lb > la)) return null;
+  return [lo, la, hi, lb];
+}
+/* THE VIEW A LOCATE QUESTION OPENS ON: {lon, lat, k}.
+   The centre is the zone's own centroid and does NOT move: if the view is centred on the
+   point the frame was measured around, the frame is already right, and no refinement pass
+   can improve it. (The first build moved the centre down to sit between the cards and
+   re-measured; in a projection that depends on the centre that made the box bigger every
+   time, and Europe came out centred at 72 N.)
+
+   The box is the min/max of the zone's CITIES in that frame, at the ordinary 6 % pad -
+   the same fit a country gets. Two earlier attempts are worth remembering, because each
+   looks sensible and each fails:
+     * the COUNTRIES' label points: Russia's label sits at 96 E and is filed under
+       Europe, so "Europe" then spans to Siberia and the fit came out at the world view
+       (measured 0.96 x fitK - a zoom OUT beyond the world);
+     * a PERCENTILE box, to throw the outliers away: 18 % of Europe's cities are Russian,
+       so the 2-98 % box still reaches the Pacific (measured 1 755 px wide, and the
+       quantile-of-bounds variant came out at k 806 - a 30-degree picture of a whole
+       continent).
+   Min/max is the one that holds, because the outliers are REAL: Vladivostok is a
+   European city by this data's own bookkeeping, and at the plain fit every one of the
+   zone's cities is on screen (measured, all 955 of Europe's, 716 of Africa's, 1 496 of
+   Asia's, 584 of South America's). That is the property the game needs: whatever city is
+   asked, it is on the picture when the question opens. */
+var ZONE_PAD = 0.06;
+function zoneTarget(cont) {
+  if (!cont) return { lon: view.lon, lat: view.lat, k: fitK, world: true };
+  var f = zoneFrame(cont);
+  if (!f) return { lon: view.lon, lat: view.lat, k: fitK, world: true };
+  var m = C.rotMat(f.lon, f.lat, new Float64Array(9));
+  var o = [0, 0], lo = 1e9, hi = -1e9, la = 1e9, lb = -1e9, i;
+  for (i = 0; i < f.pts.length; i++) {
+    if (!C.projectRotLLVis(f.pts[i].lon, f.pts[i].lat, m, C.CUR, o)) continue;
+    if (!isFinite(o[0]) || !isFinite(o[1])) continue;
+    lo = Math.min(lo, o[0]); hi = Math.max(hi, o[0]);
+    la = Math.min(la, o[1]); lb = Math.max(lb, o[1]);
+  }
+  if (!(hi > lo) || !(lb > la)) return { lon: f.lon, lat: f.lat, k: fitK, world: true };
+  /* never further out than the whole world: the map already shows all of it */
+  var k = Math.max(fitKForExtent([lo, la, hi, lb], ZONE_PAD), fitK);
+  return { lon: f.lon, lat: f.lat, k: k, world: false };
+}
+
+/* ---------- AIMING: a click that reports a place instead of picking a country ---------- */
+var aimOn = false, aimFn = null;
+/* the drag slop, so ending a pan does not count as "I put my marker here" - the same
+   8 px the touch handler uses for a tap */
+var aimMoved = 0;
+function aimAt(px, py) {
+  var g = geoAt(px, py);
+  if (!g || !isFinite(g[0]) || !isFinite(g[1])) return null;
+  var p = { lon: g[0], lat: g[1] };
+  if (aimFn) aimFn(p);
+  return p;
+}
+/* one entry point for "there was a tap at this pixel", mouse or finger: the two were
+   separate paths (click, and touchend) and a mode that only taught one of them about
+   itself would work with a mouse and not on a phone */
+function tapAt(x, y) {
+  if (aimOn) {
+    var moved = aimMoved;
+    aimMoved = 0;                              /* one tap, one slop measurement */
+    if (moved > TAP_SLOP) return null;          /* that was the end of a drag */
+    return aimAt(x, y);
+  }
+  doPick(x, y);
+  return null;
+}
+
+/* ---------- THE TWO MARKS ---------- */
+/* Drawn ON the map, under the bloom, because they are part of the picture: the point
+   the player chose, the real city, and the great circle between them. A DOM overlay
+   would not follow the map (it moves every frame) and would fight the canvas. */
+var marks = null;                 /* {guess:{lon,lat}, target:{lon,lat}, name} */
+function screenOf(lon, lat) {
+  var o = [0, 0];
+  if (!C.projectRotLLVis(lon, lat, FRAME, C.CUR, o)) return null;
+  return [o[0] * view.k + (W * 0.5 - view.cx * view.k),
+          (H * 0.5 + view.cy * view.k) - o[1] * view.k];
+}
+function drawMarks() {
+  if (!marks) return;
+  var g = marks.guess ? screenOf(marks.guess.lon, marks.guess.lat) : null;
+  var t = marks.target ? screenOf(marks.target.lon, marks.target.lat) : null;
+  /* THE LINE, sampled along the great circle: a straight segment in the plane is the
+     wrong picture on a projection that curves (and it would cut through the pole on
+     any pair that crosses it). Segments are broken, not bridged, where a point falls
+     outside the figure (behind the horizon of a cone view). */
+  if (marks.guess && marks.target) {
+    var prev = null;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(238, 246, 255, .92)';
+    ctx.lineWidth = 1.7;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    for (var i = 0; i <= 48; i++) {
+      var ll = slerpLL(marks.guess.lon, marks.guess.lat,
+                       marks.target.lon, marks.target.lat, i / 48);
+      var p = screenOf(ll[0], ll[1]);
+      if (!p) { prev = null; continue; }
+      if (prev) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
+      prev = p;
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  /* the PLAYER'S point: a ring around a dot, in the accent - the same vocabulary as
+     the picked country, so "the thing I chose" always looks the same */
+  if (g) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(20, 34, 48, .85)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(g[0], g[1], 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = COL.pick; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(g[0], g[1], 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = COL.pick;
+    ctx.beginPath(); ctx.arc(g[0], g[1], 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  /* the REAL place: a filled dot and its name, green - the verdict's own colour, so
+     "this is the right answer" needs no legend */
+  if (t) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(8, 26, 20, .9)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(t[0], t[1], 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#46d18e';
+    ctx.beginPath(); ctx.arc(t[0], t[1], 6, 0, Math.PI * 2); ctx.fill();
+    if (marks.name) {
+      ctx.font = '600 13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(6, 14, 22, .92)';
+      ctx.strokeText(marks.name, t[0] + 11, t[1]);
+      ctx.fillStyle = '#eaf6ff';
+      ctx.fillText(marks.name, t[0] + 11, t[1]);
+    }
+    ctx.restore();
+  }
+}
+
 window.MapApp = {
   ready: function () { return feats.length > 0; },
   placesReady: function () { return places.length > 0; },
   layer: function () { return layerName; },
+  /* WHICH PROJECTION IS IN PLAY. The locate mode switches to the flat one and hands the
+     player's own back on exit, so "which one am I looking at" is a fact a test can only
+     get from here. */
+  projection: function () { return projID; },
   quizOn: function () { return quizOn; },
   items: function () { return buildQuizItems(); },
+  /* THE CITIES the locate mode asks about, in the language in play. Same contract as
+     items(): quizcore derives the pool, this only reports - and the ITEM is what a
+     question holds, so `name` here is the label at build time while placeLabel() is the
+     live one the screens render. */
+  cities: function () { return buildQuizCities(); },
+  /* the live name of a city, by item id ('p<index>'), in the language in play */
+  placeLabel: function (key) {
+    var i = placeIndexOf(key);
+    return i < 0 ? '' : cityName(i);
+  },
+  /* a city's own panel (country, region, population, time zone), by item id */
+  placePanel: function (key) {
+    var i = placeIndexOf(key);
+    return i < 0 ? '' : placePanelHTML(i);
+  },
+  /* WHERE A ZONE OPENS: {lon, lat, k}, and whether it is the whole world. Read-only, so
+     a test can state the view a locate question starts from. */
+  zoneTarget: function (cont) { return zoneTarget(cont); },
+  /* ...and go there. A locate question is never flown to: the answer would be on screen
+     before the player moved. The ZONE is what is framed. */
+  goZone: function (cont) {
+    var t = zoneTarget(cont);
+    if (!t) return false;
+    flyTo(t.lon, t.lat, t.k);
+    return true;
+  },
+  /* AIMING: with `on`, a tap on the map reports the geographic point under it to `fn`
+     instead of picking a country - and it is the only way in, so there is one rule for
+     the mouse and the finger both. No argument: the read-back, for the tests. */
+  aim: function (on, fn) {
+    if (on === undefined) return aimOn;
+    aimOn = !!on;
+    aimMoved = 0;          /* a fresh arm starts with a clean slop */
+    aimFn = on ? (fn || null) : null;
+    if (aimOn) { picked = -1; hover = -1; pickedPlace = -1; hoverPlace = -1; }
+    return aimOn;
+  },
+  /* the two marks: the player's point and the real one, drawn on the canvas */
+  marks: function (guess, target, name) {
+    marks = (guess || target) ? { guess: guess || null, target: target || null, name: name || '' } : null;
+    return marks;
+  },
+  clearMarks: function () { marks = null; },
+  /* frame both points, so the distance between them is a thing you can SEE: the reveal
+     after an answer. Never closer than 2 degrees (~220 km) - a near-perfect answer would
+     otherwise zoom to a street corner and show two labels on top of each other. */
+  fitMarks: function () {
+    if (!marks || !marks.guess || !marks.target) return null;
+    var a = marks.guess, b = marks.target;
+    /* THE FLIGHT GOES IN, not out: a miss of 30 km has to be a picture of two marks
+       beside each other, and a floor of 2 degrees keeps the two labels from landing on
+       top of one another. (`Math.min(k, fitK)` - the world fit as a CAP - is what the
+       first build wrote, and it made every reveal the world view: the whole point of
+       the reveal is the miss, and at the world fit a 300 km miss is invisible.) */
+    var lo = Math.min(a.lon, b.lon), hi = Math.max(a.lon, b.lon);
+    var la = Math.min(a.lat, b.lat), lb = Math.max(a.lat, b.lat);
+    var span = Math.min(180, Math.max(hi - lo, lb - la, 2) * 1.6);
+    var lon0 = (lo + hi) / 2, lat0 = (la + lb) / 2;
+    var k = windowFor(null, lon0, lat0, C.CUR, span) || fitK;
+    k = Math.max(k, fitK);           /* never out past the world: the figure ends there */
+    flyTo(lon0, lat0, k);
+    return { lon: lon0, lat: lat0, k: k };
+  },
+  /* the marks as they are, so a test can read what the map was told */
+  markState: function () {
+    return marks ? { guess: marks.guess, target: marks.target, name: marks.name } : null;
+  },
   /* Hand the map to the quiz. The layer is pinned to 50m - 2.5 MB, loaded with the
      first paint, 201 features - because the items the session holds are keyed to
      Natural Earth's NE_ID but drawn by INDEX in `feats`, and the deferred 10m swap
      would replace the whole array mid-question. */
-  enter: function () {
+  enter: function (opts) {
     /* THE QUIZ BORROWS THE 50m SOVEREIGNTY LAYER - and still pins it, for two reasons,
        neither of which the "one layer, 10m" decision touches:
          1. the session's items are keyed to NE_ID but DRAWN BY INDEX in `feats`, so a
@@ -3284,8 +3701,20 @@ window.MapApp = {
     userPickedLayer = true;
     deferLayer = null;                 /* the deferred 10m swap must not land mid-round */
     if (layerName !== '50m') setLayer('50m');
+    /* THE LOCATE MODE PLAYS ON A FLAT, WHOLE-WORLD MAP, and that is not a taste:
+       the default perspective view is a 3-radius cone, so it shows one cap of the
+       sphere and hides the rest - measured, only 2 294 of the 4 598 cities were even
+       on screen at the world fit, which makes "where is Ouagadougou?" a question with
+       the answer off the picture half the time. Eckert IV shows the whole sphere at
+       once, it is the projection this viewer was built on, and a "point at the map"
+       game wants exactly that. The player's own projection comes back in exit(). */
+    if (opts && opts.flat) {
+      if (quizSavedProj === null) quizSavedProj = projID;
+      if (projID !== 'eckert4') setProjection('eckert4');
+    }
     quizOn = true;
     quizLabels = false;                 /* the quiz turns it on per mode (MapApp.labels) */
+    aimOn = false; aimFn = null; marks = null; quizNames = false;
     hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
     refreshUI();
     return true;
@@ -3294,10 +3723,16 @@ window.MapApp = {
   exit: function () {
     quizOn = false;
     quizLabels = false;
+    /* the locate mode's arm and its two marks go with the hand-over: they belong to a
+       question, and a question is over when the map is given back */
+    aimOn = false; aimFn = null; marks = null; quizNames = false;
     hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
     var back = quizSavedLayer;
     quizSavedLayer = null;
+    var backP = quizSavedProj;
+    quizSavedProj = null;
     if (back && back !== layerName && loaded[back]) setLayer(back);
+    if (backP && backP !== projID) setProjection(backP);
     refreshUI();
     return true;
   },
@@ -3399,6 +3834,13 @@ window.MapApp = {
      is not the name (capital, flag) and off for "find the country". It lives here
      because the label is drawn by the map, from the map's own layer. */
   labels: function (on) { quizLabels = !!on; return quizLabels; },
+  /* the locate mode's switch: the COUNTRY names, all of them, with no city names. Read
+     back with no argument, like labels(). */
+  countryNames: function (on) {
+    if (on === undefined) return quizNames;
+    quizNames = !!on;
+    return quizNames;
+  },
   /* read-only, for the quiz's own tests */
   labelsOn: function () { return quizLabels; },
   /* the bloom, as it is actually configured: a test can only see the canvas otherwise,
