@@ -615,7 +615,9 @@ body.qz-playing #menu { display: none; }
   transition: transform .16s cubic-bezier(.2,.9,.25,1.2);
 }
 .qz-set.on { color: #eaf3fb; border-color: rgba(142, 208, 255, .40); background: rgba(142, 208, 255, .12); }
-.qz-set.on .sw { background: rgba(70, 209, 142, .55); border-color: rgba(120, 230, 180, .80); }
+/* the same BLUE as the sheet's switches: one switch look, one accent. It was green,
+   which is the answer's own colour - a settings switch is not a verdict. */
+.qz-set.on .sw { background: rgba(142, 208, 255, .55); border-color: rgba(198, 236, 255, .80); }
 .qz-set.on .sw::after { transform: translateX(16px); background: #ffffff; }
 
 .qz-vol { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; padding: 0 2px; }

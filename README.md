@@ -209,9 +209,11 @@ drawer's own keys so the two can never disagree.
 
 **The switches are drawn as menu rows**, not as a control of their own species: the same
 30 px height (44 px on a finger), the same glass, the same 18 px icon column — so the
-Sound group is not a panel pasted into the sheet. ON is the drawer's **green knob** with
-the accent border, the same look as a selected row; the volume row puts the slider in the
-label's place and the `%` where the knobs are, so the group's right edge is one line.
+Sound group is not a panel pasted into the sheet. ON is **the accent blue** — the knob was
+green for one pass, and green already means "right answer" everywhere else in this app; a
+settings switch is not a verdict. The quiz's own drawer takes the same blue, so there is
+one switch look in one accent. The volume row puts the slider in the label's place and the
+`%` where the knobs are, so the group's right edge is one line.
 
 *The finger-sized block is declared at the END of the stylesheet, not in the
 coarse-pointer block above the base rules*: same specificity, so a media query written
@@ -430,7 +432,7 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 |---|---|
 | `tests/quizcore_test.js` | 60 checks on a synthetic lattice: the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) |
 | `tests/quiz_test.js` | 226 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit |
-| `tests/drift_test.js` | 48 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; and the land **painted** grey in exploration and slate blue in the game |
+| `tests/drift_test.js` | 57 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; and the land **painted** grey in exploration and slate blue in the game |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
 | `tests/i18n_test.js` | 218 checks (163 keys): the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
@@ -704,6 +706,17 @@ you asked about: **London → Londres**, Vienna → Vienne / Wien / Viena, Mosco
 A country panel shows the localised name and lists the others under **also**; a city
 panel shows the localised name and puts the base name under **also** when they differ.
 
+**On a phone the panel is a compact card, not a dossier.** It is a twelve-row block —
+name, other names, capital, type, region, area, population, GDP, economy, codes,
+geometry, links — and at 312 px it measured 270 x 416 px on a 390 px screen: it covered
+the map it describes. Below 900 px it takes the shape of the quiz's own details block
+instead: **216 px wide, type a step down, and a height cap (`min(186px, 30vh)`) with its
+own thin scrollbar**, so it is about five rows and never taller than the country. Two
+consequences worth knowing: the key column narrows to 62 px (a 84 px label made every
+value wrap under it), and the panel becomes **`pointer-events: auto`** there — it
+scrolls, so it has to take the finger; it used to be a label you could drag the map
+through.
+
 **Data credit** lives at the bottom of the burger sheet: *Data Natural Earth · public
 domain*, linking to <https://www.naturalearthdata.com/>. That is the source of every
 layer, and it is public domain, so the credit is a courtesy rather than an obligation —
@@ -820,10 +833,13 @@ right and a wrong answer must never look alike.
 
 **Exploration is grey, playing is blue.** The game's land is a colour because the game
 needs a ground for one lit country; a map you are exploring is a *chart*, and a chart is
-neutral. `COL.landX = #555b61` (with `hoverX` / `edgeX`) is the same lightness as
-`COL.land` to within a few percent, so the pale labels, their dark halos, the city dots
-and the glass panels keep working exactly as they are — only the hue changes, and the hue
-is the message. `MapApp.explore(on)` (read-only with no argument) switches it, and
+neutral. `COL.landX = #7d8b96` (with `hoverX = #93a1ac` and `edgeX`) — a **light grey
+with a blue bias** (B > G > R), so it belongs to this ocean instead of fighting it. The
+first build was a neutral `#555b61` and read as concrete next to the blue water; the
+lightness was then raised by eye until the chart stopped looking heavy. It is still dark
+enough for the pale labels, their dark halos, the city dots and the glass panels — the
+label colours did not have to move, and `drift_test.js` asserts both properties
+(lighter than the game blue by ratio, and blue-biased) rather than the hex. `MapApp.explore(on)` (read-only with no argument) switches it, and
 `quiz.js` is what calls it: `hide()` turns it on when the player leaves the game,
 `open()` turns it off when they come back, so no quit path can leave the wrong palette
 behind. `tests/drift_test.js` asserts the colour **actually painted** on the land, taken
@@ -987,7 +1003,7 @@ directory does not matter). All twenty exit 0: the seventeen asserting ones end 
 | `flags_test.js` | every code the app can ask for has an SVG and a CSS rule (driven by the two tables, parsed out of `app.js` so they cannot drift); every `url()` resolves; the licence ships; and Somaliland / Northern Cyprus / Siachen stay deliberately flagless (106 checks) |
 | `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, ink strength, tracking, and the capital's exemption from the rank cut (20 checks) |
-| `drift_test.js` | the menu's living background: still at boot, moving east at ~0.4°/s when the quiz asks for it, stopped by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the three discs (the fullscreen button's two names and its follow-the-browser behaviour, Chromium's `isFullscreen: undefined` not being read as "off", the Back disc's placement, a question's controls clearing the corner, and the land painted grey in exploration / slate blue in the game) (48 checks) |
+| `drift_test.js` | the menu's living background: still at boot, moving east at ~0.4°/s when the quiz asks for it, stopped by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the three discs (the fullscreen button's two names and its follow-the-browser behaviour, Chromium's `isFullscreen: undefined` not being read as "off", the Back disc's placement, a question's controls clearing the corner), the two land palettes (the colour actually painted, lighter than the game blue and blue-biased), the blue switch in both places, and the phone-sized panel (57 checks) |
 
 The measurement probes quoted in this document (`recenter_cost.js`,
 `poletest2.js`, `rollpc2.js`, the `shp2geojson*.py` converters) are deliberately

@@ -624,10 +624,14 @@ var COL = {
   /* EXPLORATION IS GREY, NOT BLUE. The game's land is a colour because the game needs a
      ground for one lit country; a map you are exploring is a CHART, and a chart is
      neutral - every country the same grey stone, the one you pick the only thing that
-     is lit (COL.pick, unchanged). Same lightness as COL.land to within a few percent,
-     so the pale labels, their dark halos, the city dots and the glass panels all keep
-     working exactly as they are; what changes is the hue, and the hue is the message. */
-  landX: '#555b61', hoverX: '#6b7178', edgeX: 'rgba(10, 16, 22, .58)',
+     is lit (COL.pick, unchanged).
+     A LIGHT, slightly blue grey, and its lightness was tuned by eye rather than picked:
+     the first build (#555b61, neutral) read as concrete next to the blue ocean, and the
+     dark land it replaced had made the whole chart heavy. #7d8b96 is ~18 % lighter and
+     keeps a blue bias (B > G > R) so it belongs to this ocean instead of fighting it -
+     still dark enough for the pale labels with their dark halos, the city dots and the
+     glass panels, which is why the label colours did not have to move. */
+  landX: '#7d8b96', hoverX: '#93a1ac', edgeX: 'rgba(8, 14, 20, .50)',
   /* cities: a pale dot with a dark ring, so it reads over the land and over the ocean */
   city: 'rgba(232, 242, 252, .95)', cityRing: 'rgba(8, 22, 36, .85)',
   cityPick: '#8ed0ff', cityLabel: 'rgba(234, 243, 251, .95)',

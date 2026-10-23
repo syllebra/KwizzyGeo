@@ -348,7 +348,37 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
     white-space: pre-wrap;
     max-width: 100%;
   }
-  .panel { width: min(240px, calc(100vw - 24px)); right: 10px; top: 58px; }
+  /* THE PANEL ON A PHONE: the same idea as the answer card's details block, which was
+     capped at four rows so it cannot swallow the picture. Unclamped it was 270 x 416 px
+     on a 390 px screen - twelve rows of text over the map you were looking at, and no
+     way to see the rest of the country. Narrower, a step down in type, and a HEIGHT CAP
+     with its own scroll (a thin dark bar, as in .qz-details).
+     POINTER-EVENTS: it scrolls, so it must take the finger - it was `none`, the panel
+     being a label over a map you drag under it. Only where it scrolls does it capture,
+     and it is narrow enough to leave the map free around it. */
+  .panel {
+    width: min(216px, calc(100vw - 20px)); right: 8px; top: 54px;
+    /* THE QUIZ'S OWN NUMBER. Its details block is capped at 152 px of 17 px rows and
+       scrolls; this is that block's twin, so the cap is the same kind of number - about
+       five rows, then scroll. border-box, or `max-height` would measure the CONTENT box
+       and the padding would add 22 px back on top of it. */
+    box-sizing: border-box;
+    max-height: min(186px, 30vh);
+    overflow-y: auto; overscroll-behavior: contain;
+    pointer-events: auto;
+    font: 11.5px/16px system-ui, sans-serif;
+    padding: 9px 10px; border-radius: 12px;
+    scrollbar-width: thin; scrollbar-color: rgba(158, 186, 210, .55) transparent;
+  }
+  .panel::-webkit-scrollbar { width: 5px; }
+  .panel::-webkit-scrollbar-thumb { background: rgba(158, 186, 210, .55); border-radius: 3px; }
+  /* the key column shrinks with the panel, or every value wraps under a 84 px label */
+  .panel .row { grid-template-columns: 62px 1fr; gap: 7px; margin-bottom: 5px; }
+  .panel .k { font-size: 9px; letter-spacing: .05em; }
+  .panel .links { margin-top: 8px; padding-top: 7px; gap: 6px; }
+  .panel .btn { font-size: 10px; padding: 4px 8px; }
+  .panel .v .nm { padding-left: 22px; }
+  .panel .v .fi { width: 16px; height: 11px; }
 }
 @media (pointer: coarse), (max-width: 700px) {
   /* the same disc, a hair smaller, exactly mirroring the fullscreen button */
@@ -532,11 +562,10 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   border-color: rgba(142, 208, 255, .40);
   box-shadow: 0 1px 0 rgba(198, 224, 246, .10) inset;
 }
-/* ON is GREEN, the drawer's own switch colour: a menu row's accent border already means
-   "this is the chosen one", and a switch means something else - enabled. The green is
-   the app's success green, which never appears on a switch elsewhere, so the two greens
-   are never read as the same message. */
-.msw.on .knob { background: rgba(70, 209, 142, .55); border-color: rgba(120, 230, 180, .80); }
+/* ON IS THE ACCENT, not a green: green already means "right answer" in this app, and a
+   settings switch is not a verdict. The knob was green for one pass and read as a
+   second palette inside a sheet that has exactly one accent. */
+.msw.on .knob { background: rgba(142, 208, 255, .55); border-color: rgba(198, 236, 255, .80); }
 .msw.on .knob::after { transform: translateX(var(--knob-x)); background: #ffffff; }
 /* a device with no vibration: the row is shown greyed, never hidden (the setting still
    exists, it just cannot do anything here) - and it cannot be flicked either */

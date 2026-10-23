@@ -291,13 +291,37 @@ setTimeout(function () {
      mirrored or "on" slides to the side a reader takes for off */
   check('the knob is mirrored in a right-to-left sheet',
         /#menu\[dir="rtl"\] \.msw\.on \.knob::after \{ transform: translateX\(calc\(-1 \* var\(--knob-x\)\)\)/.test(styleCss));
+  /* THE KNOB IS BLUE, the app's one accent - not a green. Green already means "right
+     answer" everywhere else in this app, and a settings switch is not a verdict. */
+  const onKnob = (styleCss.match(/\.msw\.on \.knob \{([^}]*)\}/) || ['', ''])[1];
+  check('a lit switch is the accent blue', /rgba\(142, 208, 255/.test(onKnob), onKnob.trim());
+  /* ...in the sheet AND in the quiz's own drawer, which is the same control in the
+     other place: one switch look, one accent (the green stays where it belongs, on the
+     verdict) */
+  const qzCss = fs.readFileSync(__dirname + '/../quiz.css', 'utf8');
+  const drawerSw = (qzCss.match(/\.qz-set\.on \.sw \{([^}]*)\}/) || ['', ''])[1];
+  check('...and in the drawer too', /rgba\(142, 208, 255/.test(drawerSw), drawerSw.trim());
+  check('...with no green switch left anywhere',
+        !/\.(qz-set\.on \.sw|msw\.on \.knob) \{[^}]*70, 209, 142/.test(styleCss + qzCss));
+
+  /* ---------- 9b. THE PANEL ON A PHONE ----------
+     The info panel is a full country dossier - twelve rows - and on a 390 px screen it
+     covered the map it describes (measured: 270 x 416 px). It now takes the answer
+     card's own shape: narrower, a step down in type, and a HEIGHT CAP with its own
+     scroll, so it can never be taller than the thing it explains. */
+  const phonePanel = (styleCss.match(/@media \(max-width: 900px\)[\s\S]*?\.panel \{([\s\S]*?)\}/) || ['', ''])[1];
+  check('the panel is capped in height on a phone', /max-height:\s*min\(\d+px, \d+vh\)/.test(phonePanel),
+        phonePanel.replace(/\s+/g, ' ').slice(0, 120));
+  check('...and it scrolls inside that cap', /overflow-y:\s*auto/.test(phonePanel));
+  check('...so it can take the finger', /pointer-events:\s*auto/.test(phonePanel));
+  check('...and it is narrower than the 240 px it used to be', /width:\s*min\(216px/.test(phonePanel));
 
   /* ---------- 9. EXPLORATION IS GREY, PLAYING IS BLUE ----------
      The same map in two modes: the game needs a coloured ground for one lit country,
      an explored map is a neutral chart. What is asserted is the COLOUR ACTUALLY PAINTED
      on the land (recorded from the ctx stub at every fill), not a constant in a file:
      swapping the two palettes back would fail here and nowhere else. */
-  const LAND_BLUE = '#2c4a66', LAND_GREY = '#555b61';
+  const LAND_BLUE = '#2c4a66', LAND_GREY = '#7d8b96';
   function landColours() {
     fills.length = 0;
     frames(2);
@@ -308,6 +332,18 @@ setTimeout(function () {
   check('playing: the land is the game slate blue', play.indexOf(LAND_BLUE) >= 0,
         play.slice(0, 6).join(' '));
   check('...and nothing is painted grey', play.indexOf(LAND_GREY) < 0);
+  /* LIGHTER AND SLIGHTLY BLUE, and asserted as a PROPERTY rather than a taste: the grey
+     has to be lighter than the game's slate blue (it was tuned up by eye from #555b61,
+     which read as concrete against the ocean) and keep a blue bias (B > G > R), so the
+     chart belongs to this ocean instead of fighting it. */
+  const rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const lum = c => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); };
+                     return .2126 * f(c[0]) + .7152 * f(c[1]) + .0722 * f(c[2]); };
+  const g = rgb(LAND_GREY), b2 = rgb(LAND_BLUE);
+  check('exploration grey is LIGHTER than the game blue', lum(g) > lum(b2) * 1.3,
+        lum(g).toFixed(3) + ' vs ' + lum(b2).toFixed(3));
+  check('...and it is slightly BLUE (B > G > R), not a neutral stone',
+        g[2] > g[1] && g[1] > g[0], g.join(','));
   check('explore(true) reports on', global.window.MapApp.explore(true) === true);
   const exp = landColours();
   check('exploring: the land is grey, not blue',
