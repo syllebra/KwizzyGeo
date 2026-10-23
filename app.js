@@ -1396,6 +1396,11 @@ function fsPaint() {
   fsBtn.setAttribute('aria-label', fsOn ? 'Leave fullscreen' : 'Fullscreen');
   fsBtn.setAttribute('title', fsOn ? 'Leave fullscreen' : 'Fullscreen');
 }
+/* IDEMPOTENT, and callable a SECOND time: crazy.js gives up on the platform when the
+   SDK never answers init(), and that rolls the fullscreen disc back in. The listeners
+   must not be added twice (two clicks would enter and leave fullscreen), so they are
+   wired once and only the SHOWING is redone. */
+var fsWired = false;
 function wireFs() {
   fsBtn = document.getElementById('fsbtn');
   if (!fsBtn) return;
@@ -1406,6 +1411,9 @@ function wireFs() {
      so this reads its answer rather than guessing at the hostname twice. */
   if (window.Crazy && window.Crazy.on && window.Crazy.on()) { fsBtn.style.display = 'none'; return; }
   if (!fsSupported()) { fsBtn.style.display = 'none'; return; }
+  fsBtn.style.display = '';        /* ...and back, after a fallback from the platform */
+  if (fsWired) { fsPaint(); return; }
+  fsWired = true;
   document.addEventListener('fullscreenchange', function () {
     var v = (document.documentElement || {}).isFullscreen;
     if (v !== true && v !== false) return;
@@ -3829,6 +3837,9 @@ function drawMarks() {
 window.MapApp = {
   ready: function () { return feats.length > 0; },
   placesReady: function () { return places.length > 0; },
+  /* crazy.js calls this when it gives up on the platform: the fullscreen disc comes
+     back (wireFs is idempotent - the listeners are wired once) */
+  recheckFullscreen: function () { wireFs(); },
   layer: function () { return layerName; },
   /* WHICH PROJECTION IS IN PLAY. The locate mode switches to the flat one and hands the
      player's own back on exit, so "which one am I looking at" is a fact a test can only

@@ -1328,6 +1328,46 @@ async function afterLoad() {
   Qz.quit();
   Qz.set({ mode: 'country', zone: 'world', difficulty: 'medium', len: 10 });
 
+  /* ---------- 14. GAME COMPLETION, COMPUTED FROM THE RECORD ----------
+     CrazyGames' `reportGameCompletedPercentage` is ours to define for a game with no
+     levels, and the milestone here is PLAYING ALL FOUR MODES. The record is written
+     through the stats module's own entry point (a synthetic round end), so the test
+     states the two ends exactly instead of depending on what the suite happened to
+     play: one mode = 25, four = 100, an empty record = 0. */
+  {
+    const stats = global.window.KwizzyStats;
+    const seen = [];
+    const wasCrazy = global.window.Crazy;
+    global.window.Crazy = { progress(v) { seen.push(v); } };
+    const round = mode => stats.endRun({
+      cfg: { mode: mode, zone: 'world', difficulty: 'medium', len: 10, variant: null },
+      score: 5, asked: new Array(10)
+    });
+    const pct = () => { seen.length = 0; Qz.platformProgress(); return seen[seen.length - 1]; };
+
+    stats.reset();
+    check('an empty record reports 0', pct() === 0, JSON.stringify(seen));
+    round('country');
+    check('one mode played is 25%', pct() === 25, JSON.stringify(seen));
+    round('capital');
+    check('two modes is 50%', pct() === 50, JSON.stringify(seen));
+    round('flag');
+    check('three is 75%', pct() === 75, JSON.stringify(seen));
+    round('locate');
+    check('all four is 100% - the whole game has been seen', pct() === 100, JSON.stringify(seen));
+    round('locate');
+    check('...and playing more keeps it at 100', pct() === 100, JSON.stringify(seen));
+
+    /* the two flag halves are ONE mode for this purpose: a player who has picked a flag
+       and one who has named its country have both played "the flag mode" */
+    stats.reset();
+    round('flag');
+    round('flag');
+    check('the flag mode counts once, whatever the variant',
+          pct() === 25, JSON.stringify(seen));
+    global.window.Crazy = wasCrazy;
+  }
+
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   if (errors.length) console.log('errors: ' + errors.join(' | '));
   process.exit(fails || errors.length ? 1 : 0);

@@ -154,6 +154,29 @@ function onPlatform() {
   var C = window.Crazy;
   return !!(C && C.on && C.on());
 }
+/* IS THE PLATFORM STILL CONNECTING? On CrazyGames the SDK's init() is part of LOADING:
+   until it resolves the game has no business offering a Play button - their one-click
+   rule assumes the click lands somewhere that works, and a button pressed before init
+   would queue its events into a platform that may still refuse. So the title shows a
+   loader instead (see bigLoadHTML), and the buttons come back the moment it settles -
+   ready, or FAILED, in which case crazy.js has already turned the platform mode off and
+   the game is the ordinary GitHub Pages one. A `window.Crazy` without initState (the
+   test harness's stub) counts as settled. */
+function platformPending() {
+  var C = window.Crazy;
+  return !!(C && C.on && C.on() && C.initState && C.initState() === 'pending');
+}
+/* WHAT IS STILL MISSING, in the order it is waited for: the platform first (it is what
+   decides the layout), then the map. Each step carries the i18n key that names it and
+   whether it is done, so the loader can show a check or a spinner per line - "current
+   state of loading", not a generic hourglass. */
+function loadSteps() {
+  var steps = [];
+  if (onPlatform()) steps.push({ key: 'cg_connect', done: !platformPending() });
+  steps.push({ key: 'loading_map', done: flagsReady() });
+  if (cfg.mode === 'capital') steps.push({ key: 'loading_caps', done: capsReady() });
+  return steps;
+}
 function flagsReady() { return M.ready(); }
 function capsReady() { return M.placesReady(); }
 /* THE BEST SCORE OF THIS CONFIG comes from stats.js, which compares by RATIO (so a
@@ -219,6 +242,24 @@ function loaderHTML() {
          '<span class="qz-ring" aria-hidden="true"></span>' +
          '<span class="qz-loadnote">' + esc(T('loading_map')) + '</span></div>';
 }
+/* THE BIG LOADER, for the one moment the player is waiting on something that is not the
+   map: the platform's init(). A large ring, and one line per thing being waited for, the
+   finished ones ticked. It REPLACES the action column on the title (there is nothing to
+   press yet), and it is what a player on CrazyGames sees for the first few hundred
+   milliseconds - so it is designed to be looked at, not tolerated. */
+function bigLoadHTML() {
+  var steps = loadSteps(), lines = '', i, cur = -1;
+  for (i = 0; i < steps.length; i++) if (!steps[i].done) { cur = i; break; }
+  for (i = 0; i < steps.length; i++) {
+    var st = steps[i];
+    lines += '<div class="qz-loadstep' + (st.done ? ' done' : (i === cur ? ' now' : '')) + '">' +
+             '<span class="qz-loadmark" aria-hidden="true">' + (st.done ? '\u2713' : '') + '</span>' +
+             esc(T(st.key)) + '</div>';
+  }
+  return '<div class="qz-bigload" role="status" aria-live="polite">' +
+         '<span class="qz-bigring" aria-hidden="true"></span>' +
+         '<div class="qz-loadsteps">' + lines + '</div></div>';
+}
 
 /* ---------- screen 1: the title ---------- */
 function titleHTML() {
@@ -236,7 +277,7 @@ function titleHTML() {
   else h += '<h1>Kwizzy<span>Geo</span></h1>';
   h += '<p class="qz-tagline">' + esc(T('tagline')) + '</p></div>';
 
-  if (!ready) h += loaderHTML();
+  if (!ready && !platformPending()) h += loaderHTML();
   /* THE MAIN MENU: the two ways to use the app, side by side in the hierarchy - play a
      round, or take the map and explore it - and then the two doors that are not ways to
      play (credits, and the sound/stats drawers in the footer). Leaving the game used to
@@ -256,12 +297,20 @@ function titleHTML() {
   var playBtn = '<button class="' + (fastFirst ? 'qz-ghost qz-playbtn' : 'qz-play qz-xl') +
        '" data-act="play"' + (ready ? '' : ' disabled') + '>' +
        esc(ready ? T('play') : T('loading_map')) + '</button>';
-  h += '<div class="qz-titleacts' + (fastFirst ? ' qz-fastfirst' : '') + '">' +
-       (fastFirst ? fastBtn + playBtn : playBtn + fastBtn) +
-       '<button class="qz-ghost qz-explorebtn" data-act="explore">' +
-       esc(T('explore')) + '</button>' +
-       '<button class="qz-ghost qz-creditsbtn" data-act="about">' + esc(T('ab_title')) + '</button>' +
-       '</div>';
+  /* THE COLUMN, OR THE LOADER. While the platform is connecting there is nothing to
+     press: the two ways in are not drawn at all (not drawn-disabled - a disabled Play
+     button next to a spinner reads as a broken game), and the big loader takes the
+     column's place for the second it lasts. */
+  if (platformPending()) {
+    h += bigLoadHTML();
+  } else {
+    h += '<div class="qz-titleacts' + (fastFirst ? ' qz-fastfirst' : '') + '">' +
+         (fastFirst ? fastBtn + playBtn : playBtn + fastBtn) +
+         '<button class="qz-ghost qz-explorebtn" data-act="explore">' +
+         esc(T('explore')) + '</button>' +
+         '<button class="qz-ghost qz-creditsbtn" data-act="about">' + esc(T('ab_title')) + '</button>' +
+         '</div>';
+  }
   h += '<div class="qz-foot">' +
        '<span class="qz-links">' +
        '<a class="qz-link" data-act="snd-open">' + esc(T('sound_music')) + '</a>' +
@@ -655,6 +704,7 @@ function endHTML() {
      best one - and so the record survives a player who closes the tab on the score */
   var before = bestOf();
   if (S()) S().endRun(session);
+  platformProgress();          /* the round may have been the first in its mode */
   var after = bestOf();
   var fresh = !before.len || (after.score === ok && after.len === n && ok / n > before.ratio);
   /* the running total, read ONCE (the sheet and this line must agree, and reading the
@@ -932,6 +982,23 @@ function platformGameplay(on) {
   if (!C) return;
   if (on) { if (C.gameplayStart) C.gameplayStart(); }
   else if (C.gameplayStop) C.gameplayStop();
+}
+/* GAME COMPLETION, for the platform's `reportGameCompletedPercentage`. The game has no
+   levels, so the milestone is "has played all four modes" - someone who has found a
+   country, a capital, a flag and a city on the map has seen everything the game does.
+   The number comes from the RECORD (stats.js), so it survives a reload and says 100 to a
+   returning player on their first visit, and it can only grow: one mode = 25, four =
+   100. `C.progress` drops a repeat, so calling this on every round end costs nothing. */
+var COMPLETION_MODES = ['country', 'capital', 'flag', 'locate'];
+function platformProgress() {
+  var C = window.Crazy;
+  if (!C || !C.progress) return;
+  var st = S();
+  if (!st) return;
+  var played = {}, rows = st.summary().modes, i, n = 0;
+  for (i = 0; i < rows.length; i++) if (rows[i].played > 0) played[rows[i].key] = 1;
+  for (i = 0; i < COMPLETION_MODES.length; i++) if (played[COMPLETION_MODES[i]]) n++;
+  C.progress(Math.round(n * 100 / COMPLETION_MODES.length));
 }
 function info(msg) { infoMsg = msg || ''; if (isMenu()) render(); }
 
@@ -1410,6 +1477,16 @@ function watchReady() {
   }, 400);
 }
 
+/* THE PLATFORM SETTLES ONCE, and the title is built from its answer: the loader becomes
+   the buttons (init resolved), or - if it failed - the buttons appear AND the platform
+   mode is already off, so the column is the ordinary one, Play first. Registered before
+   the first render, so a fast init cannot be missed. */
+if (window.Crazy && window.Crazy.onSettled) {
+  window.Crazy.onSettled(function () {
+    if (screen === 'title' || isMenu()) render();
+  });
+}
+
 /* THE LANGUAGE IS THE MAP'S, so the map tells us when it moves: every screen the quiz
    owns is rebuilt (the words from i18n.js, the country and capital names from the
    layers, which the map has just reloaded). */
@@ -1495,9 +1572,15 @@ window.Quizzy = {
   /* the burger's sound switches live in app.js: after one of them changes the engine,
      the drawer (open behind it, or opened later) must show the same state */
   soundRender: function () { soundRender(); },
-  juice: function () { return J(); }
+  juice: function () { return J(); },
+  /* the platform's completion figure, computed from the record - exposed so a test can
+     read what would be reported without a browser */
+  platformProgress: function () { platformProgress(); }
 };
 
 render();
+/* the record this device already has, for the platform's completion figure: a returning
+   player who has played all four modes is complete BEFORE they answer anything */
+platformProgress();
 watchReady();
 })();

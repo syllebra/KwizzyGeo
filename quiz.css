@@ -1119,6 +1119,51 @@ body.qz-playing #menu { display: none; }
 }
 @keyframes qzSpin { to { transform: rotate(360deg); } }
 
+/* ---------- THE BIG LOADER (the title, while the platform connects) ----------
+   It stands where the action column would be, so it is centred where the player's thumb
+   already is and it is the same width as the buttons it replaces (min(320px, 86vw)):
+   the page does not jump when the buttons arrive. The ring is big on purpose - this is
+   the only moment the game asks the player to wait for something that is not the map,
+   and a 14 px ring on a title page reads as a broken image. */
+.qz-bigload {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  margin-top: 30px; width: min(320px, 86vw);
+}
+.qz-bigring {
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 4px solid rgba(198, 224, 246, .20);
+  border-top-color: #8ed0ff;
+  box-shadow: 0 0 24px rgba(142, 208, 255, .20);
+  animation: qzSpin 1.05s linear infinite;
+}
+.qz-loadsteps { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.qz-loadstep {
+  display: flex; align-items: baseline; gap: 8px;
+  font: 11.5px/16px system-ui, sans-serif; letter-spacing: .01em;
+  color: rgba(255, 255, 255, .58);
+  text-shadow: 0 1px 8px rgba(9, 26, 44, .8);
+  padding: 5px 11px; border-radius: 9px;
+  background: rgba(10, 28, 44, .42);
+  border: 1px solid rgba(198, 224, 246, .12);
+}
+.qz-loadstep .qz-loadmark { flex: 0 0 12px; text-align: center; font-size: 10px; }
+/* the step IN PROGRESS is the only bright line: it is the answer to "what is it doing?" */
+.qz-loadstep.now { color: #eaf3fb; border-color: rgba(142, 208, 255, .42); }
+.qz-loadstep.now::after {
+  content: ''; flex: 0 0 auto; margin-left: auto; width: 6px; height: 6px; border-radius: 50%;
+  background: #8ed0ff; animation: qzPulse 1.1s ease-in-out infinite;
+}
+.qz-loadstep.done { color: rgba(142, 208, 255, .95); }
+.qz-loadstep.done .qz-loadmark { color: #8ed0ff; }
+@keyframes qzPulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+/* a short frame cannot afford 56 px of ring plus two lines above four buttons' worth of
+   space: the loader is the only thing on the page, so it shrinks rather than scrolls */
+@media (max-height: 560px) {
+  .qz-page-title .qz-bigload { margin-top: 14px; gap: 9px; }
+  .qz-page-title .qz-bigring { width: 38px; height: 38px; border-width: 3px; }
+  .qz-page-title .qz-loadstep { font: 10.5px/14px system-ui, sans-serif; padding: 3px 9px; }
+}
+
 /* ---------- credits & memory ---------- */
 .qz-credrow {
   display: flex; align-items: baseline; gap: 10px;
