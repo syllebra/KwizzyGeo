@@ -620,3 +620,27 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
    OFF to be. Mirrored here: the knob rests at the right and travels left. */
 #menu[dir="rtl"] .msw .knob::after { left: auto; right: 2px; }
 #menu[dir="rtl"] .msw.on .knob::after { transform: translateX(calc(-1 * var(--knob-x))); }
+
+/* ---------- ON CRAZYGAMES: NO FULLSCREEN DISC ----------
+   The platform fills the page itself and forbids a second fullscreen button (it fights
+   their own), so app.js wireFs() hides the disc there and crazy.js puts `cg` on the
+   body. What is left is the BACK disc, which was placed one disc along (10 + 36 + 10) to
+   stand beside the fullscreen one - with that one gone it would sit in the middle of
+   nothing. It takes the corner instead, and a finger keeps the phone's own numbers.
+   Specificity, not order: `body.cg .backbtn` beats the plain rules above and below. */
+body.cg .backbtn { left: 10px; }
+@media (pointer: coarse), (max-width: 700px) {
+  body.cg .backbtn { left: 8px; }
+}
+
+/* ---------- NOTHING HERE IS MEANT TO BE SELECTED ----------
+   A game screen is not an article: a drag on the map that starts on a label, a long
+   press on an answer, a double tap on a phone would otherwise select words, raise the
+   magnifier and pop the contextual menu over the play area - which CrazyGames' mobile
+   requirements name explicitly, and which was already happening on a phone. Declared
+   on the body so a screen added later cannot forget it; the map's canvas is unaffected
+   (a canvas has no text to select), and no control in the game needs a selection. */
+body {
+  -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}

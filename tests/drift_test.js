@@ -405,6 +405,48 @@ setTimeout(function () {
   check('explore(false) turns it back', global.window.MapApp.explore(false) === false &&
         landColours().indexOf(LAND_BLUE) >= 0);
 
+  /* ---------- 10. LINKS OUT, AND THE PLATFORM ----------
+     A panel row is a way out of the game, and CrazyGames forbids those: no
+     cross-promotion, and a QA team that pulls a game which sends a player away
+     mid-round. So the two rows (Wikipedia, Google Maps) are drawn only when
+     crazy.js says this is not their platform - and the spot menu keeps its Copy
+     coordinates, which is the reason that menu exists. The attribution links on the
+     Credits page are NOT touched: they are the licence, not a way to play elsewhere.
+     Checked by running the two builders, not by grepping for an `if`. */
+  {
+    const M = global.window.MapApp;
+    const ids = M.items ? M.items().map(it => it.id) : [];
+    const country = ids.length ? ids[0] : null;
+    const run = () => {
+      const c = country ? M.countryPanel(country) : '';
+      return { links: (c.match(/<a [^>]*href=/g) || []).length, hasWiki: /wikipedia\.org/.test(c), hasMaps: /google\.com\/maps/.test(c) };
+    };
+    const before = run();
+    check('off the platform a country panel offers its two links out',
+          before.hasWiki && before.hasMaps, JSON.stringify(before));
+    const wasCrazy = global.window.Crazy;
+    global.window.Crazy = { on: () => true, isCrazyGames: () => true };
+    const onPlatform = run();
+    check('...and on CrazyGames neither is drawn', onPlatform.links === 0 && !onPlatform.hasWiki && !onPlatform.hasMaps,
+          JSON.stringify(onPlatform));
+    /* the panel still carries its data: no link is not an empty panel */
+    const filled = country ? M.countryPanel(country) : '';
+    check('...while the panel itself still says everything else', filled.length > 200, filled.length);
+    /* the spot menu: same rule, and Copy coordinates survives it */
+    const spotEl = (global.window.document.getElementById('spot') || {});
+    const spotOpen = () => /Copy coordinates/.test(spotEl.innerHTML || '');
+    let spotFired = false;
+    if (L['stage:contextmenu']) { L['stage:contextmenu']({ clientX: 640, clientY: 400, preventDefault() {} }); spotFired = spotOpen(); }
+    check('...and the spot menu still opens on the map', spotFired,
+          (spotEl.innerHTML || '').slice(0, 80));
+    check('...keeping its coordinates and its copy button, losing Google Maps',
+          spotOpen() && !/google\.com\/maps/.test(spotEl.innerHTML || ''),
+          (String(spotEl.innerHTML).match(/Google Maps|Copy coordinates/g) || []).join('|'));
+    global.window.Crazy = wasCrazy;
+    const back = run();
+    check('...and the links are back as soon as it is not the platform', back.hasWiki && back.hasMaps);
+  }
+
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   process.exit(fails ? 1 : 0);
 }, 500);

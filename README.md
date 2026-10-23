@@ -177,9 +177,47 @@ Upload the app files at the root and `data/` + `media/` beside them (`i18n.js` i
 them); `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
 only the game. `index.html` needs `style.css`, `quiz.css`, `flags.css`, `core.js`,
-`app.js`, `quizcore.js`, `stats.js`, `juice.js` and `quiz.js` next to it (plus
-`media/` for the sound) — the layers must keep the `data/` prefix, or `DATA_DIR` must be
-changed to match.
+`app.js`, `quizcore.js`, `stats.js`, `juice.js`, `crazy.js` and `quiz.js` next to it
+(plus `media/` for the sound) — the layers must keep the `data/` prefix, or `DATA_DIR`
+must be changed to match.
+
+## Two homes: GitHub Pages and CrazyGames
+
+**One build, two hosts, no fork.** `crazy.js` asks where it is running and the rest of
+the code asks `crazy.js`; nothing else in the game touches `window.CrazyGames`.
+
+```js
+function isCrazyGames() {                     // the user's own test, as written
+  const hostname = window.location.hostname;
+  return hostname === 'crazygames.com' || hostname.endsWith('.crazygames.com');
+}
+```
+
+`?crazysdk=1` turns the same mode on anywhere else — that is how the integration is
+tested on localhost, where the SDK reports its `local` environment and logs what it
+would have done. On any other domain (GitHub Pages included) `crazy.js` is inert: no
+body class, not one call, and a missing or adblocked SDK is a non-event rather than a
+crash.
+
+| what the platform asks | where the answer is |
+|---|---|
+| the SDK, from their CDN | `index.html`, `<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" defer>` — `defer`, so a slow CDN cannot hold up the first pixel |
+| `init()`, awaited | `crazy.js` `boot()`, on DOMContentLoaded |
+| **no in-game fullscreen button** | `app.js` `wireFs()` hides the disc; the CSS moves the Back disc into the freed corner (`body.cg`) and closes the gap in the two quiz rows. CrazyGames fills the page itself |
+| `gameplayStart` / `gameplayStop` | `quiz.js` `render()` — start on a question, stop on every menu, and `hide()` (free exploration) stops it too. Deduped in `crazy.js`, so a re-render cannot repeat it |
+| `loadingStart` / `loadingStop` | at parse time in `crazy.js`, and at the end of `loadAll()` in `app.js` — the first frame of the map. The deferred 10m layer and the city files are NOT waited for |
+| `happytime()` | `quiz.js` `endScreen()`: a perfect round, and nothing else |
+| `game.settings.muteAudio` | `crazy.js` → `Juice.setMuted()`, a master gate in front of the effects and the music that leaves the player's own switches alone (un-muting gives back exactly what they had) |
+| `user.systemInfo.locale` | `app.js` `storedLang()` (before the map's names land) or `crazy.js` `applyLocale()` (late init), never over a language the player chose. `fr-FR` → `fr`; an unsupported one falls back to English inside `setLang` |
+| no text selection on mobile | `body { user-select: none }` — the magnifier and the contextual menu would otherwise open over the play area |
+| audio after an iOS interruption | `juice.js` listens to `touchend` as well as `pointerdown` |
+
+Two numbers worth knowing before a submission: the initial download is measured up to
+the first `gameplayStart`, and it is ~23 MB of assets (~6 MB gzipped) here, under their
+50 MB; the file count is 376, under their 1500. **The one requirement this build does
+not yet meet is the Full Launch "land in gameplay in ≤ 1 click"** — the walk is
+title → mode → zone → length → Play, four choices. Shortening it is a design decision,
+not an integration one.
 
 ## Sound, music, haptics and animation
 
@@ -244,8 +282,20 @@ question each, Kwizzy's own shape:
 
 ```
 title ──▶ 1 what to find ──▶ 2 where ──▶ 3 how hard ──▶ the round ──▶ the score
-  └──────────── credits & memory                              (the title again)
+  │            └──────────── credits & memory                  (the title again)
+  └──▶ Play at random ─────────────────────────────▶ the round ──▶ the score
 ```
+
+**Play at random** is the title's second action and the shortest way in: the game draws
+a **mode and a zone** and starts the round, skipping the three steps. The **difficulty
+is not drawn** — it is `medium`, the one that plays fairly in every mode, except in
+**Locate the city**, which is played at `easy`: its medium band is famous cities only,
+and a player who did not ask for a challenge wants the wider pool (a provincial town can
+be 400 km from where anyone would put it). The length is the one already chosen, since
+that is a preference about time rather than about content. The draw is checked against
+the pool before it is used — a narrow zone in a mode that needs six options is redrawn,
+and World is the floor — so the button can never start a round that cannot be played
+(`randomStart` in `quiz.js`, 200 draws pinned by `tests/quiz_test.js`).
 
 Every screen is a full-viewport page over the **live map**, which drifts behind it:
 a slow turn of the centre of projection, 0.4° a second, so the background is a moving
@@ -354,6 +404,16 @@ a wrong option that stays anonymous teaches nothing.
 **Every question flies to its country**, both flag variants included: the flag says
 what the country looks like, the map says where it is, and both halves end on the
 same picture.
+
+**The flag options are sized by the picture, not by the text row.** Six flags where the
+other modes show six words: the button drops the text row's 52 px floor, its flag goes
+56 px (58 on a phone, where two columns make three rows and the cells are wider) and the
+row gap tightens, so the flag reads as the answer instead of a badge inside a button.
+It is a measured budget rather than a taste — the grid is anchored to the bottom and the
+prompt to the top, so the room under the prompt is what pays for it (349 px at 907×510,
+208 at 360×640) — and the shortest frames (≤ 490 px, e.g. 800×450) take a 46 px flag and
+a 74 px row so the prompt and the map are not eaten. Measured at every frame size
+CrazyGames lists; `tests/quiz_test.js` pins the three sizes and their order.
 
 ### Zones
 
@@ -648,13 +708,14 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | script | what it pins |
 |---|---|
 | `tests/quizcore_test.js` | 96 checks on a synthetic lattice (and a small city set for locate): the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) — plus **locate's rules**: the three fame bands are disjoint, a national capital is Easy whatever its size, nothing under 40 000 is ever asked, the points curve only falls and is the documented one, a locate question has no options, a guess on the city is a bullseye at full marks and cannot be scored twice, a far guess is measured in km and still scores, locate's lengths are its own so a stored "All" cannot start a thousands-question round, **the country-first draw** (a round asks different countries while unasked ones remain, a bloated country no longer takes most of the questions, every small country still appears) |
-| `tests/quiz_test.js` | 269 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back, the distance handed to the map for the line, and the fame bands stated on the real data: Reykjavík Easy, Duisburg not, the 7.0 tail never asked, `?locz=` tunable) |
-| `tests/drift_test.js` | 57 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; and the land **painted** grey in exploration and slate blue in the game |
+| `tests/quiz_test.js` | 288 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back, the distance handed to the map for the line, and the fame bands stated on the real data: Reykjavík Easy, Duisburg not, the 7.0 tail never asked, `?locz=` tunable), **Random Play** (200 draws: all four modes and all seven zones come up, medium everywhere and easy in locate, every draw playable, the config stored), and **the flag answers' three sizes** read out of `quiz.css` by balanced-block matching (56 base, 58 phone, 46 on a short frame, and a row taller than a text answer's) |
+| `tests/drift_test.js` | 74 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; the land **painted** grey in exploration and slate blue in the game; and **links out** — the country panel's Wikipedia and Google Maps rows present off the platform and absent on it, while the panel itself and the spot menu's *Copy coordinates* survive |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
 | `tests/i18n_test.js` | 218 checks (174 keys): the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
 | `tests/stats_test.js` | 62 checks on the record: an empty record, one answer, the streak, the groupings (mode / zone / the two flag halves kept apart), what "best" means across lengths, the 60-run cap, every corrupt-blob shape, reset (and that the settings key survives it), a `localStorage` that refuses to write, and that 300 answers stay under 40 kB |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
+| `tests/crazy_test.js` | 60 checks on the CrazyGames adapter, with a fake SDK: the hostname test (including every near-miss that must NOT count), nothing at all off the platform, the queue and its order (`loadingStart` before `init()` resolves), `gameplayStart`/`gameplayStop` deduped across re-renders, `muteAudio` reaching the juice without touching the player's switches, the locale applied — but never over a chosen language — a rejected init and a throwing method both contained, and the wiring in `index.html` / `app.js` / `quiz.js` / the two stylesheets |
 
 Both new scripts run in node with a fake DOM, no browser and no network:
 `node tests/quiz_test.js`.
@@ -985,6 +1046,13 @@ request. (Checked against the live API.)
 * **Google Maps** — the country's `LABEL` point (or the city's own coordinates) at the
 zoom on screen.
 
+**On CrazyGames both of those buttons are gone**, and so is the spot menu's Google Maps
+row: their gameplay requirements forbid cross-promotion and their QA pulls a game that
+sends a player away mid-round (`linksOut()` in `app.js`, one test of `Crazy.on()`, checked
+by running the two panel builders in `tests/drift_test.js`). What is left is *Copy
+coordinates*, which is the reason that menu exists, and the attribution links on the
+Credits page — those are the licence, not a way out of the game.
+
 **Right-click the map** (or **long-press** on touch) for the point menu: the coordinates
 under the cursor, the zoom, *Open in Google Maps* at that scale, and *Copy coordinates*.
 The long press is cancelled by any movement, so it can never fire mid-drag, and the menu
@@ -1234,7 +1302,7 @@ directory does not matter). All twenty exit 0: the seventeen asserting ones end 
 | `flags_test.js` | every code the app can ask for has an SVG and a CSS rule (driven by the two tables, parsed out of `app.js` so they cannot drift); every `url()` resolves; the licence ships; and Somaliland / Northern Cyprus / Siachen stay deliberately flagless (106 checks) |
 | `lang_test.js` | the 18 language files match the place list (fingerprint and count), London→Londres and the other spot checks, every offered language has country names, the switch localises both the labels and the panel, and a wrong fingerprint is refused (126 checks) |
 | `labels_test.js` | the three kinds of name are drawn differently — case, font, ink strength, tracking, and the capital's exemption from the rank cut (20 checks) |
-| `drift_test.js` | the menu's living background: still at boot, moving east at ~0.4°/s when the quiz asks for it, stopped by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the three discs (the fullscreen button's two names and its follow-the-browser behaviour, Chromium's `isFullscreen: undefined` not being read as "off", the Back disc's placement, a question's controls clearing the corner), the two land palettes (the colour actually painted, lighter than the game blue and blue-biased), the blue switch in both places, and the phone-sized panel (57 checks) |
+| `drift_test.js` | the menu's living background: still at boot, moving east at ~0.4°/s when the quiz asks for it, stopped by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the three discs (the fullscreen button's two names and its follow-the-browser behaviour, Chromium's `isFullscreen: undefined` not being read as "off", the Back disc's placement, a question's controls clearing the corner), the two land palettes (the colour actually painted, lighter than the game blue and blue-biased), the blue switch in both places, the phone-sized panel, and links out (present, then gone on the platform, then back — 74 checks) |
 
 The measurement probes quoted in this document (`recenter_cost.js`,
 `poletest2.js`, `rollpc2.js`, the `shp2geojson*.py` converters) are deliberately
