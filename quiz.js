@@ -867,7 +867,7 @@ function startSession() {
      the list must be the one the pinned layer actually draws (app.js paints the 50m
      layer and swaps the 10m one in when its 11 MB arrive - building the items before
      that would key a session to a layer that is no longer on screen). */
-  if (!M.enter({ flat: cfg.mode === 'locate' })) { info(T('map_not_ready')); return false; }
+  if (!M.enter({ locate: cfg.mode === 'locate' })) { info(T('map_not_ready')); return false; }
   /* the items the session holds are the mode's own: countries for the three
      multiple-choice modes, cities for locate. */
   var items = cfg.mode === 'locate' ? M.cities() : M.items();

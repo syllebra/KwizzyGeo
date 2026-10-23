@@ -939,9 +939,24 @@ async function afterLoad() {
   Qz.go('zone'); Qz.go('diff');
   check('a locate round starts', Qz.start() === true, Z().info);
   check('...and the map is handed over', M().quizOn() === true);
+  /* THE MODE PLAYS ON A GLOBE. Perspective or orthographic are the two the locate mode
+     accepts; a planar projection (the default is perspective, but the viewer can be set
+     to Eckert IV) is switched out for the round and handed back on exit. */
   const projNow = M().projection ? M().projection() : null;
-  check('...on the flat whole-world projection (a cone would hide half the globe)',
-        projNow === 'eckert4', projNow);
+  check('...on a globe (perspective or orthographic), never a planar projection',
+        projNow === 'persp' || projNow === 'ortho', projNow);
+  check('...and a plane is switched out: set Eckert IV and start again', (() => {
+    Qz.quit();
+    /* the map's own entry point, which is what the burger's archived rows and ?proj=
+       both go through - AppCore.setProjection alone does not update app.js's projID */
+    global.window.MapApp.setProjection('eckert4');
+    const was = M().projection();
+    const ok = Qz.start();
+    const now = M().projection();
+    check('    (the round started)', ok, Z().info);
+    check('    (it was on eckert4)', was === 'eckert4', was);
+    return now === 'persp';
+  })());
   check('...with the country names ON (the country is a clue here, not the answer)',
         M().labelsOn() === true || M().countryNames() === true, M().countryNames());
   check('...and the aim on: a tap reports a place, it does not pick a country',
@@ -952,6 +967,45 @@ async function afterLoad() {
   check('...and it names the city in the question',
         /class="qz-q">[\s\S]*?<b>[^<]+<\/b>/.test(Qz.html()));
   check('the city is not on the map (its panel is not open)', M().markState() === null);
+  /* THE OPENING VIEW: a globe, framing the zone, with the asked city inside the area the
+     cards leave visible. All three are things a screenshot showed to be wrong before and
+     nothing but a measurement will keep right: the zone fit (a globe of the continent,
+     not the whole world), and the city not under the ask card or the bar. */
+  const vt = M().zoneTarget('Europe', (() => {
+    const st = Z();
+    return st.question ? M().cities().filter(c => c.id === st.question.answerId)[0] : null;
+  })());
+  check('a locate question opens on a globe of the zone, zoomed in from the world fit',
+        vt && vt.k > M().zoneTarget('Europe').k * 0.99 && vt.k >= 1.1 * (M().fitK ? M().fitK() : 1),
+        vt ? Math.round(vt.k) : 'none');
+  /* THE SAFE AREA. The ask card hangs from the top of the screen and the locate bar sits
+     on the bottom; a city under either is a city the player cannot see, and the first
+     globe build put answers there (Europe's Tromsoe behind the prompt). So the property is
+     measured: for a sample of cities across every zone, the view the question opens on
+     must show the asked city between 32 % and 84 % of the height. */
+  check('...and every asked city lands between the ask card and the bar', (() => {
+    const W = 1440, H = 900, C = global.window.AppCore;
+    const cities = M().cities();
+    const zones = [null, 'Europe', 'Africa', 'Asia', 'North America', 'Oceania'];
+    let bad = 0, n = 0;
+    zones.forEach(cont => {
+      const pool = cities.filter(c => (!cont || c.cont === cont) && (c.cap || c.pop >= 40000));
+      for (let i = 0; i < pool.length; i += Math.max(1, Math.floor(pool.length / 12))) {
+        const c = pool[i], t = M().zoneTarget(cont, c);
+        const fr = C.rotMat(t.lon, t.lat, new Float64Array(9)), o = [0, 0];
+        n++;
+        if (!C.projectRotLLVis(c.lon, c.lat, fr, C.CUR, o)) { bad++; continue; }
+        const px = o[0] * t.k + W / 2, py = H / 2 - o[1] * t.k;
+        if (px < W * 0.06 || px > W * 0.94 || py < H * 0.32 || py > H * 0.84) bad++;
+      }
+    });
+    check('    (samples measured)', n > 40, n);
+    return bad === 0;
+  })());
+  check('...and the projection is a cone one, so the cap is the horizon',
+        (() => { const c = global.window.AppCore; const p = c.CUR;
+                 return p.clip === 'cone' && Math.abs(p.clipCos - 1 / 3) < 1e-9; })(),
+        global.window.AppCore.CUR.id);
 
   /* a tap on the map: the pixel under the middle of the screen, which the fake canvas
      maps to a geographic point */
@@ -1001,7 +1055,7 @@ async function afterLoad() {
   })());
   /* the map goes back to how it was found */
   Qz.quit();
-  check('quitting gives the projection back', (M().projection ? M().projection() : 'persp') !== 'eckert4',
+  check('quitting gives the projection back', (M().projection ? M().projection() : 'persp') === 'eckert4',
         M().projection ? M().projection() : '(none)');
   check('...and the aim with it', M().aim() === false);
   check('...and the marks', M().markState() === null);

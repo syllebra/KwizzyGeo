@@ -3467,45 +3467,161 @@ function boxIn(pts, lon0, lat0, extra) {
   if (!any || !(hi > lo) || !(lb > la)) return null;
   return [lo, la, hi, lb];
 }
-/* THE VIEW A LOCATE QUESTION OPENS ON: {lon, lat, k}.
-   The centre is the zone's own centroid and does NOT move: if the view is centred on the
-   point the frame was measured around, the frame is already right, and no refinement pass
-   can improve it. (The first build moved the centre down to sit between the cards and
-   re-measured; in a projection that depends on the centre that made the box bigger every
-   time, and Europe came out centred at 72 N.)
+/* ---------- THE VIEW A LOCATE QUESTION OPENS ON ----------
+   The locate mode plays on a GLOBE (perspective or orthographic), never on a flat map:
+   a planar re-centred world was tried and is not what this mode needs - the answer is a
+   position on a sphere, and the globe is the picture of it. So everything here is stated
+   in ANGLES, and nothing in pixels of a plane.
 
-   The box is the min/max of the zone's CITIES in that frame, at the ordinary 6 % pad -
-   the same fit a country gets. Two earlier attempts are worth remembering, because each
-   looks sensible and each fails:
-     * the COUNTRIES' label points: Russia's label sits at 96 E and is filed under
-       Europe, so "Europe" then spans to Siberia and the fit came out at the world view
-       (measured 0.96 x fitK - a zoom OUT beyond the world);
-     * a PERCENTILE box, to throw the outliers away: 18 % of Europe's cities are Russian,
-       so the 2-98 % box still reaches the Pacific (measured 1 755 px wide, and the
-       quantile-of-bounds variant came out at k 806 - a 30-degree picture of a whole
-       continent).
-   Min/max is the one that holds, because the outliers are REAL: Vladivostok is a
-   European city by this data's own bookkeeping, and at the plain fit every one of the
-   zone's cities is on screen (measured, all 955 of Europe's, 716 of Africa's, 1 496 of
-   Asia's, 584 of South America's). That is the property the game needs: whatever city is
-   asked, it is on the picture when the question opens. */
-var ZONE_PAD = 0.06;
-function zoneTarget(cont) {
-  if (!cont) return { lon: view.lon, lat: view.lat, k: fitK, world: true };
-  var f = zoneFrame(cont);
-  if (!f) return { lon: view.lon, lat: view.lat, k: fitK, world: true };
-  var m = C.rotMat(f.lon, f.lat, new Float64Array(9));
-  var o = [0, 0], lo = 1e9, hi = -1e9, la = 1e9, lb = -1e9, i;
-  for (i = 0; i < f.pts.length; i++) {
-    if (!C.projectRotLLVis(f.pts[i].lon, f.pts[i].lat, m, C.CUR, o)) continue;
-    if (!isFinite(o[0]) || !isFinite(o[1])) continue;
-    lo = Math.min(lo, o[0]); hi = Math.max(hi, o[0]);
-    la = Math.min(la, o[1]); lb = Math.max(lb, o[1]);
+   A globe can only show a CAP: 70.5 deg for the perspective view (the horizon at P = 3
+   radii), 90 for the orthographic. That is the budget. Within it:
+
+     * the zone sets the opening WIDTH - its own angular radius, the 85th percentile of
+       the distance from its centre to its cities, so one far-flung member (Vladivostok,
+       filed under Europe; Honolulu, under North America) cannot stretch the picture;
+     * the ASKED CITY is then guaranteed a place: the cap widens to take it in, and only
+       if it is beyond 55 % of the cap (Europe's Vladivostok is 144 deg from Europe's
+       centre - no cap can hold both) does the view ROTATE toward it, by the least that
+       works. The city is therefore always on the picture, and never dead centre: a
+       view centred on the answer is the answer.
+
+   The zoom is MEASURED, not derived: the circle of radius R around the centre is
+   projected in 24 directions and the extreme offsets give the k that fits it in the band
+   between the ask card and the locate bar. A local planePerDeg would over-estimate near
+   a cone's limb, where the projection compresses. */
+/* THE SAFE AREA OF A QUESTION SCREEN, in fractions of the viewport: the ask card hangs
+   from the top and the locate bar sits on the bottom, so a city under either is a city the
+   player cannot see. The ZONE may pass under them (a globe's rim behind a card is how
+   every menu screen already looks) - it is the ASKED CITY that must not. */
+var ASK_SAFE = [0.06, 0.32, 0.94, 0.84];   /* x0, y0, x1, y1 */
+var ZONE_PADX_F = 0.06;                    /* free on each side, of the width */
+var ZONE_FILL = 0.48;                      /* of the height: the cap may reach this far */
+var ZONE_R_MIN = 16;                       /* deg: tighter than this is a city, not a zone */
+
+/* THE VISIBLE CAP of the projection in play, in degrees of arc from the centre.
+   A cone-clipped projection says so itself (`clipCos`); anything else is treated as a
+   whole sphere, which only matters for the flat projections the mode no longer uses. */
+function projCapDeg() {
+  var p = C.CUR;
+  if (p && p.clip === 'cone' && typeof p.clipCos === 'number') {
+    var d = Math.acos(Math.max(-1, Math.min(1, p.clipCos))) / C.DEG;
+    if (isFinite(d) && d > 1) return d;
   }
-  if (!(hi > lo) || !(lb > la)) return { lon: f.lon, lat: f.lat, k: fitK, world: true };
-  /* never further out than the whole world: the map already shows all of it */
-  var k = Math.max(fitKForExtent([lo, la, hi, lb], ZONE_PAD), fitK);
-  return { lon: f.lon, lat: f.lat, k: k, world: false };
+  return 90;
+}
+/* a projection whose plane is a world map rather than a view of a sphere: the two
+   pseudocylindrical ones. See enter() above. */
+function isPlanarProj(id) {
+  var p = C.PROJ[id];
+  if (!p) return true;
+  return p.clip === 'seam' || !!p.pseudocyl;
+}
+function angDistDeg(lon0, lat0, lon1, lat1) {
+  var la1 = lat0 * C.DEG, la2 = lat1 * C.DEG;
+  var dla = la2 - la1, dlo = (lon1 - lon0) * C.DEG;
+  var h = Math.sin(dla / 2) * Math.sin(dla / 2) +
+          Math.cos(la1) * Math.cos(la2) * Math.sin(dlo / 2) * Math.sin(dlo / 2);
+  return 2 * Math.asin(Math.min(1, Math.sqrt(h))) / C.DEG;
+}
+/* A POINT AT ANGULAR DISTANCE rDeg, ON BEARING brg, FROM (lon0, lat0) */
+function bearingLL(lon0, lat0, brg, rDeg) {
+  var la0 = lat0 * C.DEG, r = rDeg * C.DEG;
+  var la = Math.asin(Math.max(-1, Math.min(1,
+           Math.sin(la0) * Math.cos(r) + Math.cos(la0) * Math.sin(r) * Math.cos(brg))));
+  var lo = lon0 * C.DEG + Math.atan2(Math.sin(brg) * Math.sin(r) * Math.cos(la0),
+                                     Math.cos(r) - Math.sin(la0) * Math.sin(la));
+  return [(((lo / C.DEG) + 540) % 360) - 180, la / C.DEG];
+}
+/* A CAP OF rDeg AROUND (lon0, lat0) -> the k that fits it on the screen.
+   MEASURED, not derived: the circle is projected in 24 directions in the frame of that
+   centre and the extreme |x| and |y| give the k. A local planePerDeg would over-estimate
+   near a cone's limb, where the projection compresses everything toward the rim.
+   `fill` of the height is the most the cap may reach (0.5 = the screen's own half). */
+function frameCap(lon0, lat0, rDeg, fill) {
+  var m = C.rotMat(lon0, lat0, new Float64Array(9));
+  var o = [0, 0], mx = 0, my = 0, i, seen = 0;
+  for (i = 0; i < 24; i++) {
+    var ll = bearingLL(lon0, lat0, i * 15 * C.DEG, rDeg);
+    if (!C.projectRotLLVis(ll[0], ll[1], m, C.CUR, o)) continue;
+    if (!isFinite(o[0]) || !isFinite(o[1])) continue;
+    mx = Math.max(mx, Math.abs(o[0])); my = Math.max(my, Math.abs(o[1]));
+    seen++;
+  }
+  if (!seen || !(mx > 0) || !(my > 0)) return 0;
+  var halfW = W * (0.5 - ZONE_PADX_F);
+  var halfH = H * (fill || ZONE_FILL);
+  return Math.min(halfW / mx, halfH / my);
+}
+/* where a point lands on screen under a CANDIDATE view (a centre and a k), not the live one */
+function screenIn(lon0, lat0, k, p) {
+  var m = C.rotMat(lon0, lat0, new Float64Array(9));
+  var o = [0, 0];
+  if (!C.projectRotLLVis(p.lon, p.lat, m, C.CUR, o)) return null;
+  if (!isFinite(o[0]) || !isFinite(o[1])) return null;
+  return [o[0] * k + W * 0.5, H * 0.5 - o[1] * k];
+}
+function inSafe(p) {
+  if (!p) return false;
+  return p[0] >= W * ASK_SAFE[0] && p[0] <= W * ASK_SAFE[2] &&
+         p[1] >= H * ASK_SAFE[1] && p[1] <= H * ASK_SAFE[3];
+}
+/* the angular radius a zone OPENS at: 85 % of its cities are inside it */
+function zoneRadiusDeg(cont) {
+  var f = zoneFrame(cont);
+  if (!f || !f.pts.length) return ZONE_R_MIN;
+  var ds = [], i;
+  for (i = 0; i < f.pts.length; i++) ds.push(angDistDeg(f.lon, f.lat, f.pts[i].lon, f.pts[i].lat));
+  ds.sort(function (a, b) { return a - b; });
+  var qq = ds[Math.max(0, Math.min(ds.length - 1, Math.floor(ds.length * 0.85)))];
+  return Math.max(ZONE_R_MIN, qq * 1.12);
+}
+/* THE VIEW A LOCATE QUESTION OPENS ON: {lon, lat, k}. On a globe, and stated in angles.
+   `cont` is the zone's continent (null for World), `city` the asked item.
+
+   1. THE WIDTH OF THE PICTURE comes from the zone: its own angular radius (the 85th
+      percentile of the distance from its centre to its cities, so one far-flung member -
+      Vladivostok filed under Europe, Honolulu under North America - cannot stretch it),
+      framed so that the cap fills the screen. A globe's disc SHOULD fill the screen; the
+      cards are overlays on it, exactly as they are on every menu screen.
+   2. THE ASKED CITY is then placed: if it would fall under the ask card or under the
+      locate bar, the view ROTATES toward it by the least that brings it into the safe
+      area. Rotation only ever happens when it must, and it never lands the city in the
+      middle - a view centred on the answer is the answer.
+   3. The World zone has no picture of its own on a sphere (a globe shows a hemisphere, so
+      "the world" is not a view): it opens on the ASKED CITY'S OWN CONTINENT. That does
+      tell the player which continent, and the question is then where in it - which is the
+      honest question a globe can ask. */
+function zoneTarget(cont, city) {
+  var baseCont = cont;
+  if (!baseCont && city && city.cont) baseCont = city.cont;
+  var f = zoneFrame(baseCont);
+  var lon = f ? f.lon : view.lon, lat = f ? f.lat : view.lat;
+  var R = baseCont ? zoneRadiusDeg(baseCont) : projCapDeg() * 0.85;
+  var cap = projCapDeg();
+  R = Math.min(R, cap * 0.92);
+  var k = frameCap(lon, lat, R) || fitK;
+  /* never further out than the whole world: the globe already shows all of it */
+  k = Math.max(k, fitK);
+  if (city) {
+    /* the least rotation that puts the city in the safe area - 20 steps of 5 % of the
+       way from the zone's centre to the city. Ties go to no rotation at all. */
+    var t, spot = screenIn(lon, lat, k, city);
+    if (!inSafe(spot)) {
+      for (t = 0.05; t <= 0.999; t += 0.05) {
+        var g = slerpLL(lon, lat, city.lon, city.lat, t);
+        if (inSafe(screenIn(g[0], g[1], k, city))) { lon = g[0]; lat = g[1]; break; }
+      }
+      /* nothing worked: the city is outside the cap this zoom can reach, so pull back to
+         the cap fit and put the city a quarter of the way in from the centre */
+      if (t > 0.999) {
+        var k2 = frameCap(lon, lat, cap * 0.9) || fitK;
+        k = Math.max(Math.min(k, k2), fitK);
+        var g2 = slerpLL(lon, lat, city.lon, city.lat, 0.25);
+        lon = g2[0]; lat = g2[1];
+      }
+    }
+  }
+  return { lon: lon, lat: lat, k: k, world: false };
 }
 
 /* ---------- AIMING: a click that reports a place instead of picking a country ---------- */
@@ -3611,6 +3727,9 @@ window.MapApp = {
      player's own back on exit, so "which one am I looking at" is a fact a test can only
      get from here. */
   projection: function () { return projID; },
+  /* ...and how a caller CHANGES it, through the app's own path (setProjection refreshes
+     the menu, re-fits the view and drops the zones' cached frames). */
+  setProjection: function (id) { setProjection(id); return projID; },
   quizOn: function () { return quizOn; },
   items: function () { return buildQuizItems(); },
   /* THE CITIES the locate mode asks about, in the language in play. Same contract as
@@ -3630,11 +3749,11 @@ window.MapApp = {
   },
   /* WHERE A ZONE OPENS: {lon, lat, k}, and whether it is the whole world. Read-only, so
      a test can state the view a locate question starts from. */
-  zoneTarget: function (cont) { return zoneTarget(cont); },
+  zoneTarget: function (cont, city) { return zoneTarget(cont, city); },
   /* ...and go there. A locate question is never flown to: the answer would be on screen
      before the player moved. The ZONE is what is framed. */
-  goZone: function (cont) {
-    var t = zoneTarget(cont);
+  goZone: function (cont, city) {
+    var t = zoneTarget(cont, city);
     if (!t) return false;
     flyTo(t.lon, t.lat, t.k);
     return true;
@@ -3663,15 +3782,29 @@ window.MapApp = {
     if (!marks || !marks.guess || !marks.target) return null;
     var a = marks.guess, b = marks.target;
     /* THE FLIGHT GOES IN, not out: a miss of 30 km has to be a picture of two marks
-       beside each other, and a floor of 2 degrees keeps the two labels from landing on
+       beside each other, and a floor of 1.5 degrees keeps the two labels from landing on
        top of one another. (`Math.min(k, fitK)` - the world fit as a CAP - is what the
-       first build wrote, and it made every reveal the world view: the whole point of
-       the reveal is the miss, and at the world fit a 300 km miss is invisible.) */
-    var lo = Math.min(a.lon, b.lon), hi = Math.max(a.lon, b.lon);
-    var la = Math.min(a.lat, b.lat), lb = Math.max(a.lat, b.lat);
-    var span = Math.min(180, Math.max(hi - lo, lb - la, 2) * 1.6);
-    var lon0 = (lo + hi) / 2, lat0 = (la + lb) / 2;
-    var k = windowFor(null, lon0, lat0, C.CUR, span) || fitK;
+       first build wrote, and it made every reveal the world view: the whole point of the
+       reveal is the miss, and at the world fit a 300 km miss is invisible.)
+       IN ANGLES, because the picture is a globe: the two marks are shown together only if
+       half their separation is inside the cap the projection can display. Past that (a
+       guess on the other side of the planet) there is no view holding both, so the
+       reveal shows the REAL city with its region - the distance is on the card anyway. */
+    var cap = projCapDeg();
+    var sep = angDistDeg(a.lon, a.lat, b.lon, b.lat);
+    var lon0, lat0, R;
+    if (sep / 2 <= cap * 0.8) {
+      var mid = slerpLL(a.lon, a.lat, b.lon, b.lat, 0.5);
+      lon0 = mid[0]; lat0 = mid[1];
+      R = Math.max(sep * 0.8, 1.5);
+    } else {
+      lon0 = b.lon; lat0 = b.lat;
+      R = Math.min(30, cap * 0.6);
+    }
+    /* the reveal card covers the bottom of the screen, so the two marks are fitted ABOVE
+       it: fill 0.2 of the height puts them in the band 0.3 -> 0.7 of the screen, which is
+       what the screenshot of a 3 169 km miss showed to be the usable part. */
+    var k = frameCap(lon0, lat0, Math.min(R, cap * 0.9), 0.2) || fitK;
     k = Math.max(k, fitK);           /* never out past the world: the figure ends there */
     flyTo(lon0, lat0, k);
     return { lon: lon0, lat: lat0, k: k };
@@ -3708,9 +3841,14 @@ window.MapApp = {
        the answer off the picture half the time. Eckert IV shows the whole sphere at
        once, it is the projection this viewer was built on, and a "point at the map"
        game wants exactly that. The player's own projection comes back in exit(). */
-    if (opts && opts.flat) {
+    if (opts && opts.locate) {
+      /* THE LOCATE MODE PLAYS ON A GLOBE. A planar projection (Eckert IV, plate carrée)
+         re-centres its plane on every drag, and that machinery is what makes the mode
+         fragile there: the answer is a position on a sphere and the globe is the honest
+         picture of it. A player who is on a flat projection gets the perspective view for
+         the round; a player already on perspective or orthographic keeps their own. */
       if (quizSavedProj === null) quizSavedProj = projID;
-      if (projID !== 'eckert4') setProjection('eckert4');
+      if (isPlanarProj(projID)) setProjection('persp');
     }
     quizOn = true;
     quizLabels = false;                 /* the quiz turns it on per mode (MapApp.labels) */

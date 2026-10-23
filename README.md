@@ -300,7 +300,7 @@ or the same flag is excluded, so no question has two right answers on it.
 ### Locate the city
 
 The mode that is not a quiz of buttons. A city is named — *Where is Karlsruhe?* — the map
-opens on the whole of its zone, and the player puts a marker where they think it is. The
+opens on a **globe** of its zone, and the player puts a marker where they think it is. The
 answer is the **distance between the marker and the real place**, and the round is scored
 in **points**, not in hits.
 
@@ -344,22 +344,29 @@ a 4 598-question round.
 
 **What the map does** (all of it in `app.js`, all of it behind `window.MapApp`):
 
-* it **switches to the flat, whole-world projection** (`enter({flat:true})`, Eckert IV)
-  and hands the player's own back on exit. Not a taste: the default perspective view is a
-  3-radius cone, so it shows one cap of the sphere and hides the rest — measured, only
-  2 294 of the world's 4 598 cities were on screen at the world fit, which makes "where is
-  Ouagadougou?" a question whose answer is off the picture half the time;
+* **it plays on a GLOBE** (perspective or orthographic), never on a flat map. A planar
+  projection re-centres its plane on every drag and that machinery is what made the mode
+  fragile there; the answer is a position on a sphere and the globe is the honest picture
+  of it. A player on a planar projection gets the perspective view for the round and their
+  own back on exit (`enter({locate:true})`, `quizSavedProj`); a player already on
+  perspective or orthographic keeps what they had;
 * it frames the **ZONE**, never the city — flying to the answer would end the question.
-  The zone's centre is the mean of its cities' unit vectors (the only average the
-  antimeridian cannot fool) and the fit is the ordinary 6 % min/max box over those cities.
-  Two attempts are worth remembering because both look sensible: the **countries' label
-  points** (Russia's label sits at 96 E and is filed under *Europe*, so "Europe" fitted to
-  0.96 × the world view — a zoom OUT) and a **percentile box** to drop the outliers (18 %
-  of Europe's cities are Russian, so the 2–98 % box still reached the Pacific: measured
-  1 755 px wide). Min/max holds because the outliers are real — Vladivostok *is* a European
-  city by this data's bookkeeping — and at the plain fit every city of every zone is on
-  screen (measured: all 955 of Europe's, 716 of Africa's, 1 496 of Asia's), so whatever
-  city is asked is on the picture when the question opens;
+  Everything is stated in **angles**, because a globe shows a cap and nothing else
+  (70.5° for perspective at P = 3, 90° for orthographic). The opening width is the zone's
+  own angular radius — the 85th percentile of the distance from its centre to its cities,
+  so one far-flung member (Vladivostok, filed under Europe; Honolulu, under North America)
+  cannot stretch it — and the cap is framed to fill the screen, since a globe's disc
+  *should* fill the screen and the cards are overlays on it;
+  **the asked city is then placed**: if the view would put it under the ask card or under
+  the locate bar, the view ROTATES toward it by the least that works, and it never lands in
+  the middle — a view centred on the answer is the answer. Measured: 0 of the sampled
+  cities of every zone land under a card, in both projections, at 1.2–2.5× the world fit;
+* the zoom is **measured, not derived**: the circle of the cap's radius is projected in 24
+  directions and the extreme offsets give the k. A local `planePerDeg` over-estimates near
+  a cone's limb, where the projection compresses toward the rim;
+* **the World zone opens on the asked city's own continent.** On a sphere "the world" is
+  not a picture — a globe shows a hemisphere — so the honest question a globe can ask is
+  *where in this continent is it*, and that is what the round asks;
 * **the country names stay and the city names go** (`MapApp.countryNames(true)`): the
   answer is a city's position, and the country it sits in is a clue a player needs —
   without it the game degrades into shape recognition. The city dots and labels are the
@@ -371,7 +378,9 @@ a 4 598-question round.
 * after the answer it draws **both marks** on the canvas — your point as an accent ring,
   the real city as a green dot with its name, and the **great circle** between them as a
   dashed line sampled along the sphere (a straight segment in the plane cuts through the
-  pole) — then flies in on them, never closer than 2°, so the miss is a picture;
+  pole) — then flies in on them, in angles, fitted above the reveal card; a guess more than
+  ~1.6 caps away (the other side of the planet) has no view holding both, so the reveal
+  shows the real city and the card carries the distance;
 * the reveal carries the **city's own panel** (country, region, population, coordinates),
   the same builder the info panel uses, so a round teaches where the city was.
 
