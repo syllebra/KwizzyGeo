@@ -188,9 +188,9 @@ setTimeout(function () {
 
   /* THE SHEET'S SHAPE, 2026-10-22 (late): no layer choice, the sound switches live IN
      the sheet (not one row that opens another panel), and the Game group is the quiz
-     plus free exploration. */
+     alone - LEAVING THE GAME IS DECIDED ON THE MAIN MENU, beside Play, not in here. */
   const rows = items.getElementsByClassName('menuitem');
-  check('menu has rows', rows.length === 4, rows.length + ' rows (quiz, explore, cities, north)');
+  check('menu has rows', rows.length === 3, rows.length + ' rows (quiz, cities, north)');
   check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
         items.getElementsByClassName('mgroup').length + ' groups (Game, Sound, Language, Overlay)');
   check('the projection rows are archived, not rendered',
@@ -201,7 +201,11 @@ setTimeout(function () {
   const quizRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'quiz'; })[0];
   check('the quiz row is in the sheet', !!quizRow);
   const exploreRow = rows.filter(function (r) { return r.dataset && r.dataset.id === 'explore'; })[0];
-  check('the free-exploration row is in the sheet', !!exploreRow);
+  check('...and NOT a free-exploration row (that is a main-menu choice, not a setting)',
+        !exploreRow, (exploreRow && exploreRow.dataset.id) || 'absent');
+  /* the row that DOES take the player out of the game is the one that goes somewhere */
+  const cityRowPre = rows.filter(function (r) { return r.dataset && r.dataset.id === 'cities'; })[0];
+  check('a toggle row is still there to test the closing rule on', !!cityRowPre);
 
   /* THE SOUND SWITCHES, in the sheet itself: three rows with the drawer's knob, and a
      volume slider. This harness does not load quiz.js or juice.js, so the ENGINE is
@@ -242,7 +246,7 @@ setTimeout(function () {
 
   /* a row that goes somewhere DOES close the sheet */
   L['menu:pointerdown']({ clientX: 10, clientY: 10 });
-  L['menu:click']({ target: exploreRow, clientX: 10, clientY: 10 });
+  L['menu:click']({ target: quizRow, clientX: 10, clientY: 10 });
   check('clicking a row closes the menu', !menu.classList.contains('open'));
   check('scrim hidden again', !scrim.classList.contains('on'));
   /* the press record survives a click (it is what the 12 px scroll-slop is measured

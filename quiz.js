@@ -208,13 +208,19 @@ function titleHTML() {
   h += '<p class="qz-tagline">' + esc(T('tagline')) + '</p></div>';
 
   if (!ready) h += loaderHTML();
+  /* THE MAIN MENU: the two ways to use the app, side by side in the hierarchy - play a
+     round, or take the map and explore it - and then the two doors that are not ways to
+     play (credits, and the sound/stats drawers in the footer). Leaving the game used to
+     be a small link down here AND a row in the burger; it is a first-class choice. */
   h += '<div class="qz-titleacts">' +
        '<button class="qz-play qz-xl" data-act="play"' + (ready ? '' : ' disabled') + '>' +
        esc(ready ? T('play') : T('loading_map')) + '</button>' +
+       '<button class="qz-ghost qz-explorebtn" data-act="explore">' +
+       esc(T('explore')) + '</button>' +
        '<button class="qz-ghost qz-creditsbtn" data-act="about">' + esc(T('ab_title')) + '</button>' +
        '</div>';
   h += '<div class="qz-foot">' +
-       '<span class="qz-links"><a class="qz-link" data-act="explore">' + esc(T('explore')) + '</a>' +
+       '<span class="qz-links">' +
        '<a class="qz-link" data-act="snd-open">' + esc(T('sound_music')) + '</a>' +
        '<a class="qz-link" data-act="stats-open">' + esc(T('stats')) + '</a></span>' +
        '<span class="qz-best">' + bestText() + '</span></div>';
@@ -877,6 +883,8 @@ function open() {
   screen = 'title';
   session = null; q = null; answered = false;
   M.exit();
+  /* the map goes back to the GAME's palette: the title is a game screen */
+  if (M.explore) M.explore(false);
   render();
 }
 /* WALK THE STEPS. `go` moves forward (and back through `back`), so the arrows, the
@@ -908,6 +916,9 @@ function back() {
 function hide() {
   if (M.quizOn()) M.exit();
   if (M.cinema) M.cinema(false);
+  /* ...and the chart turns GREY: free exploration is the map for its own sake, and its
+     palette says so (see MapApp.explore / COL.landX in app.js) */
+  if (M.explore) M.explore(true);
   quizEl.className = '';
   if (backEl) { backEl.hidden = true; backEl.setAttribute('hidden', ''); }
   if (bodyEl && bodyEl.classList) {

@@ -940,6 +940,25 @@ body.qz-playing #menu { display: none; }
 }
 /* the credits button is ON the map, not on a card: it takes the same paper glass as the
    corners, or the ink of a ghost button would vanish over pale land */
+/* THE SECOND WAY IN: exploring is a real choice, so it gets a real button - the glass
+   of a ghost action, at the weight of one (smaller than Play, larger than the footer
+   links), and it keeps the accent word so the two ways in read as a pair. */
+.qz-explorebtn {
+  justify-content: center; min-height: 46px;
+  /* the WORD carries the accent, the slab does not: Play is the filled pane, this is
+     the second way in (accent word, smoked glass), and Credits below it is neutral -
+     three weights, one column, no guessing which is the main action */
+  color: #8ed0ff;
+  background: rgba(12, 28, 44, .60);
+  border-color: rgba(142, 208, 255, .34);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+}
+.qz-explorebtn:hover {
+  color: #b6e2ff;
+  background: rgba(142, 208, 255, .14);
+  border-color: rgba(142, 208, 255, .60);
+}
 .qz-creditsbtn {
   justify-content: center;
   background: rgba(12, 28, 44, .66);

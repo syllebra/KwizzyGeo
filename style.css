@@ -358,6 +358,7 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
   .menuitem { min-height: 44px; font-size: 14px; padding: 9px 12px; gap: 11px; }
   .chip { min-height: 34px; padding: 8px 13px; font-size: 13px; }
   .menuitem .mi-ico { font-size: 17px; width: 20px; }
+
   .mtitle { font-size: 10px; margin-bottom: 6px; }
   #menu.open #items { max-height: calc(100vh - 110px); }
 }
@@ -479,54 +480,74 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .qz-endh, .qz-endh.fresh { text-shadow: 0 0 26px rgba(142, 208, 255, .35); }
 .qz-brand .qz-halo { opacity: 1; }
 
-/* ---------- the sound switches, in the sheet ----------
-   Three switches and a volume, inside the burger. Same glass as a menu row, with the
-   knob of the quiz's drawer (`.qz-set .sw`) so the app has ONE switch look, drawn here
-   because these live in app.js's sheet and not in quiz.js's drawer. */
+/* ---------- the sound group, in the sheet ----------
+   THE SWITCHES ARE MENU ROWS. They had their own druthers (30 px, a .06 tint, a .16
+   border, a 12 px label) next to rows at the same height but a different tint - and on
+   a phone they kept the desktop height while every .menuitem grew to 44 px, so the
+   Sound group looked like something pasted into the sheet. One row geometry, one glass,
+   one rhythm: .msw and .mvol are declared with the SAME numbers as .menuitem, and they
+   grow with it in the coarse-pointer block below.
+   The knob is the quiz drawer's (`.qz-set .sw`), so the app has one switch look, drawn
+   here because these rows live in app.js's sheet and not in quiz.js's drawer. */
 .msound { display: flex; flex-direction: column; gap: 4px; }
-.msw {
+.msw, .mvol {
   pointer-events: auto; cursor: pointer;
   display: flex; align-items: center; gap: 9px;
-  min-height: 30px; padding: 5px 10px;
-  border: 1px solid rgba(198, 224, 246, .16); border-radius: 9px;
-  background: rgba(142, 208, 255, .06);
-  color: rgba(234, 243, 251, .88);
+  min-height: 30px; margin: 0; padding: 5px 10px;
+  border: 1px solid rgba(198, 224, 246, .14); border-radius: 9px;
+  background: rgba(142, 208, 255, .08);
+  color: rgba(234, 243, 251, .86);
   font: 12px/16px system-ui, sans-serif;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
-  transition: background .12s linear, border-color .12s linear;
+  transition: background .1s linear, border-color .1s linear;
 }
-.msw:hover { background: rgba(142, 208, 255, .13); }
-.msw .mi-lab { flex: 1 1 auto; }
+.msw:hover { background: rgba(142, 208, 255, .14); }
+/* the same icon column as a menu row, so the six labels of the Game and Sound groups
+   start on one vertical line */
+.msw .mi-ico { font: 15px/15px system-ui, sans-serif; width: 18px; text-align: center; opacity: .9; }
+.msw .mi-lab { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* THE KNOB, in four numbers, so the coarse-pointer block can grow it without repeating
+   the whole switch geometry */
+.msw { --knob-w: 38px; --knob-h: 22px; --knob-d: 16px; --knob-x: 16px; }
 .msw .knob {
   flex: 0 0 auto; position: relative;
-  width: 34px; height: 20px; border-radius: 99px;
+  width: var(--knob-w); height: var(--knob-h); border-radius: 99px;
   background: rgba(10, 24, 38, .75);
   border: 1px solid rgba(198, 224, 246, .24);
   transition: background .16s ease, border-color .16s ease;
 }
 .msw .knob::after {
-  content: ''; position: absolute; left: 2px; top: 50%; margin-top: -8px;
-  width: 16px; height: 16px; border-radius: 50%;
+  content: ''; position: absolute; left: 2px; top: 50%;
+  margin-top: calc(var(--knob-d) / -2);
+  width: var(--knob-d); height: var(--knob-d); border-radius: 50%;
   background: rgba(198, 224, 246, .75);
   transition: transform .16s cubic-bezier(.2,.9,.25,1.1), background .16s ease;
 }
-.msw.on { color: #ffffff; border-color: rgba(142, 208, 255, .40); }
-.msw.on .knob { background: rgba(142, 208, 255, .55); border-color: rgba(198, 236, 255, .7); }
-.msw.on .knob::after { transform: translateX(14px); background: #ffffff; }
-/* a device with no vibration: the row is shown greyed, never hidden (the setting still
-   exists, it just cannot do anything here) */
-.msw.off { opacity: .45; }
-
-.mvol {
-  display: flex; align-items: center; gap: 9px;
-  min-height: 30px; padding: 5px 10px;
-  border: 1px solid rgba(198, 224, 246, .16); border-radius: 9px;
-  background: rgba(142, 208, 255, .06);
-  font: 12px/16px system-ui, sans-serif; color: rgba(234, 243, 251, .88);
+/* ON is the same look as a selected menu row: the accent on the border, the label at
+   full ink - a switch that reads as a different species of control only because it is
+   a switch was the thing to fix. */
+.msw.on {
+  color: #eaf3fb;
+  background: rgba(142, 208, 255, .12);
+  border-color: rgba(142, 208, 255, .40);
+  box-shadow: 0 1px 0 rgba(198, 224, 246, .10) inset;
 }
-.mvol .mi-lab { flex: 0 0 auto; }
+/* ON is GREEN, the drawer's own switch colour: a menu row's accent border already means
+   "this is the chosen one", and a switch means something else - enabled. The green is
+   the app's success green, which never appears on a switch elsewhere, so the two greens
+   are never read as the same message. */
+.msw.on .knob { background: rgba(70, 209, 142, .55); border-color: rgba(120, 230, 180, .80); }
+.msw.on .knob::after { transform: translateX(var(--knob-x)); background: #ffffff; }
+/* a device with no vibration: the row is shown greyed, never hidden (the setting still
+   exists, it just cannot do anything here) - and it cannot be flicked either */
+.msw.off { opacity: .45; cursor: default; }
+
+/* the volume is a ROW of the group, not a panel of its own: the label keeps its column,
+   the slider takes the rest, and the % sits where the knobs are, so the right edge of
+   the group is one straight line */
+.mvol .mi-lab { flex: 0 0 auto; white-space: nowrap; }
 .mvol input[type=range] {
-  flex: 1 1 auto; min-width: 60px; height: 20px; margin: 0;
+  flex: 1 1 auto; min-width: 54px; height: 20px; margin: 0;
   -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
 }
 .mvol input[type=range]::-webkit-slider-runnable-track {
@@ -541,5 +562,32 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background:
 .mvol input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #8ed0ff; }
 .mvol .pill {
   flex: 0 0 auto; font: 10px/13px ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;      /* 9% and 100% do not shift the slider while dragged */
   color: rgba(198, 230, 255, .95); min-width: 34px; text-align: right;
 }
+
+/* ---------- the sound group on a finger ----------
+   DECLARED HERE, AT THE END, and not in the coarse-pointer block above with the other
+   rows: same specificity, so a media query written BEFORE the base `.msw` rule is
+   overridden by it and the switches quietly kept their desktop height on a phone - the
+   very mismatch this was meant to fix (measured at 390 px: rows 64 px tall, switches
+   42 px). A finger gets the row's own numbers: 44 px minimum, 14 px type, 12 px
+   padding, and a knob large enough to read as a control at that height. */
+@media (pointer: coarse), (max-width: 700px) {
+  .msw, .mvol { min-height: 44px; font-size: 14px; padding: 9px 12px; gap: 11px; }
+  .msw .mi-ico { font-size: 17px; width: 20px; }
+  .msw { --knob-w: 42px; --knob-h: 24px; --knob-d: 18px; --knob-x: 18px; }
+  .mvol input[type=range] { height: 32px; }
+  .mvol input[type=range]::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -6.5px; }
+  .mvol input[type=range]::-moz-range-thumb { width: 18px; height: 18px; }
+  .mvol .pill { font-size: 11px; }
+  .mtitle { font-size: 10px; margin-bottom: 6px; }
+}
+
+/* ---------- the sheet in a right-to-left language ----------
+   The rows are text, so the sheet flips (dir is set on #menu by labelSheet). The KNOB
+   does not flip by itself: `translateX` is a PHYSICAL move, and the knob starts at the
+   physical left - so in RTL "on" sent it to the right, which is where a reader expects
+   OFF to be. Mirrored here: the knob rests at the right and travels left. */
+#menu[dir="rtl"] .msw .knob::after { left: auto; right: 2px; }
+#menu[dir="rtl"] .msw.on .knob::after { transform: translateX(calc(-1 * var(--knob-x))); }

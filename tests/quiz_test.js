@@ -188,7 +188,13 @@ async function afterLoad() {
   check('the title has the big Play button', /data-act="play"/.test(hTitle));
   check('Play is enabled once the map is loaded', !/data-act="play" disabled/.test(hTitle));
   check('the title offers the credits', /data-act="about"/.test(hTitle));
-  check('the title links to the map viewer', /data-act="explore"/.test(hTitle));
+  /* EXPLORING is a MAIN-MENU choice: a real button in the title's own action column,
+     not a link in the footer and not a row hidden in the burger (see gesture_test) */
+  check('the title offers to explore the map, as a button among the actions',
+        /class="qz-ghost qz-explorebtn" data-act="explore"/.test(hTitle),
+        (hTitle.match(/<button[^>]*explore[^>]*>/) || [''])[0]);
+  check('...and it is no longer a small footer link',
+        !/class="qz-link" data-act="explore"/.test(hTitle));
   check('the title links to the sound drawer and the stats',
         /data-act="snd-open"/.test(hTitle) && /data-act="stats-open"/.test(hTitle));
   check('the title offers to drift the map behind it (cinema on)',
@@ -528,7 +534,13 @@ async function afterLoad() {
   Qz.close();
   check('dismissing the quiz gives the whole viewer back',
         !bodyEl.classList.contains('qz-playing') && !bodyEl.classList.contains('qz-owning'));
+  /* AND THE MAP TURNS INTO A CHART: free exploration is grey, the game is blue. The
+     palette is the viewer's, but the QUIZ is what knows whether it is on screen - so
+     this is the hand-over, in both directions. */
+  check('leaving the game asks the map for the exploration palette',
+        M().explore() === true, M().explore());
   Qz.open();
+  check('...and coming back to it restores the game palette', M().explore() === false);
 
   /* ---------- 6b. WHICH QUESTIONS MAY BE PRINTED ON THE MAP ----------
      The map can name the lit country (MapApp.labels). That is a SPOILER in "find the
@@ -724,6 +736,40 @@ async function afterLoad() {
   const hFrEnd = (Qz.start() && Qz.quit(), Qz.html());
   void hFrEnd;
 
+  /* THE SHEET'S OWN WORDS follow the same language as the drawer it mirrors: the rows
+     are built once at load, when i18n.js does not exist yet, so they are re-worded at
+     every open and on every language change (labelSheet in app.js). */
+  function sheetLabels() {
+    const out = [];
+    (function walk(n) {
+      for (const c of n.children || []) {
+        if (/mlk/.test(c.className || '')) out.push(String(c.textContent));
+        walk(c);
+      }
+    })(els.items);
+    return out;
+  }
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
+  L['menu:click']({ target: els.burger, clientX: 0, clientY: 0 });   /* open = repaint */
+  const frSheet = sheetLabels();
+  check('the sheet says Sound effects / Music / Haptics in French',
+        frSheet.indexOf('Effets sonores') >= 0 && frSheet.indexOf('Musique') >= 0 &&
+        frSheet.indexOf('Retour haptique') >= 0, frSheet.join(' | '));
+  check('...and its group heading and volume label too',
+        frSheet.indexOf('Son et musique') >= 0 && frSheet.indexOf('Volume de la musique') >= 0,
+        frSheet.join(' | '));
+  /* THE WHOLE SHEET, not just the sound group: the group names and the two overlay
+     rows used to be English, which made the one translated group look pasted in */
+  check('...and the rest of the sheet with it (groups, quiz row, overlays)',
+        frSheet.indexOf('Jeu') >= 0 && frSheet.indexOf('Langue') >= 0 &&
+        frSheet.indexOf('Calques') >= 0 && frSheet.indexOf('Jouer au quiz') >= 0 &&
+        frSheet.indexOf('Nord en haut') >= 0, frSheet.join(' | '));
+  check('...and no group name is left in English',
+        frSheet.indexOf('Game') < 0 && frSheet.indexOf('Language') < 0 &&
+        frSheet.indexOf('Overlay') < 0, frSheet.join(' | '));
+  L['menu:pointerdown']({ clientX: 0, clientY: 0 });
+  L['menu:click']({ target: els.burger, clientX: 0, clientY: 0 });   /* close again */
+
   /* the drawers */
   Qz.soundToggle(true);
   check('the sound drawer is French', /Son et musique/.test(Qz.sound().html) &&
@@ -743,6 +789,8 @@ async function afterLoad() {
         global.window.document.getElementById('quiz').getAttribute('dir'));
   check('the sound drawer follows the direction',
         global.window.document.getElementById('qz-sound').getAttribute('dir') === 'rtl');
+  check('...and so does the burger sheet (its rows are text, not a picture)',
+        els.menu.getAttribute('dir') === 'rtl', els.menu.getAttribute('dir'));
   check('the title screen is in Arabic', /العب/.test(Qz.html()) && /الشكر والذاكرة/.test(Qz.html()),
         Qz.html().slice(0, 120));
   Qz.go('mode');

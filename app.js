@@ -251,10 +251,42 @@ var itemsEl = document.getElementById('items');
    uses it is still `undefined` at the first build (this cost me a whole load: the menu
    threw and app.js never finished initialising). */
 var SND_ROWS = [
-  { id: 'sfx', label: 'Sound effects', ico: '\u266A' },
-  { id: 'music', label: 'Music', ico: '\u266B' },
-  { id: 'haptics', label: 'Haptic feedback', ico: '\u25A4' }
+  { id: 'sfx', key: 'set_sfx', label: 'Sound effects', ico: '\u266A' },
+  { id: 'music', key: 'set_music', label: 'Music', ico: '\u266B' },
+  /* the wave is a vibration, the old glyph (\u25A4 a filled square) said nothing */
+  { id: 'haptics', key: 'set_haptics', label: 'Haptic feedback', ico: '\u223F' }
 ];
+/* ONE WORD IN THE PLAYER'S LANGUAGE. i18n.js is loaded AFTER app.js (the sheet is built
+   at load, when the table does not exist yet), so every lookup is at PAINT time and
+   falls back to the English the row was born with; see labelSheet(). */
+function tr(key, fallback) {
+  var I = window.KwizzyI18n;
+  var s2 = (I && I.t) ? I.t(key, null, LANG) : null;
+  return (s2 && s2 !== key) ? s2 : fallback;
+}
+/* re-word the sheet's own labels - the sound group, which is the sound DRAWER's twin and
+   must be worded in the same language as it. Called on every open and on every language
+   change: the rows are built once, so nothing else would ever update them. */
+function labelSheet() {
+  if (!itemsEl || !itemsEl.getElementsByClassName) return;
+  /* THE SHEET IS TEXT, SO IT HAS A DIRECTION: Arabic, Persian and Hebrew read right to
+     left, and a sheet whose rows stay left-aligned beside an RTL game is the same
+     half-translated app the language chips were meant to fix. The map itself is a
+     picture and keeps its own orientation. */
+  var I = window.KwizzyI18n;
+  if (menuEl && menuEl.setAttribute && I && I.dir) menuEl.setAttribute('dir', I.dir(LANG));
+  var els = itemsEl.getElementsByClassName('mlk');
+  for (var i = 0; i < els.length; i++) {
+    var k = els[i].dataset && els[i].dataset.lk;
+    if (!k) continue;
+    els[i].textContent = tr(k, els[i].dataset.fb || '');
+  }
+  /* the slider's accessibility name is the same word, so it is renamed with it */
+  var rng = itemsEl.getElementsByClassName('mslider');
+  for (var r = 0; r < rng.length; r++) {
+    rng[r].setAttribute('aria-label', tr('volume', 'Music volume'));
+  }
+}
 
 /* the burger menu: closed it is only the burger, whose tag names the active
    view; opening it stacks the choices in a column underneath. A chip is a PICK,
@@ -295,24 +327,25 @@ function menuGroups() {
   var groups = [];
   if (projs.length) groups.push({ title: 'Projection', items: projs, needs2d: true });
   return groups.concat([
-    /* THE GAME'S OWN MENU: back to the title (only otherwise reachable by reloading
-       the page) and out to free exploration - which used to be a link on the quiz's
-       start page only, so leaving a round and coming back to the map meant a reload. */
-    { title: 'Game', items: [{ id: 'quiz', label: 'Play the quiz', ico: '\u25C8' },
-                             { id: 'explore', label: 'Explore the map', ico: '\u25CB' }] },
+    /* THE GAME'S OWN MENU: back to the title, which is only otherwise reachable by
+       reloading the page. FREE EXPLORATION IS NOT HERE: leaving the game is a decision
+       about what you are doing, so it belongs on the main menu, beside Play - the
+       sheet is where you change how the thing you are in behaves. */
+    { title: 'Game', key: 'm_game', items: [{ id: 'quiz', label: 'Play the quiz', key: 'm_play', ico: '\u25C8' }] },
     /* SOUND & MUSIC, IN THIS SHEET - not one row that opens another panel. These are
        settings of the whole app, and the burger is the one control on every screen, so
        the switches live where a player looks for them: `sound: true` tells buildMenu to
        render the three switches and the volume here. */
-    { title: 'Sound', sound: true },
+    { title: 'Sound & music', sound: true, key: 'snd_title' },
     /* one chip per language, in a wrapping row: 18 rows of a full-width menu item
        would be 800 px of sheet on a phone for something most sessions never touch */
-    { title: 'Language', chips: LANGS.map(function (L) { return { id: 'lang:' + L.c, label: L.label }; }) },
+    { title: 'Language', key: 'm_lang', chips: LANGS.map(function (L) { return { id: 'lang:' + L.c, label: L.label }; }) },
     /* an overlay, not a view: the row says whether it is on, and clicking it
        toggles - a chip that is a pick (like the projection rows) would need a
        second row for "off" */
-    { title: 'Overlay', items: [{ id: 'cities', label: 'Cities', ico: '\u25c9' },
-                                { id: 'north', label: 'North up', ico: '\u2191' }], needs2d: true }
+    { title: 'Overlay', key: 'm_overlay',
+      items: [{ id: 'cities', label: 'Cities', key: 'm_cities', ico: '\u25c9' },
+              { id: 'north', label: 'North up', key: 'm_north', ico: '\u2191' }], needs2d: true }
   ]);
 }
 var spotEl = document.getElementById('spot');
@@ -355,6 +388,7 @@ function itemLabel(it, el) {
     return p ? p.label : '?';
   }
   if (it.id.indexOf('layer:') === 0) return layerLabel(it.id.slice(6));
+  if (it.key) return it.label;            /* re-worded by labelSheet(), not here */
   if (it.id === 'quiz') return 'Play the quiz';
   if (it.id === 'cities') return 'Cities';
   if (it.id === 'north') return 'North up';
@@ -370,6 +404,9 @@ function buildMenu() {
     var title = document.createElement('div');
     title.className = 'mtitle';
     title.textContent = grp.title;
+    /* a group whose name the game also says elsewhere (the sound group) carries its
+       i18n key, so the sheet's heading is in the player's language like its rows */
+    if (grp.key) { title.className = 'mtitle mlk'; title.dataset.lk = grp.key; title.dataset.fb = grp.title; }
     box.appendChild(title);
     if (grp.sound) {
       box.appendChild(soundRows());
@@ -405,8 +442,9 @@ function buildMenu() {
       ico.className = 'mi-ico';
       ico.textContent = it.ico;
       var lab = document.createElement('span');
-      lab.className = 'mi-lab';
-      lab.textContent = itemLabel(it, el);
+      lab.className = 'mi-lab' + (it.key ? ' mlk' : '');
+      if (it.key) { lab.dataset.lk = it.key; lab.dataset.fb = itemLabel(it, el); }
+      lab.textContent = it.key ? tr(it.key, itemLabel(it, el)) : itemLabel(it, el);
       el.appendChild(ico); el.appendChild(lab);
       box.appendChild(el);
     }
@@ -449,12 +487,6 @@ function menuClick(el) {
   closeMenu();
   if (!id) return;
   if (id === 'quiz') { if (window.Quizzy) window.Quizzy.open(); return; }
-  if (id === 'explore') {
-    /* free exploration: the viewer owns the whole screen again, and the background
-       animation stands down (quiz.js hide() does both) */
-    if (window.Quizzy) window.Quizzy.close();
-    return;
-  }
   if (id.indexOf('proj:') === 0) { setProjection(id.slice(5)); return; }
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
@@ -570,6 +602,9 @@ var hover = -1, picked = -1;
    keyed to the layer that was pinned when the session started). Panning and zooming
    stay live - looking at the neighbours is part of answering. */
 var quizOn = false;
+/* IS THE PLAYER EXPLORING THE MAP (and not playing)? Set by quiz.js when the game is
+   dismissed, cleared when it reopens - see MapApp.explore and the palette above. */
+var exploreOn = false;
 var mouse = { x: 0, y: 0, inside: false };
 var canvasRect = { left: 0, top: 0 };
 
@@ -586,6 +621,13 @@ var COL = {
      heavy on this one) */
   land: '#2c4a66', hover: '#40678c', pick: '#c9dff2',
   edge: 'rgba(10, 26, 42, .55)', graticule: 'rgba(190, 220, 245, .13)', frame: 'rgba(190, 220, 245, .34)',
+  /* EXPLORATION IS GREY, NOT BLUE. The game's land is a colour because the game needs a
+     ground for one lit country; a map you are exploring is a CHART, and a chart is
+     neutral - every country the same grey stone, the one you pick the only thing that
+     is lit (COL.pick, unchanged). Same lightness as COL.land to within a few percent,
+     so the pale labels, their dark halos, the city dots and the glass panels all keep
+     working exactly as they are; what changes is the hue, and the hue is the message. */
+  landX: '#555b61', hoverX: '#6b7178', edgeX: 'rgba(10, 16, 22, .58)',
   /* cities: a pale dot with a dark ring, so it reads over the land and over the ocean */
   city: 'rgba(232, 242, 252, .95)', cityRing: 'rgba(8, 22, 36, .85)',
   cityPick: '#8ed0ff', cityLabel: 'rgba(234, 243, 251, .95)',
@@ -790,6 +832,7 @@ function setLang(code, silent) {
   function apply() {
     layout = buildLabels();            /* country labels are rebuilt: they carry the name */
     capCache = null;                   /* the capital lookup matches raw ADM0NAME: keep it */
+    labelSheet();                      /* the sheet's own words (sound group) follow it */
     refreshMenu();
     refreshUI();
     /* the quiz's screens LAST: they read countryName()/cityName() for their labels, so
@@ -1559,7 +1602,7 @@ function draw() {
 
   var vis = [];
   var tA = nowMs();
-  ctx.fillStyle = COL.land;
+  ctx.fillStyle = exploreOn ? COL.landX : COL.land;
   for (var j = 0; j < feats.length; j++) {
     if (!onScreen(feats[j])) { feats[j]._p = null; continue; }
     var p = new Path2D(); beginFeature(p, feats[j]); feats[j]._p = p;
@@ -1567,12 +1610,12 @@ function draw() {
   }
   var tB = nowMs();
   for (var j2 = 0; j2 < vis.length; j2++) ctx.fill(vis[j2]._p);
-  ctx.strokeStyle = COL.edge; ctx.lineWidth = 0.7;
+  ctx.strokeStyle = exploreOn ? COL.edgeX : COL.edge; ctx.lineWidth = 0.7;
   for (var v = 0; v < vis.length; v++) if (vis[v]._p) ctx.stroke(vis[v]._p);
   drawMs.path = (tB - tA); drawMs.paint = nowMs() - tB;
 
   if (hover >= 0 && hover !== picked && feats[hover]._p) {
-    ctx.fillStyle = COL.hover; ctx.fill(feats[hover]._p);
+    ctx.fillStyle = exploreOn ? COL.hoverX : COL.hover; ctx.fill(feats[hover]._p);
     ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.2; ctx.stroke(feats[hover]._p);
   }
   if (picked >= 0 && feats[picked]._p) {
@@ -1937,9 +1980,24 @@ function soundRows() {
     row.dataset.id = 'snd:' + r.id;
     row.setAttribute('role', 'switch');
     row.setAttribute('aria-checked', 'true');
-    row.innerHTML = '<span class="mi-ico" aria-hidden="true">' + r.ico + '</span>' +
-                    '<span class="mi-lab">' + r.label + '</span>' +
-                    '<span class="knob" aria-hidden="true"></span>';
+    /* BUILT NODE BY NODE, not as a markup string: the fake DOM the tests run on has no
+       parser, so rows written with innerHTML are invisible to every test that wants to
+       assert on them (the volume row below has always been built this way for exactly
+       that reason). data-lk / data-fb: the string in the player's language and the
+       English to fall back on, filled by labelSheet() at every open (see tr()). */
+    var ico = document.createElement('span');
+    ico.className = 'mi-ico';
+    ico.setAttribute('aria-hidden', 'true');
+    ico.textContent = r.ico;
+    var lab = document.createElement('span');
+    lab.className = 'mi-lab mlk';
+    lab.dataset.lk = r.key;
+    lab.dataset.fb = r.label;
+    lab.textContent = tr(r.key, r.label);
+    var knob = document.createElement('span');
+    knob.className = 'knob';
+    knob.setAttribute('aria-hidden', 'true');
+    row.appendChild(ico); row.appendChild(lab); row.appendChild(knob);
     wrap.appendChild(row);
   }
   /* the volume: a real slider, dragged or arrowed, with the % written beside it so the
@@ -1949,8 +2007,9 @@ function soundRows() {
   var vol = document.createElement('div');
   vol.className = 'mvol';
   var lab = document.createElement('span');
-  lab.className = 'mi-lab';
-  lab.textContent = 'Volume';
+  lab.className = 'mi-lab mlk';
+  lab.dataset.lk = 'volume'; lab.dataset.fb = 'Music volume';
+  lab.textContent = 'Music volume';
   var rng = document.createElement('input');
   rng.type = 'range'; rng.min = '0'; rng.max = '100'; rng.step = '1'; rng.value = '100';
   rng.className = 'mslider';
@@ -1965,6 +2024,7 @@ function soundRows() {
 }
 /* paint the switches from the engine - on open, and after every change */
 function refreshSound() {
+  labelSheet();                      /* the words first: the sheet may be in another language */
   var j = juice();
   if (!j || !itemsEl || !itemsEl.getElementsByClassName) return;
   var st = j.settings();
@@ -1980,6 +2040,15 @@ function refreshSound() {
     if (on) el.classList.add('on'); else el.classList.remove('on');
     if (dead) el.classList.add('off'); else el.classList.remove('off');
     el.setAttribute('aria-checked', on ? 'true' : 'false');
+    /* ...and SAYS WHY, in words: the drawer explains itself ("This device has no
+       vibration") and a greyed row with no reason reads as a broken control */
+    if (dead) {
+      el.setAttribute('aria-disabled', 'true');
+      el.setAttribute('title', tr('no_vibrate', 'This device has no vibration'));
+    } else {
+      if (el.removeAttribute) el.removeAttribute('aria-disabled');
+      if (el.removeAttribute) el.removeAttribute('title');
+    }
   }
   var rng = itemsEl.getElementsByClassName('mslider');
   for (var r = 0; r < rng.length; r++) {
@@ -3273,6 +3342,18 @@ window.MapApp = {
       driftRestore();
     }
     return driftOn;
+  },
+  /* EXPLORING OR PLAYING? It only changes the palette (grey chart vs the game's slate
+     blue) - and it is a read-back with no argument, like cinema(). quiz.js calls it from
+     hide() and open(), so the mode cannot be left in the wrong palette by a quit path
+     that forgot to say so. */
+  explore: function (on) {
+    if (on === undefined) return exploreOn;
+    var want = !!on;
+    if (want === exploreOn) return exploreOn;
+    exploreOn = want;
+    scheduleReproject();
+    return exploreOn;
   },
   clear: function () { picked = -1; },
   /* MAY THE MAP NAME THE LIT COUNTRY? The quiz turns it on for the modes whose answer

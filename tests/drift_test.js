@@ -31,9 +31,24 @@ function ctxStub() {
     moveTo() {}, lineTo() {}, arc() {}, fillText() {}, strokeText() {},
     measureText(t) { return { width: String(t).length * 6.2 }; }, save() {}, restore() {}, clip() {} };
 }
+/* WHAT COLOUR WAS THE LAND? The palette itself is the thing under test in section 9,
+   and a pixel diff would say "different" for the wrong reason; so the stub remembers
+   the fillStyle in force at every fill(), and the land's own fills are read from it. */
+const fills = [];
+function ctxStub2() {
+  const st = ctxStub();
+  const set = st.fillStyle;
+  Object.defineProperty(st, 'fillStyle', {
+    get() { return set; },
+    set(v) { st._fill = v; }
+  });
+  st.fill = function () { fills.push(st._fill); };
+  st.fillRect = function () { fills.push(st._fill); };
+  return st;
+}
 function el(name) {
   const o = { innerHTML: '', textContent: '', className: '', dataset: {}, children: [], style: {},
-    getContext: () => ctxStub(),
+    getContext: () => ctxStub2(),
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }) };
   o.addEventListener = function (t, f) { L[name + ':' + t] = f; };
   o.classList = {
@@ -260,6 +275,47 @@ setTimeout(function () {
         /\(pointer: coarse\), \(max-width: 700px\)\s*\{\s*\.qz-top\s*\{[^}]*calc\(8px \+ 34px \+ 8px\)/.test(quizCss));
   check('the question buttons are 36 px too, so the row is one line',
         /\.qz-x\s*\{[\s\S]*?width:\s*36px;\s*height:\s*36px/.test(quizCss));
+
+  /* THE SOUND ROWS ARE MENU ROWS, on a finger as well as on a mouse. Same specificity,
+     so the coarse-pointer rule must be DECLARED AFTER the base one - written above it,
+     the base wins and the switches kept their desktop height on a phone (measured at
+     390 px: rows 64 px, switches 42 px). Asserted by INDEX in the file, because that is
+     exactly the thing that was wrong. */
+  const baseAt = styleCss.indexOf('\n.msw, .mvol {');
+  const coarseAt = styleCss.lastIndexOf('@media (pointer: coarse), (max-width: 700px)');
+  check('the sound rows are declared as menu rows', baseAt > 0);
+  check('...and the finger-sized version comes AFTER them, so it can win',
+        coarseAt > baseAt, baseAt + ' vs ' + coarseAt);
+  check('...with the row\'s own 44 px and 14 px', /\.msw, \.mvol \{ min-height: 44px; font-size: 14px/.test(styleCss));
+  /* the knob travels by a PHYSICAL amount, so in a right-to-left sheet it has to be
+     mirrored or "on" slides to the side a reader takes for off */
+  check('the knob is mirrored in a right-to-left sheet',
+        /#menu\[dir="rtl"\] \.msw\.on \.knob::after \{ transform: translateX\(calc\(-1 \* var\(--knob-x\)\)\)/.test(styleCss));
+
+  /* ---------- 9. EXPLORATION IS GREY, PLAYING IS BLUE ----------
+     The same map in two modes: the game needs a coloured ground for one lit country,
+     an explored map is a neutral chart. What is asserted is the COLOUR ACTUALLY PAINTED
+     on the land (recorded from the ctx stub at every fill), not a constant in a file:
+     swapping the two palettes back would fail here and nowhere else. */
+  const LAND_BLUE = '#2c4a66', LAND_GREY = '#555b61';
+  function landColours() {
+    fills.length = 0;
+    frames(2);
+    return fills.slice();
+  }
+  global.window.MapApp.explore(false);
+  const play = landColours();
+  check('playing: the land is the game slate blue', play.indexOf(LAND_BLUE) >= 0,
+        play.slice(0, 6).join(' '));
+  check('...and nothing is painted grey', play.indexOf(LAND_GREY) < 0);
+  check('explore(true) reports on', global.window.MapApp.explore(true) === true);
+  const exp = landColours();
+  check('exploring: the land is grey, not blue',
+        exp.indexOf(LAND_GREY) >= 0 && exp.indexOf(LAND_BLUE) < 0, exp.slice(0, 6).join(' '));
+  check('...the read-back says so, and no argument does not change it',
+        global.window.MapApp.explore() === true && global.window.MapApp.explore() === true);
+  check('explore(false) turns it back', global.window.MapApp.explore(false) === false &&
+        landColours().indexOf(LAND_BLUE) >= 0);
 
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   process.exit(fails ? 1 : 0);

@@ -62,7 +62,7 @@ var EN = {
   map_not_ready: 'The map is not ready yet.',
   not_enough: 'Not enough countries in {zone} for six answers — pick another zone.',
   loading_capitals_short: 'Loading the capitals…',
-  explore: 'Explore the map instead', sound_music: 'Sound & music', stats: 'Stats',
+  explore: 'Explore the map', sound_music: 'Sound & music', stats: 'Stats',
   best_here: 'Best here: {score} / {len}', best_n: '{n} rounds',
   no_sound_module: 'No sound module on this page.',
   no_stats_module: 'No stats module on this page.',
@@ -121,6 +121,14 @@ var EN = {
   t_indeterminate: 'Indeterminate',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Back',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Game',
+  m_lang: 'Language',
+  m_overlay: 'Overlay',
+  m_play: 'Play the quiz',
+  m_cities: 'Cities',
+  m_north: 'North up',
   cont: 'Continue',
   step_of: 'Step {i} of {n}',
   h_pick_mode: 'What do you want to find?',
@@ -220,6 +228,14 @@ T.fr = {
   t_indeterminate: 'Indéterminé',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Retour',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Jeu',
+  m_lang: 'Langue',
+  m_overlay: 'Calques',
+  m_play: 'Jouer au quiz',
+  m_cities: 'Villes',
+  m_north: 'Nord en haut',
   cont: 'Continuer',
   step_of: 'Étape {i} sur {n}',
   h_pick_mode: 'Que voulez-vous trouver ?',
@@ -315,6 +331,14 @@ T.de = {
   t_indeterminate: 'Unbestimmt',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Zurück',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Spiel',
+  m_lang: 'Sprache',
+  m_overlay: 'Ebenen',
+  m_play: 'Quiz spielen',
+  m_cities: 'Städte',
+  m_north: 'Norden oben',
   cont: 'Weiter',
   step_of: 'Schritt {i} von {n}',
   h_pick_mode: 'Was willst du finden?',
@@ -409,6 +433,14 @@ T.es = {
   t_indeterminate: 'Indeterminado',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Atrás',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Juego',
+  m_lang: 'Idioma',
+  m_overlay: 'Capas',
+  m_play: 'Jugar al quiz',
+  m_cities: 'Ciudades',
+  m_north: 'Norte arriba',
   cont: 'Continuar',
   step_of: 'Paso {i} de {n}',
   h_pick_mode: '¿Qué quieres encontrar?',
@@ -503,6 +535,14 @@ T.pt = {
   t_indeterminate: 'Indeterminado',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Voltar',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Jogo',
+  m_lang: 'Idioma',
+  m_overlay: 'Camadas',
+  m_play: 'Jogar o quiz',
+  m_cities: 'Cidades',
+  m_north: 'Norte para cima',
   cont: 'Continuar',
   step_of: 'Passo {i} de {n}',
   h_pick_mode: 'O que queres encontrar?',
@@ -597,6 +637,14 @@ T.nl = {
   t_indeterminate: 'Onbepaald',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Terug',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Spel',
+  m_lang: 'Taal',
+  m_overlay: 'Lagen',
+  m_play: 'Quiz spelen',
+  m_cities: 'Steden',
+  m_north: 'Noord boven',
   cont: 'Verder',
   step_of: 'Stap {i} van {n}',
   h_pick_mode: 'Wat wil je vinden?',
@@ -691,6 +739,14 @@ T.sv = {
   t_indeterminate: 'Obestämd',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Tillbaka',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Spel',
+  m_lang: 'Språk',
+  m_overlay: 'Skikt',
+  m_play: 'Spela quizen',
+  m_cities: 'Städer',
+  m_north: 'Norr uppåt',
   cont: 'Fortsätt',
   step_of: 'Steg {i} av {n}',
   h_pick_mode: 'Vad vill du hitta?',
@@ -784,6 +840,14 @@ T.ru = {
   t_indeterminate: 'Неопределённое',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Назад',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Игра',
+  m_lang: 'Язык',
+  m_overlay: 'Слои',
+  m_play: 'Играть в квиз',
+  m_cities: 'Города',
+  m_north: 'Север вверху',
   cont: 'Далее',
   step_of: 'Шаг {i} из {n}',
   h_pick_mode: 'Что вы хотите найти?',
@@ -877,6 +941,14 @@ T.uk = {
   t_indeterminate: 'Невизначене',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Назад',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Гра',
+  m_lang: 'Мова',
+  m_overlay: 'Шари',
+  m_play: 'Грати в квіз',
+  m_cities: 'Міста',
+  m_north: 'Північ угорі',
   cont: 'Далі',
   step_of: 'Крок {i} з {n}',
   h_pick_mode: 'Що ви хочете знайти?',
@@ -971,6 +1043,14 @@ T.el = {
   t_indeterminate: 'Απροσδιόριστη',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'Πίσω',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'Παιχνίδι',
+  m_lang: 'Γλώσσα',
+  m_overlay: 'Επικαλύψεις',
+  m_play: 'Παίξε το κουίζ',
+  m_cities: 'Πόλεις',
+  m_north: 'Βορράς πάνω',
   cont: 'Συνέχεια',
   step_of: 'Βήμα {i} από {n}',
   h_pick_mode: 'Τι θέλεις να βρεις;',
@@ -1061,6 +1141,14 @@ T.zh = {
   t_indeterminate: '未定地区',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: '返回',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: '游戏',
+  m_lang: '语言',
+  m_overlay: '叠加层',
+  m_play: '开始问答',
+  m_cities: '城市',
+  m_north: '北向上',
   cont: '继续',
   step_of: '第 {i} 步，共 {n} 步',
   h_pick_mode: '你想找什么？',
@@ -1153,6 +1241,14 @@ T.ja = {
   t_indeterminate: '未確定',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: '戻る',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'ゲーム',
+  m_lang: '言語',
+  m_overlay: 'オーバーレイ',
+  m_play: 'クイズを始める',
+  m_cities: '都市',
+  m_north: '北上',
   cont: '次へ',
   step_of: 'ステップ {i} / {n}',
   h_pick_mode: '何を見つけますか？',
@@ -1244,6 +1340,14 @@ T.ko = {
   t_indeterminate: '미확정',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: '뒤로',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: '게임',
+  m_lang: '언어',
+  m_overlay: '오버레이',
+  m_play: '퀴즈 시작',
+  m_cities: '도시',
+  m_north: '북쪽 위',
   cont: '계속',
   step_of: '{n}단계 중 {i}단계',
   h_pick_mode: '무엇을 찾을까요?',
@@ -1337,6 +1441,14 @@ T.ar = {
   t_indeterminate: 'غير محددة',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'رجوع',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'لعبة',
+  m_lang: 'اللغة',
+  m_overlay: 'طبقات',
+  m_play: 'ابدأ الاختبار',
+  m_cities: 'المدن',
+  m_north: 'الشمال أعلى',
   cont: 'متابعة',
   step_of: 'الخطوة {i} من {n}',
   h_pick_mode: 'ماذا تريد أن تجد؟',
@@ -1430,6 +1542,14 @@ T.fa = {
   t_indeterminate: 'نامشخص',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'بازگشت',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'بازی',
+  m_lang: 'زبان',
+  m_overlay: 'لایه‌ها',
+  m_play: 'شروع آزمون',
+  m_cities: 'شهرها',
+  m_north: 'شمال بالا',
   cont: 'ادامه',
   step_of: 'گام {i} از {n}',
   h_pick_mode: 'چه چیزی را می‌خواهی پیدا کنی؟',
@@ -1521,6 +1641,14 @@ T.he = {
   t_indeterminate: 'לא מוגדר',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'חזרה',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'משחק',
+  m_lang: 'שפה',
+  m_overlay: 'שכבות',
+  m_play: 'שחק בשאלון',
+  m_cities: 'ערים',
+  m_north: 'צפון למעלה',
   cont: 'המשך',
   step_of: 'שלב {i} מתוך {n}',
   h_pick_mode: 'מה תרצו למצוא?',
@@ -1612,6 +1740,14 @@ T.hi = {
   t_indeterminate: 'अनिर्धारित',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'वापस',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'खेल',
+  m_lang: 'भाषा',
+  m_overlay: 'परतें',
+  m_play: 'क्विज़ खेलें',
+  m_cities: 'शहर',
+  m_north: 'उत्तर ऊपर',
   cont: 'आगे',
   step_of: 'चरण {i} / {n}',
   h_pick_mode: 'आप क्या खोजना चाहते हैं?',
@@ -1705,6 +1841,14 @@ T.bn = {
   t_indeterminate: 'অনির্ধারিত',
   /* ---------- the menu screens (title -> what -> where -> how hard) and the credits ---------- */
   back: 'ফিরে যান',
+  /* the BURGER'S OWN WORDS: the sheet is where the app's settings live, so its
+     group names and its two overlay rows speak the player's language too */
+  m_game: 'খেলা',
+  m_lang: 'ভাষা',
+  m_overlay: 'স্তর',
+  m_play: 'কুইজ খেলুন',
+  m_cities: 'শহর',
+  m_north: 'উত্তর উপরে',
   cont: 'চালিয়ে যান',
   step_of: 'ধাপ {i} / {n}',
   h_pick_mode: 'আপনি কী খুঁজতে চান?',
