@@ -1,16 +1,83 @@
 # KwizzyGeo
 
-Geographical Quiz Game — a quiz in which a country is lit up on the map and you
-name it, or you name its capital, or you name the owner of a flag. Always six
-answers. Ten questions a round. The map underneath is a pure HTML/CSS/JS view of
-Natural Earth admin-0 country polygons, no libraries and no map tiles, drawn on one
-fullscreen `<canvas>` with a re-centring projection (perspective by default, Eckert
-IV equal-area available).
+![KwizzyGeo: the title screen, a globe filling the frame behind the wordmark](docs/screens/title-hero.jpg)
+
+Geographical Quiz Game — **four ways to play**, on a map that turns:
+
+| | the question | you answer by |
+|---|---|---|
+| **Find the country** | a country is lit up | naming it, six options |
+| **Find the capital** | the country is named | picking its capital |
+| **Find the flag** | a flag, or a country | six flags, or six names |
+| **Locate the city** | *Where is Vienna?* | **putting a marker on the map** — scored in kilometres |
+
+**▶ Play it: [syllebra.github.io/KwizzyGeo](https://syllebra.github.io/KwizzyGeo/)**
+
+The map underneath is a pure HTML/CSS/JS view of Natural Earth admin-0 country polygons,
+no libraries and no map tiles, drawn on one fullscreen `<canvas>` with a re-centring
+projection (a globe by default — perspective, or orthographic; Eckert IV equal-area is
+archived in the code). It runs on a phone and on a desktop, and the whole interface speaks
+18 languages.
 
 **Data: [Natural Earth](https://www.naturalearthdata.com/), public domain** — the
 50m sovereignty, 110m countries, 10m map units and 10m populated-places layers, at
 v5.1.1 / v5.1.2, converted by the scripts in `tools/`. If another source is added
 later it goes in that list, and in the credit line at the bottom of the map's menu.
+
+## Screenshots
+
+Every picture below is the **real page**, taken by `node tools/screens.js` at two viewports
+(a 1440×900 desktop and a 390×844 phone) with `?hud=0`, so the build instrumentation — the
+fps counter and the hint line — stays out of the frame. Nothing is a mockup and nothing is a
+montage: each picture is one state, produced through the app's own entry points, and the
+script *waits for a good draw* rather than bending the app to look right.
+
+**The title** — the globe drifts behind the wordmark
+
+<table><tr>
+<td><img src="docs/screens/title-desktop.jpg" width="660" alt="The title screen on a desktop"></td>
+<td><img src="docs/screens/title-phone.jpg" width="198" alt="The title screen on a phone"></td>
+</tr></table>
+
+**Four ways to play** — find the country, the capital, the flag, or locate a city
+
+<table><tr>
+<td><img src="docs/screens/modes-desktop.jpg" width="660" alt="The mode screen on a desktop"></td>
+<td><img src="docs/screens/modes-phone.jpg" width="198" alt="The mode screen on a phone"></td>
+</tr></table>
+
+**Locate the city** — the city is named, the globe opens on its continent
+
+<table><tr>
+<td><img src="docs/screens/locate-desktop.jpg" width="660" alt="A locate question on a desktop"></td>
+<td><img src="docs/screens/locate-phone.jpg" width="198" alt="A locate question on a phone"></td>
+</tr></table>
+
+**The reveal** — your marker, the city, and the distance written on the line
+
+<table><tr>
+<td><img src="docs/screens/reveal-desktop.jpg" width="660" alt="The reveal after a locate answer"></td>
+<td><img src="docs/screens/reveal-phone.jpg" width="198" alt="The reveal on a phone"></td>
+</tr></table>
+
+**The flag question** — the country is named, the six answers are flags
+
+<table><tr>
+<td><img src="docs/screens/flag-desktop.jpg" width="660" alt="A flag question on a desktop"></td>
+<td><img src="docs/screens/flag-phone.jpg" width="198" alt="A flag question on a phone"></td>
+</tr></table>
+
+**Explore the map** — the grey chart, a country picked, its own facts
+
+<table><tr>
+<td><img src="docs/screens/explore-desktop.jpg" width="660" alt="Explore the map with a country panel"></td>
+<td><img src="docs/screens/explore-phone.jpg" width="198" alt="Explore the map on a phone"></td>
+</tr></table>
+
+To take them again after a UI change: serve the root, then `node tools/screens.js`
+(it needs `playwright-core`; `--only=reveal` re-shoots one scene, `--url=` points it at
+another port). The script fails the run if the page logs an error, so a stale capture
+cannot slip through.
 
 Serve the root, open `index.html`, and it runs — no build step. The doc below
 is the viewer's own account of how it works. **The map is Natural Earth's 10m
@@ -24,6 +91,22 @@ because a quiz round borrows 50m sovereignty:
 | `data/so50.geojson` (first paint, and the QUIZ's data) | `ne_50m_admin_0_sovereignty` v5.1.1 | 201 | 119,927 (densified) |
 | `data/countries.geojson` (label thresholds) | `ne_110m_admin_0_countries` v5.1.1 | 177 | 47,664 |
 | `data/places.json` (overlay) | `ne_10m_populated_places` v5.1.2 | 7,342 points | — |
+
+### Debugging flags
+
+The URL is also the settings file, which is how every measurement in this document was
+taken and how the screenshots are made:
+
+| flag | what it does |
+|---|---|
+| `?hud=0` | hides the HUD and the hint line (fps, segment counts, projection, centre). Documented rather than a CSS hack, so a screenshot is still the real page |
+| `?bloom=0` | no bloom — the baseline every frame-rate number here was measured against |
+| `?bloomtune=op,contrast,blur` | the bloom's three numbers side by side |
+| `?locz=easy,medium,hard` | the locate mode's three `min_zoom` band edges |
+| `?proj=ortho` \| `eckert4` \| `equirect` | the projection the viewer starts on (Eckert IV and plate carrée are archived from the menu) |
+| `?layer=110m` \| `50m` \| `10m` | the layer the viewer starts on (the menu no longer offers a choice) |
+| `?drift=0` \| `?driftzoom=1` | stop the menu's drifting globe / keep it at the fitted zoom |
+| `?lod=-1` | a coarser geometry level, to see the LOD ladder |
 
 Open it at **http://localhost:8123/** (server: `python3 -m http.server 8123 --directory .`
 from the repository root — the page fetches `data/*.geojson`, so serving `data/`

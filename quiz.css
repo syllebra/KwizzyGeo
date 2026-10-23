@@ -322,6 +322,8 @@ body.qz-playing #menu { display: none; }
 .qz-verdict { font: 600 13px/18px system-ui, sans-serif; white-space: nowrap; }
 .qz-verdict.good { color: #46d18e; }
 .qz-verdict.bad { color: #b8403a; }
+/* the locate mode's middle verdict: not found, but not lost either (>= 800 points) */
+.qz-verdict.near { color: #8ed0ff; }
 .qz-facts { flex: 1 1 180px; font: 12px/17px system-ui, sans-serif; color: rgba(234, 243, 251, .90); }
 .qz-head .qz-next { margin-left: auto; }
 
@@ -878,6 +880,10 @@ body.qz-playing #menu { display: none; }
 .qz-choices { display: grid; gap: 10px; }
 .qz-choices-row { grid-template-columns: 1fr; }
 @media (min-width: 720px) { .qz-choices-row { grid-template-columns: repeat(3, 1fr); } }
+/* TWO BY TWO: for a list of four (the modes). A 3+1 row leaves the fourth card hanging,
+   which is what the mode screen did from the day Locate was added. */
+.qz-choices-pairs { grid-template-columns: 1fr; }
+@media (min-width: 720px) { .qz-choices-pairs { grid-template-columns: repeat(2, 1fr); } }
 .qz-choice {
   position: relative; cursor: pointer; text-align: left;
   display: flex; flex-direction: column; gap: 3px;

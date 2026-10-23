@@ -950,6 +950,11 @@ async function afterLoad() {
         (hDiff.match(/data-len="\d+"/g) || []).join(','));
   const hMode = (Qz.go('mode'), Qz.html());
   check('the mode screen offers Locate the city', /data-mode="locate"/.test(hMode));
+  /* FOUR MODES LAY OUT 2x2. The row layout was written for three, so the fourth card hung
+     alone on a second line - visible in the first screenshot of the screen ever taken. */
+  check('...and the four modes are laid out in pairs, not in a row of three',
+        /qz-choices-pairs/.test(hMode) && !/qz-choices-row/.test(hMode),
+        (hMode.match(/class="qz-choices[^"]*"/) || [''])[0]);
   Qz.go('zone'); Qz.go('diff');
   check('a locate round starts', Qz.start() === true, Z().info);
   check('...and the map is handed over', M().quizOn() === true);
@@ -1054,6 +1059,14 @@ async function afterLoad() {
         M().markState().km + ' vs ' + st1.qkm);
   check('...the aim is off, so a tap after the answer does not move the marker',
         M().aim() === false);
+  /* THE THREE VERDICTS. A locate answer is a distance, so a 99 km miss worth 936 points
+     must not print "Wrong" - the card would contradict its own number. */
+  check('a near miss gets its own verdict, not the cross', (() => {
+    const st = Z();
+    const cls = /qz-verdict (\w+)/.exec(Qz.html());
+    const ok = st.qpoints >= global.window.QuizCore.CLOSE_POINTS;
+    return cls && (ok ? cls[1] === 'near' : cls[1] === 'bad');
+  })(), (Qz.html().match(/qz-verdict (\w+)/) || [])[1] + ' for ' + Z().qpoints + ' pts');
   check('...the verdict names the distance', new RegExp('[0-9]').test(
         (Qz.html().match(/qz-locres">([^<]*)/) || ['', ''])[1]),
         (Qz.html().match(/qz-locres">([^<]*)/) || ['', ''])[1]);

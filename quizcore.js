@@ -219,7 +219,10 @@ function poolFor(items, zone, mode) {
 var CITY_Z = { easy: 5.0, medium: 6.1, hard: 7.0 };
 var EASY_MIN_POP = 250000;
 var ASK_MIN_POP = 40000;         /* below this, only a capital is asked */
-var BULLSEYE_KM = 25;            /* "you found it" - the dot on the score screen */
+var BULLSEYE_KM = 25;            /* "you found it" - the ✓ on the score screen */
+/* "CLOSE" is the third verdict: at 800 points the miss is still the right part of the
+   map (about 335 km), so printing "Wrong" next to 936 points contradicted itself. */
+var CLOSE_POINTS = 800;
 var POINTS_MAX = 1000;           /* per question; a round is n x 1000 */
 var SCORE_KM = 1500;             /* the distance that costs 63 % of the points */
 
@@ -499,6 +502,7 @@ var QUIZCORE = {
   N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
   LENS_LOCATE: LENS_LOCATE, lensOf: lensOf,
   BULLSEYE_KM: BULLSEYE_KM, POINTS_MAX: POINTS_MAX, SCORE_KM: SCORE_KM,
+  CLOSE_POINTS: CLOSE_POINTS,
   CITY_Z: CITY_Z, EASY_MIN_POP: EASY_MIN_POP, ASK_MIN_POP: ASK_MIN_POP,
   COUNTRY_WEIGHT: COUNTRY_WEIGHT, citiesByCountry: citiesByCountry,
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,

@@ -48,6 +48,12 @@ function tuneGlow() { /* the numbers are read by paintGlow; kept as the one plac
    the size of the copy. */
 var GLOW_MS = 80;
 
+/* THE INSTRUMENTATION, and its off switch. The HUD (fps, segment counts, the projection
+   and the centre) and the hint line are for building the thing, not for looking at it: a
+   screenshot, a demo or a kiosk wants the picture alone. `?hud=0` hides both, and it is a
+   documented flag like `?bloom=0` - not something a capture script does with CSS behind
+   the app's back, because that would be a picture of a different app. */
+var hudOn = !/[?&]hud=0/.test(urlSearch());
 /* surface any runtime error visibly: this page has no console access */
 function fail(msg) { hud.textContent = 'ERROR ' + msg; }
 window.onerror = function (e, url, line, col, err) {
@@ -1221,8 +1227,8 @@ function loadAll() {
       zoomBy(Math.pow(2, parseFloat(mz[1]) - 2));
     }
     layout = buildLabels();
-    hud.textContent = hudText();
-    helpEl.textContent = helpText();
+    setHud(hudText());
+    helpEl.textContent = hudOn ? helpText() : '';
     loop();
     loadPlaces();
     /* now go and get the real layer, in the background */
@@ -1265,7 +1271,7 @@ function loadPlaces() {
     refreshHud();
   }).catch(function (e) {
     places = []; citiesOn = false;
-    hud.textContent = hudText() + '\ncities: ' + (e && e.message ? e.message : 'unavailable');
+    setHud(hudText() + '\ncities: ' + (e && e.message ? e.message : 'unavailable'));
   });
 }
 function toggleCities() {
@@ -1296,13 +1302,16 @@ function fetchLayer(id, done) {
   for (var i = 0; i < LAYERS.length; i++) if (LAYERS[i].id === id) def = LAYERS[i];
   if (!def || loaded[id] || loadingLayer) return;
   loadingLayer = id;
-  var wasText = hud.textContent;
+  /* THE PROGRESS LINE IS NOT THE HUD: it is a message ("loading 10m…") about a fetch the
+     player is waiting on, so it shows whatever ?hud=0 says - and what it overwrites is put
+     back through setHud(), not written blindly. */
+  var wasText = hudShown;
   hud.textContent = 'loading ' + def.label + '…';
   fetch(dataURL(def.name)).then(function (r) { return r.json(); }).then(function (geo) {
     loaded[id] = C.buildFeaturesLOD(geo, 0.2, true);
     C.prepareXYZ(loaded[id]);
     loadingLayer = null;
-    hud.textContent = wasText;
+    hudShown = null; setHud(wasText == null ? '' : wasText);
     if (done) done();
   }).catch(function (e) {
     loadingLayer = null;
@@ -1497,7 +1506,7 @@ function reproject() {
   /* the HUD carries the centre of projection, so it must be rewritten on every
      rebuild - otherwise a drag moves the world while the readout stays at the
      old centre (which is exactly how it looked before this line existed) */
-  hud.textContent = hudText();
+  setHud(hudText());
 }
 var lastMs = 0;
 
@@ -1668,8 +1677,13 @@ function draw() {
    only write to the DOM when the string actually changed, or a 60 Hz paint would
    thrash the layout for nothing */
 var hudShown = null;
-function refreshHud() {
-  var t = hudText();
+function refreshHud() { setHud(hudText()); }
+/* THE ONE PLACE THE HUD IS WRITTEN, so ?hud=0 has one meaning instead of five.
+   It used to be written from refreshHud AND from four other paths (a reprojection, the
+   place and country panels, the boot) - which is how the flag came out half-honoured:
+   the counter came back the moment the map rebuilt. */
+function setHud(t) {
+  if (!hudOn) { if (hud.textContent) hud.textContent = ''; hudShown = null; return; }
   if (t !== hudShown) { hud.textContent = t; hudShown = t; }
 }
 
@@ -2113,7 +2127,7 @@ function refreshMenu() {
 function showPlacePanel(i) {
   panel.innerHTML = placePanelHTML(i);
   panel.classList.add('show');
-  hud.textContent = hudText();
+  setHud(hudText());
 }
 /* The panel's MARKUP, with no side effects: refreshUI renders it into #panel, and
    the quiz renders the same rows into its answer card (a quiz answer ends with
@@ -2180,19 +2194,19 @@ function panelRowsHTML(rows) {
 }
 
 function refreshUI() {
-  if (quizOn) { panel.classList.remove('show'); hudShown = null; return; }
+  if (quizOn) { panel.classList.remove('show'); setHud(''); return; }
   var pi = (pickedPlace >= 0) ? pickedPlace : hoverPlace;
   if (pi >= 0 && places[pi]) { showPlacePanel(pi); return; }
   var idx = picked >= 0 ? picked : hover;
   var f = idx >= 0 ? feats[idx] : null;
   if (!f) {
     panel.classList.remove('show');
-    hud.textContent = hudText();
+    setHud(hudText());
     return;
   }
   panel.innerHTML = countryPanelHTML(idx);
   panel.classList.add('show');
-  hud.textContent = hudText();
+  setHud(hudText());
 }
 
 /* the country panel's markup - see placePanelHTML */
@@ -3100,7 +3114,7 @@ function loop(now) {
 }
 window.addEventListener('resize', function () {
   resize();
-  helpEl.textContent = helpText();      /* the hint has a narrow-screen variant */
+  helpEl.textContent = hudOn ? helpText() : '';   /* the hint has a narrow variant */
   hudShown = null;                      /* the HUD wraps differently now */
 });
 
@@ -3714,13 +3728,27 @@ function drawMarks() {
       var a = best[Math.max(0, Math.floor(best.length / 2) - 1)];
       var b2 = best[Math.min(best.length - 1, Math.floor(best.length / 2) + 1)];
       var dx = b2[0] - a[0], dy = b2[1] - a[1], len = Math.sqrt(dx * dx + dy * dy) || 1;
-      /* the perpendicular, pointing away from the line, and never less than a nudge */
-      var nx = -dy / len, ny = dx / len, NUDGE = 15;
-      var lx = mid[0] + nx * NUDGE, ly = mid[1] + ny * NUDGE;
+      var nx = -dy / len, ny = dx / len;
       var txt = kmLabel(marks.km);
       ctx.save();
       ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      /* HOW FAR OFF THE LINE the number sits. A fixed 15 px is right for a long line and
+         too little for a short one, where the number lands on the city's own name (seen
+         on a 100 km miss: "Vienna" and "100 km" touched). So the clearance grows as the
+         line gets shorter, and the number is always pushed to the side that has room -
+         away from the city name, which is drawn to the right of its dot. */
+      var w2 = ctx.measureText(txt).width / 2 + 6;
+      var clear = Math.max(16, Math.min(46, 90 - len / 2));
+      var lx = mid[0] + nx * (clear + w2 * 0.15), ly = mid[1] + ny * clear;
+      /* the city's name occupies the band [t.x + 11, t.x + 11 + its width] on its row;
+         if the number lands in there, mirror it across the line instead */
+      if (t && Math.abs(ly - t[1]) < 15 && lx > t[0] + 4 && lx < t[0] + 190) {
+        lx = mid[0] - nx * (clear + w2 * 0.15); ly = mid[1] - ny * clear;
+      }
+      /* ...and never off the canvas: a label half outside is worse than a tight one */
+      lx = Math.max(w2 + 8, Math.min(W - w2 - 8, lx));
+      ly = Math.max(16, Math.min(H - 16, ly));
       ctx.lineWidth = 5; ctx.lineJoin = 'round';
       ctx.strokeStyle = 'rgba(4, 12, 20, .92)';
       ctx.strokeText(txt, lx, ly);
@@ -3827,8 +3855,8 @@ window.MapApp = {
     if (!marks || !marks.guess || !marks.target) return null;
     var a = marks.guess, b = marks.target;
     /* THE FLIGHT GOES IN, not out: a miss of 30 km has to be a picture of two marks
-       beside each other, and a floor of 1.5 degrees keeps the two labels from landing on
-       top of one another. (`Math.min(k, fitK)` - the world fit as a CAP - is what the
+       beside each other, and a floor of 2.5 degrees keeps the two labels from landing on
+       top of one another while leaving enough coastline around them to say where you are. (`Math.min(k, fitK)` - the world fit as a CAP - is what the
        first build wrote, and it made every reveal the world view: the whole point of the
        reveal is the miss, and at the world fit a 300 km miss is invisible.)
        IN ANGLES, because the picture is a globe: the two marks are shown together only if
@@ -3841,7 +3869,7 @@ window.MapApp = {
     if (sep / 2 <= cap * 0.8) {
       var mid = slerpLL(a.lon, a.lat, b.lon, b.lat, 0.5);
       lon0 = mid[0]; lat0 = mid[1];
-      R = Math.max(sep * 0.8, 1.5);
+      R = Math.max(sep * 0.8, 2.5);
     } else {
       lon0 = b.lon; lat0 = b.lat;
       R = Math.min(30, cap * 0.6);

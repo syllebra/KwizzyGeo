@@ -253,7 +253,11 @@ function titleHTML() {
 
 /* ---------- screen 2: what to find ---------- */
 function modeHTML() {
-  var b = '<div class="qz-choices qz-choices-row">';
+  /* FOUR MODES, SO A 2x2. Three in a row and the fourth alone under them read as an
+     afterthought - the row layout was written when there were three modes and it kept
+     hanging the fourth card on its own line. `qz-choices-pairs` is the 2x2 on a wide
+     screen and one column on a phone (the same rule the length chips follow). */
+  var b = '<div class="qz-choices qz-choices-pairs">';
   for (var i = 0; i < Q.MODES.length; i++) {
     var md = Q.MODES[i];
     var waitCap = (md.id === 'capital' && !capsReady());
@@ -518,10 +522,20 @@ function revealHTML() {
     details = (q.mode === 'capital') ? M.capitalPanel(a.id) : M.countryPanel(a.id);
   } catch (e) { details = ''; }
   var last = (session.i >= session.cfg.len);
+  /* THREE VERDICTS, NOT TWO. A locate answer is a distance, so calling a 99 km miss
+     "Wrong" while awarding 936 of 1 000 points is the card contradicting itself - and it
+     is the difference between a game that measures you and one that grades you. So:
+       found (within BULLSEYE_KM)  -> the green check;
+       close  (>= CLOSE_POINTS)    -> a word of its own, in the accent;
+       wrong  (anything else)      -> the cross.
+     CLOSE_POINTS is 800, i.e. within about 335 km: the distance at which the miss is
+     still "the right part of the map". */
+  var near = q.points >= Q.CLOSE_POINTS;
   return '<div class="qz-reveal">' +
     '<div class="qz-head">' +
-    '<span class="qz-verdict ' + (q.ok ? 'good' : 'bad') + '">' +
-    (q.ok ? '\u2713 ' + esc(T('correct')) : '\u2715 ' + esc(T('wrong'))) + '</span>' +
+    '<span class="qz-verdict ' + (q.ok ? 'good' : (near ? 'near' : 'bad')) + '">' +
+    (q.ok ? '\u2713 ' + esc(T('correct'))
+          : (near ? '\u25C9 ' + esc(T('close')) : '\u2715 ' + esc(T('wrong')))) + '</span>' +
     '<span class="qz-facts">' + facts + '</span>' +
     '<button class="qz-next" data-act="next">' + esc(last ? T('results') : T('next')) +
     '</button></div>' +
@@ -552,10 +566,20 @@ function locateRevealHTML() {
   var details = '';
   try { details = M.placePanel ? M.placePanel(a.id) : ''; } catch (e) { details = ''; }
   var last = (session.i >= session.cfg.len);
+  /* THREE VERDICTS, NOT TWO. A locate answer is a distance, so calling a 99 km miss
+     "Wrong" while awarding 936 of 1 000 points is the card contradicting itself - and it
+     is the difference between a game that measures you and one that grades you. So:
+       found (within BULLSEYE_KM)  -> the green check;
+       close  (>= CLOSE_POINTS)    -> a word of its own, in the accent;
+       wrong  (anything else)      -> the cross.
+     CLOSE_POINTS is 800, i.e. within about 335 km: the distance at which the miss is
+     still "the right part of the map". */
+  var near = q.points >= Q.CLOSE_POINTS;
   return '<div class="qz-reveal">' +
     '<div class="qz-head">' +
-    '<span class="qz-verdict ' + (q.ok ? 'good' : 'bad') + '">' +
-    (q.ok ? '\u2713 ' + esc(T('correct')) : '\u2715 ' + esc(T('wrong'))) + '</span>' +
+    '<span class="qz-verdict ' + (q.ok ? 'good' : (near ? 'near' : 'bad')) + '">' +
+    (q.ok ? '\u2713 ' + esc(T('correct'))
+          : (near ? '\u25C9 ' + esc(T('close')) : '\u2715 ' + esc(T('wrong')))) + '</span>' +
     '<span class="qz-facts"><b>' + esc(nm) + '</b>' +
     (a.country ? ' <span class="qz-dim">· ' + esc(a.country) + '</span>' : '') +
     ' <span class="qz-locres">' + esc(T('loc_away', { n: fmtKm(q.km) })) + ' · ' +
