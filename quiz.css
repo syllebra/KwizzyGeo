@@ -222,6 +222,14 @@ body.qz-playing #menu { display: none; }
   border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
   pointer-events: auto;
 }
+/* WHAT KIND OF QUESTION THIS IS: mode (or the flag variant) · zone · difficulty, above
+   the prompt, in the walk's own voice. Small and quiet - it is context, not the
+   question - and it never names the answer. Declared before .qz-q so the prompt stays
+   the loudest thing in the card. */
+.qz-qkind {
+  margin: 0 0 5px; font: 9px/13px system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .11em; color: rgba(142, 208, 255, .92);
+}
 .qz-q { font: 600 19px/25px system-ui, sans-serif; color: #eaf3fb; letter-spacing: -.01em; }
 .qz-q b { color: #8ed0ff; font-weight: 600; }
 .qz-sub {
@@ -1044,12 +1052,16 @@ body.qz-playing #menu { display: none; }
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
 }
 .qz-creditsbtn:hover { background: rgba(22, 44, 66, .72); }
-/* RANDOM PLAY: Play with the choices taken away, so it sits one weight BELOW Play and
-   one ABOVE the other two ghost actions - same smoked glass as Explore, and the accent
-   word left to Explore so the column still reads "filled > accent > neutral > neutral".
-   It carries the dice glyph in front of its word: the one place in the game where the
-   picture says what the button does before the label is read. */
-.qz-randbtn {
+/* FAST PLAY: Play with the choices taken away. TWO SHAPES, ONE CLASS, because where it
+   sits depends on the host (see titleHTML):
+     - GitHub Pages: second, one weight BELOW Play (smoked glass, lighter border, the
+       accent word left to Explore, so the column still reads
+       filled > neutral > accent > neutral);
+     - CrazyGames: FIRST and the filled one, because their Full Launch rule is "land in
+       gameplay in one click" and this is that click. It gets .qz-play .qz-xl from the
+       markup, so it is the same 54 px primary Play used to be - and Play, right under
+       it, becomes this class's shape: the deliberate route, still a real button. */
+.qz-fastbtn, .qz-playbtn {
   justify-content: center; min-height: 46px;
   background: rgba(12, 28, 44, .60);
   color: rgba(234, 243, 251, .96);
@@ -1057,10 +1069,29 @@ body.qz-playing #menu { display: none; }
   box-shadow: var(--glass-shadow);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
 }
-.qz-randbtn:hover {
+.qz-fastbtn:hover, .qz-playbtn:hover {
   background: rgba(142, 208, 255, .14);
   border-color: rgba(142, 208, 255, .55);
 }
+/* the platform's primary: Fast Play is a .qz-play here, so it must not keep the smoked
+   glass above - and it gets a little more room than Play had, because it is the one
+   action the player is meant to hit */
+.qz-play.qz-xl.qz-fastbtn {
+  min-height: 58px; padding: 16px 30px; font-size: 17px;
+  background: linear-gradient(180deg, rgba(142, 208, 255, .26), rgba(142, 208, 255, .13));
+  border-color: rgba(142, 208, 255, .60);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 10px 26px rgba(3, 11, 20, .34);
+}
+.qz-play.qz-xl.qz-fastbtn:hover {
+  background: linear-gradient(180deg, rgba(142, 208, 255, .36), rgba(142, 208, 255, .19));
+  border-color: rgba(142, 208, 255, .80);
+}
+/* and Play, right under it, is the smaller secondary */
+.qz-titleacts .qz-ghost.qz-playbtn { min-height: 44px; }
+/* the platform's column reads top-down as one decision and then a list: a little more
+   air under the primary, so the eye lands on Fast Play before it starts reading */
+.qz-titleacts.qz-fastfirst { gap: 9px; }
+.qz-titleacts.qz-fastfirst > .qz-play.qz-xl { margin-bottom: 3px; }
 .qz-page-title .qz-foot {
   margin-top: 22px; display: flex; flex-direction: column; gap: 6px; align-items: center;
 }
@@ -1142,7 +1173,10 @@ body.cg .qz-topbar { padding-left: calc(10px + 36px + 12px); }
   .qz-page-title .qz-play.qz-xl { min-height: 42px; padding: 9px 24px; font-size: 15px; border-radius: 12px; }
   .qz-page-title .qz-explorebtn,
   .qz-page-title .qz-creditsbtn,
-  .qz-page-title .qz-randbtn { min-height: 38px; }
+  .qz-page-title .qz-fastbtn,
+  .qz-page-title .qz-playbtn { min-height: 38px; }
+  /* the platform's primary keeps its rank on a short frame: still the biggest */
+  .qz-page-title .qz-play.qz-xl.qz-fastbtn { min-height: 44px; padding: 11px 24px; font-size: 16px; }
   .qz-page-title .qz-foot { margin-top: 9px; gap: 3px; }
   .qz-page-title .qz-foot .qz-best { display: none; }
 }

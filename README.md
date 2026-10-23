@@ -286,16 +286,28 @@ title ──▶ 1 what to find ──▶ 2 where ──▶ 3 how hard ──▶ 
   └──▶ Play at random ─────────────────────────────▶ the round ──▶ the score
 ```
 
-**Play at random** is the title's second action and the shortest way in: the game draws
-a **mode and a zone** and starts the round, skipping the three steps. The **difficulty
-is not drawn** — it is `medium`, the one that plays fairly in every mode, except in
-**Locate the city**, which is played at `easy`: its medium band is famous cities only,
-and a player who did not ask for a challenge wants the wider pool (a provincial town can
-be 400 km from where anyone would put it). The length is the one already chosen, since
-that is a preference about time rather than about content. The draw is checked against
-the pool before it is used — a narrow zone in a mode that needs six options is redrawn,
-and World is the floor — so the button can never start a round that cannot be played
-(`randomStart` in `quiz.js`, 200 draws pinned by `tests/quiz_test.js`).
+**Fast Play** is the shortest way in: the game draws a **mode and a zone** and starts the
+round, skipping the three steps. The **difficulty is not drawn** — it is `medium`, the
+one that plays fairly in every mode, except in **Locate the city**, which is played at
+`easy`: its medium band is famous cities only, and a player who did not ask for a
+challenge wants the wider pool (a provincial town can be 400 km from where anyone would
+put it). The length is the one already chosen, since that is a preference about time
+rather than about content. The draw is checked against the pool before it is used — a
+narrow zone in a mode that needs six options is redrawn, and World is the floor — so the
+button can never start a round that cannot be played (`randomStart` in `quiz.js`, 200
+draws pinned by `tests/quiz_test.js`).
+
+**Where Fast Play sits depends on who is asking** (`titleHTML` asks `Crazy.on()`):
+
+| | first action | second |
+|---|---|---|
+| **GitHub Pages** | **Play** (filled, 54 px) | Fast Play, ghost |
+| **CrazyGames** | **Fast Play** (filled, 58 px) | Play, ghost |
+
+On the platform their Full Launch rule is *"land in gameplay in one click"*, and Fast Play
+is that click — so it becomes the primary and Play (the deliberate walk) drops beneath it.
+Off the platform the opposite is true: a player who came here on purpose gets the full
+choice first and the shortcut second.
 
 Every screen is a full-viewport page over the **live map**, which drifts behind it:
 a slow turn of the centre of projection, 0.4° a second, so the background is a moving
@@ -376,6 +388,15 @@ difficulty with them.
 | **Find the flag → country** | a flag, shown large, beside the prompt | country names |
 | **Find the country → flag** | the country is named, lit up, with its capital | **six flags** |
 | **Locate the city** | a city is named | **nothing — you put a marker on the map** |
+
+**Every question says what kind of question it is.** A small kicker above the prompt, in
+the walk's own words: `FIND THE COUNTRY · EUROPE · EASY`, and in flag mode the *variant*
+instead of the mode (`COUNTRY → FLAG · EUROPE · HARD`), because that is the precise
+question. It exists because **Fast Play skips the three steps** — a player who tapped it
+never chose a mode or a difficulty and has to be able to read them — and because a player
+who walked them has forgotten by question six. It names the context, never the answer,
+and it is built from the same translated strings the steps and the score card use
+(`kindLabel` + `subZoneDiff` in `quiz.js`).
 
 **Always six options, one answer per question, and a country is never asked twice in a
 round.** Locate is the one mode that is not multiple choice, and it is a fourth mode
@@ -708,7 +729,7 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | script | what it pins |
 |---|---|
 | `tests/quizcore_test.js` | 96 checks on a synthetic lattice (and a small city set for locate): the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) — plus **locate's rules**: the three fame bands are disjoint, a national capital is Easy whatever its size, nothing under 40 000 is ever asked, the points curve only falls and is the documented one, a locate question has no options, a guess on the city is a bullseye at full marks and cannot be scored twice, a far guess is measured in km and still scores, locate's lengths are its own so a stored "All" cannot start a thousands-question round, **the country-first draw** (a round asks different countries while unasked ones remain, a bloated country no longer takes most of the questions, every small country still appears) |
-| `tests/quiz_test.js` | 288 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back, the distance handed to the map for the line, and the fame bands stated on the real data: Reykjavík Easy, Duisburg not, the 7.0 tail never asked, `?locz=` tunable), **Random Play** (200 draws: all four modes and all seven zones come up, medium everywhere and easy in locate, every draw playable, the config stored), and **the flag answers' three sizes** read out of `quiz.css` by balanced-block matching (56 base, 58 phone, 46 on a short frame, and a row taller than a text answer's) |
+| `tests/quiz_test.js` | 301 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the three steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back, the distance handed to the map for the line, and the fame bands stated on the real data: Reykjavík Easy, Duisburg not, the 7.0 tail never asked, `?locz=` tunable), **Fast Play's draw** (200 draws: all four modes and all seven zones come up, medium everywhere and easy in locate, every draw playable, the config stored), **the question's kicker** (the mode / the flag variant, the zone and the difficulty, above the prompt, in all four modes, naming no answer), **where Fast Play sits on each host** (second and ghost off the platform, first and 58 px filled on it), and **the flag answers' three sizes** read out of `quiz.css` by balanced-block matching (56 base, 58 phone, 46 on a short frame, and a row taller than a text answer's) |
 | `tests/drift_test.js` | 74 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; the land **painted** grey in exploration and slate blue in the game; and **links out** — the country panel's Wikipedia and Google Maps rows present off the platform and absent on it, while the panel itself and the spot menu's *Copy coordinates* survive |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |

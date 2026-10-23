@@ -195,19 +195,43 @@ async function afterLoad() {
         (hTitle.match(/<button[^>]*explore[^>]*>/) || [''])[0]);
   check('...and it is no longer a small footer link',
         !/class="qz-link" data-act="explore"/.test(hTitle));
-  /* RANDOM PLAY: one tap, no walk. It is the second action of the column (under Play),
-     it carries its own class so the short-frame block can size it, and it is disabled
-     with Play while the map is still loading. */
-  check('the title has a "Play at random" button, under Play',
+  /* FAST PLAY: one tap, no walk. OFF the platform it is the second action (under Play)
+     and a ghost; ON CrazyGames their "one click into gameplay" rule makes it the FIRST
+     action and the big one, with Play beneath it as the deliberate route. Both shapes
+     are checked, without a browser: the platform answer comes from window.Crazy, which
+     this harness can swap. */
+  check('the title has a "Fast Play" button, under Play, off the platform',
         /data-act="random"/.test(hTitle) &&
         hTitle.indexOf('data-act="play"') < hTitle.indexOf('data-act="random"') &&
         hTitle.indexOf('data-act="random"') < hTitle.indexOf('data-act="explore"'),
         (hTitle.match(/data-act="(play|random|explore|about)"/g) || []).join(' '));
   check('...with its own class, so a short frame can size it',
-        /class="qz-ghost qz-randbtn" data-act="random"/.test(hTitle),
+        /class="qz-ghost qz-fastbtn" data-act="random"/.test(hTitle),
         (hTitle.match(/<button[^>]*random[^>]*>/) || [''])[0]);
   check('...and it is disabled until the map is ready',
         !/data-act="random" disabled/.test(hTitle));
+  check('...and it is worded "Fast Play" in English, not "Play at random"',
+        /Fast Play/.test(hTitle) && !/Play at random/.test(hTitle));
+  {
+    const wasCrazy = global.window.Crazy;
+    global.window.Crazy = { on: () => true, isCrazyGames: () => true };
+    Qz.quit();
+    const onP = Qz.html();
+    check('ON THE PLATFORM Fast Play comes FIRST', onP.indexOf('data-act="random"') < onP.indexOf('data-act="play"'),
+          (onP.match(/data-act="(play|random|explore|about)"/g) || []).join(' '));
+    check('...and it is the FILLED, larger one: .qz-play .qz-xl',
+          /class="qz-play qz-xl qz-fastbtn" data-act="random"/.test(onP),
+          (onP.match(/<button[^>]*random[^>]*>/) || [''])[0]);
+    check('...while Play beside it drops to the secondary shape',
+          /class="qz-ghost qz-playbtn" data-act="play"/.test(onP),
+          (onP.match(/<button[^>]*play[^>]*>/) || [''])[0]);
+    check('...and the column says so, for the stylesheet', /qz-titleacts qz-fastfirst/.test(onP));
+    global.window.Crazy = wasCrazy;
+    Qz.quit();
+    check('...and off the platform Play is the filled one again',
+          /class="qz-play qz-xl" data-act="play"/.test(Qz.html()) &&
+          /class="qz-ghost qz-fastbtn" data-act="random"/.test(Qz.html()));
+  }
   check('the title links to the sound drawer and the stats',
         /data-act="snd-open"/.test(hTitle) && /data-act="stats-open"/.test(hTitle));
   check('the title offers to drift the map behind it (cinema on)',
@@ -1147,7 +1171,7 @@ async function afterLoad() {
         JSON.stringify(global.window.QuizCore.CITY_Z));
   void QzL;
 
-  /* ---------- 11. RANDOM PLAY ----------
+  /* ---------- 11. FAST PLAY ----------
      The title's second action. What a player can tell from the outside is what this
      checks, over 200 draws: a mode and a zone really move, the difficulty is the one
      that plays fairly (medium - and EASY in locate, where medium is a band of famous
@@ -1173,7 +1197,7 @@ async function afterLoad() {
     }
   }
   Qz.quit();
-  check('Random Play starts a round from the title', nDraw === N_DRAW,
+  check('Fast Play starts a round from the title', nDraw === N_DRAW,
         nDraw + '/' + N_DRAW + '  ' + drawBad.slice(0, 3).join(' | '));
   check('...every draw is a config that can be played (six options, or a city to find)',
         drawBad.length === 0, drawBad.slice(0, 3).join(' | '));
@@ -1262,6 +1286,47 @@ async function afterLoad() {
   check('...and its height still has a floor per frame (base, short, phone)',
         /max-height: 490px/.test(css) && (css.match(/\.qz-answers-flags \.qz-ans\s*\{[^}]*min-height:/g) || []).length >= 3,
         (css.match(/\.qz-answers-flags \.qz-ans\s*\{[^}]*min-height:/g) || []).length);
+
+  /* ---------- 13. A QUESTION SAYS WHAT KIND OF QUESTION IT IS ----------
+     A player who came in through Fast Play never saw the three steps, so the mode, the
+     zone and the difficulty have to be readable WHILE playing. One kicker above the
+     prompt, in all four modes, built from the same translated words the steps use -
+     and it must name the CONTEXT, never the answer. */
+  const kickerOf = h => (h.match(/<div class="qz-qkind">([\s\S]*?)<\/div>/) || [])[1] || '';
+  Qz.set({ mode: 'country', zone: 'europe', difficulty: 'easy', len: 10 });
+  Qz.start();
+  let kh = kickerOf(Qz.html());
+  check('the question carries a kicker naming the mode', /qz-qkind/.test(Qz.html()) && /Find the country/.test(kh), kh);
+  check('...the zone and the difficulty, in the walk\'s own words',
+        /Europe/.test(kh) && /Easy/.test(kh), kh);
+  check('...and it sits ABOVE the prompt', Qz.html().indexOf('qz-qkind') < Qz.html().indexOf('qz-q\"'), 'order');
+  Qz.quit();
+
+  Qz.set({ mode: 'flag', zone: 'asia', difficulty: 'hard', variant: 'flags' });
+  Qz.start();
+  kh = kickerOf(Qz.html());
+  check('in flag mode the kicker names the VARIANT, which is the precise question',
+        /Country \u2192 flag/.test(kh) && /Asia/.test(kh) && /Hard/.test(kh), kh);
+  /* the country IS the question here (the flag is the answer), so what this checks is
+     that the KICKER stays context-only: it carries the mode, the zone and the difficulty
+     and nothing else, never a name */
+  check('...and the kicker itself stays context-only: no name in it',
+        Z().question && kh.indexOf(Z().question.answer) < 0, kh);
+  Qz.quit();
+
+  Qz.set({ mode: 'capital', zone: 'africa', difficulty: 'medium' });
+  Qz.start();
+  kh = kickerOf(Qz.html());
+  check('capital mode says so too', /Find the capital/.test(kh) && /Africa/.test(kh) && /Normal/.test(kh), kh);
+  Qz.quit();
+
+  Qz.set({ mode: 'locate', zone: 'world', difficulty: 'easy', len: 5 });
+  Qz.start();
+  kh = kickerOf(Qz.html());
+  check('and so does a locate question, where the mode is least obvious',
+        /Locate the city/.test(kh) && /World/.test(kh), kh);
+  Qz.quit();
+  Qz.set({ mode: 'country', zone: 'world', difficulty: 'medium', len: 10 });
 
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   if (errors.length) console.log('errors: ' + errors.join(' | '));
