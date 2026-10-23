@@ -916,8 +916,10 @@ function openSpot(px, py) {
   spotEl.innerHTML =
     '<div class="shead">' + latTxt + ' · ' + lonTxt + '</div>' +
     '<div class="ssub">z ' + z.toFixed(1) + ' · ' + (Math.round(view.k / fitK * 100) / 100) + '×</div>' +
-    '<a class="btn wide" target="_blank" rel="noopener noreferrer" href="' +
-      googleMapsURL(g[1], g[0], z) + '">Open in Google Maps</a>' +
+    /* the same rule as the panel: no links out on CrazyGames (the coordinates and the
+       copy button are what is left, and they are the reason the menu exists) */
+    (linksOut() ? '<a class="btn wide" target="_blank" rel="noopener noreferrer" href="' +
+      googleMapsURL(g[1], g[0], z) + '">Open in Google Maps</a>' : '') +
     '<button class="btn wide" id="spotcopy" type="button">Copy coordinates</button>';
   spotEl.classList.add('show');
   spotOpen = true;
@@ -2176,10 +2178,12 @@ function placePanelHTML(i) {
     ['source', 'Natural Earth 10m populated places · ' + TT('p_rank', { n: P.l }) + ' · ' +
                TT('p_from_z', { n: P.z })]
   ];
-  rows.push(['', linkRow([
-    ['Wikipedia', wikiURL(P.e || P.n)],
-    ['Google Maps', googleMapsURL(P.lat, P.lon, zoomLevel())]
-  ])]);
+  if (linksOut()) {
+    rows.push(['', linkRow([
+      ['Wikipedia', wikiURL(P.e || P.n)],
+      ['Google Maps', googleMapsURL(P.lat, P.lon, zoomLevel())]
+    ])]);
+  }
   return panelRowsHTML(rows);
 }
 /* THE PANEL'S WORDS come from the same table the quiz uses (i18n.js), in the language
@@ -2280,12 +2284,23 @@ function countryPanelHTML(idx) {
      back in in the CSS. Google Maps gets the country's LABEL point - the anchor
      Natural Earth uses for the country on a map - not the cursor, which may be in
      the panel. */
-  rows.push(['', linkRow([
-    ['Wikipedia', wikiURL(p.NAME_EN || p.NAME_LONG || p.NAME)],
-    ['Google Maps', googleMapsURL(p.LABEL_Y != null ? p.LABEL_Y : view.lat,
-                                  p.LABEL_X != null ? p.LABEL_X : view.lon, zoomLevel())]
-  ])]);
+  if (linksOut()) {
+    rows.push(['', linkRow([
+      ['Wikipedia', wikiURL(p.NAME_EN || p.NAME_LONG || p.NAME)],
+      ['Google Maps', googleMapsURL(p.LABEL_Y != null ? p.LABEL_Y : view.lat,
+                                    p.LABEL_X != null ? p.LABEL_X : view.lon, zoomLevel())]
+    ])]);
+  }
   return panelRowsHTML(rows);
+}
+/* ARE LINKS OUT ALLOWED? Not on CrazyGames: their gameplay requirements forbid
+   cross-promotion and their QA pulls games that send a player away mid-round, so
+   Wikipedia and Google Maps are simply not drawn there (the attribution links on the
+   Credits page stay - those are the licence, not a way out of the game). The test is
+   asked of crazy.js, which is the one file that knows where the game is running. */
+function linksOut() {
+  var C = window.Crazy;
+  return !(C && C.on && C.on());
 }
 /* a row of external links, always opening in a new tab */
 function linkRow(list) {

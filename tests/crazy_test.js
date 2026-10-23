@@ -232,9 +232,20 @@ const tick = () => new Promise(r => setTimeout(r, 0));
     check('...crazy.js first, before core.js and app.js',
           at('src="crazy.js') > 0 && at('src="crazy.js') < at('src="core.js') &&
           at('src="core.js') < at('src="app.js'), at('src="crazy.js') + '/' + at('src="core.js'));
-    check('...and the cache-busters were bumped with it',
-          /style\.css\?v=44/.test(html) && /quiz\.css\?v=42/.test(html) && /app\.js\?v=129/.test(html) &&
-          /quiz\.js\?v=29/.test(html) && /juice\.js\?v=3/.test(html), 'one of them is stale');
+    /* EVERY local asset the page loads carries a ?v=, and crazy.js is one of them: a
+       file that changed without a bump is a stale copy served from a CDN for days (the
+       trap this project hit on GitHub Pages). The exact numbers are deliberately NOT
+       pinned here - the pinned version of this check failed the day a stylesheet legitimately
+       moved - and the file list is read out of the page itself, so an asset added later
+       without a buster is caught. */
+    const locals = (html.match(/(?:href|src)="([^":]+\?[^"]*)"/g) || []);
+    const bare = (html.match(/(?:href|src)="([^":]+)"/g) || []).filter(x => !/\?v=/.test(x) && !/^href="https?:/.test(x) && !/favicon/.test(x));
+    check('every local asset the page loads carries a cache-buster',
+          bare.length === 0, bare.join(' '));
+    check('...and there are the assets this build needs (crazy.js among them)',
+          locals.some(x => /src="crazy\.js\?v=\d+"/.test(x)) &&
+          locals.some(x => /src="app\.js\?v=\d+"/.test(x)) &&
+          locals.some(x => /href="quiz\.css\?v=\d+"/.test(x)), locals.join(' '));
     const app = fs.readFileSync(__dirname + '/../app.js', 'utf8');
     check('app.js hides the fullscreen disc on the platform',
           /function wireFs\(\)[\s\S]{0,600}?window\.Crazy\.on\(\)/.test(app));

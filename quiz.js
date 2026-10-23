@@ -238,6 +238,11 @@ function titleHTML() {
   h += '<div class="qz-titleacts">' +
        '<button class="qz-play qz-xl" data-act="play"' + (ready ? '' : ' disabled') + '>' +
        esc(ready ? T('play') : T('loading_map')) + '</button>' +
+       /* RANDOM PLAY: one tap, no walk - a mode and a zone drawn at random, then the
+          round starts. It sits UNDER Play because it is Play with the choices taken
+          away, not a fourth way to use the app. */
+       '<button class="qz-ghost qz-randbtn" data-act="random"' + (ready ? '' : ' disabled') + '>' +
+       esc(T('play_random')) + '</button>' +
        '<button class="qz-ghost qz-explorebtn" data-act="explore">' +
        esc(T('explore')) + '</button>' +
        '<button class="qz-ghost qz-creditsbtn" data-act="about">' + esc(T('ab_title')) + '</button>' +
@@ -937,6 +942,59 @@ function startSession() {
   screenSfx(was);
   return true;
 }
+/* ---------- RANDOM PLAY ----------
+   The player asks the game to pick for them: a mode and a zone drawn at random, and the
+   round starts. The difficulty is NOT drawn - it is the one that plays fairly in every
+   mode, `medium`, except in locate where medium is a band of famous cities only and the
+   mode's own easy band is what a player who did not ask for a challenge wants (a
+   province town can be 400 km from where anyone would put it). The length is the one
+   already chosen, because that is a preference about time, not about content.
+
+   THE DRAW IS CHECKED AGAINST THE POOL, not trusted: a zone can be too small for six
+   options in one mode (Oceania has 14 countries but the flag half needs a flag each)
+   and locate's easy band is thin outside the big continents. A draw that cannot be
+   played is redrawn, up to a bounded number of tries, and World is the floor - it can
+   always fill a round. Nothing here writes cfg until a playable draw is found, so a
+   failed draw cannot leave the stored config pointing at an empty zone. */
+var RAND_TRIES = 24;
+function randomStart() {
+  if (!flagsReady()) { info(T('loading_map')); return false; }
+  var modes = [], i;
+  for (i = 0; i < Q.MODES.length; i++) modes.push(Q.MODES[i].id);
+  var zones = [];
+  for (i = 0; i < Q.ZONES.length; i++) zones.push(Q.ZONES[i].id);
+  var pick = null;
+  for (var t = 0; t < RAND_TRIES && !pick; t++) {
+    var c = { mode: modes[(Math.random() * modes.length) | 0],
+              zone: zones[(Math.random() * zones.length) | 0],
+              /* MEDIUM everywhere, EASY for a city hunt - see above */
+              difficulty: 'medium',
+              variant: cfg.variant,
+              len: cfg.len };
+    if (c.mode === 'locate') c.difficulty = 'easy';
+    if (c.mode === 'capital' && !capsReady()) continue;
+    if (poolOf(c).length < (c.mode === 'locate' ? 1 : Q.N_OPT)) continue;
+    pick = c;
+  }
+  if (!pick) {
+    /* the floor: the whole world, in a mode that is always drawable */
+    for (i = 0; i < modes.length; i++) {
+      var cc = { mode: modes[i], zone: 'world',
+                 difficulty: modes[i] === 'locate' ? 'easy' : 'medium',
+                 variant: cfg.variant, len: cfg.len };
+      if (modes[i] === 'capital' && !capsReady()) continue;
+      if (poolOf(cc).length >= (modes[i] === 'locate' ? 1 : Q.N_OPT)) { pick = cc; break; }
+    }
+  }
+  if (!pick) { info(T('not_enough', { zone: zoneLabel('world') })); return false; }
+  cfg.mode = pick.mode;
+  cfg.zone = pick.zone;
+  cfg.difficulty = pick.difficulty;
+  storeCfg();
+  /* the walk's own screens still show the draw: closing the round lands on the title,
+     and the player can see what the game picked. A session, not a jump cut. */
+  return startSession();
+}
 /* an airy swell under every screen change, as in Kwizzy: felt more than heard */
 function screenSfx(from) {
   var j = J();
@@ -1157,6 +1215,7 @@ function onQuizClick(e) {
          is the Play of the last step (kept separate from play so the title's big
          button cannot start a round from a screen that has no difficulty yet) */
       if (act === 'start' || act === 'again') startSession();
+      else if (act === 'random') randomStart();
       else if (act === 'play') go('mode');
       else if (act === 'go') go(el.getAttribute('data-to'));
       else if (act === 'back') back();
@@ -1386,6 +1445,7 @@ window.Quizzy = {
     if (isMenu()) render();
   },
   start: function () { return startSession(); },
+  random: function () { return randomStart(); },
   go: function (to) { return go(to); },
   back: function () { return back(); },
   choose: function (i) { return choose(i); },

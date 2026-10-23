@@ -195,6 +195,19 @@ async function afterLoad() {
         (hTitle.match(/<button[^>]*explore[^>]*>/) || [''])[0]);
   check('...and it is no longer a small footer link',
         !/class="qz-link" data-act="explore"/.test(hTitle));
+  /* RANDOM PLAY: one tap, no walk. It is the second action of the column (under Play),
+     it carries its own class so the short-frame block can size it, and it is disabled
+     with Play while the map is still loading. */
+  check('the title has a "Play at random" button, under Play',
+        /data-act="random"/.test(hTitle) &&
+        hTitle.indexOf('data-act="play"') < hTitle.indexOf('data-act="random"') &&
+        hTitle.indexOf('data-act="random"') < hTitle.indexOf('data-act="explore"'),
+        (hTitle.match(/data-act="(play|random|explore|about)"/g) || []).join(' '));
+  check('...with its own class, so a short frame can size it',
+        /class="qz-ghost qz-randbtn" data-act="random"/.test(hTitle),
+        (hTitle.match(/<button[^>]*random[^>]*>/) || [''])[0]);
+  check('...and it is disabled until the map is ready',
+        !/data-act="random" disabled/.test(hTitle));
   check('the title links to the sound drawer and the stats',
         /data-act="snd-open"/.test(hTitle) && /data-act="stats-open"/.test(hTitle));
   check('the title offers to drift the map behind it (cinema on)',
@@ -1133,6 +1146,122 @@ async function afterLoad() {
         global.window.QuizCore.CITY_Z.medium <= global.window.QuizCore.CITY_Z.hard,
         JSON.stringify(global.window.QuizCore.CITY_Z));
   void QzL;
+
+  /* ---------- 11. RANDOM PLAY ----------
+     The title's second action. What a player can tell from the outside is what this
+     checks, over 200 draws: a mode and a zone really move, the difficulty is the one
+     that plays fairly (medium - and EASY in locate, where medium is a band of famous
+     cities and the mode wants the wider one), the round really starts, and no draw
+     lands on a config that cannot be played (six options in the three multiple-choice
+     modes). The draw is adversarial by nature, so this is a distribution, not an
+     equality: the checks are "all four modes and all seven zones came up", which
+     cannot pass by accident. */
+  const N_DRAW = 200;
+  const seen = { mode: {}, zone: {}, diff: {} }, drawBad = [];
+  let nDraw = 0;
+  for (let i = 0; i < N_DRAW; i++) {
+    Qz.quit();
+    const ok = Qz.random();
+    const st = Z();
+    if (!ok || st.screen !== 'question') { drawBad.push('draw ' + i + ' -> ' + st.screen + ' (' + st.info + ')'); continue; }
+    nDraw++;
+    seen.mode[st.mode] = (seen.mode[st.mode] || 0) + 1;
+    seen.zone[st.zone] = (seen.zone[st.zone] || 0) + 1;
+    seen.diff[st.mode] = st.difficulty;
+    if (st.mode !== 'locate' && st.question.options.length !== 6) {
+      drawBad.push(st.mode + '/' + st.zone + ' had ' + st.question.options.length + ' options');
+    }
+  }
+  Qz.quit();
+  check('Random Play starts a round from the title', nDraw === N_DRAW,
+        nDraw + '/' + N_DRAW + '  ' + drawBad.slice(0, 3).join(' | '));
+  check('...every draw is a config that can be played (six options, or a city to find)',
+        drawBad.length === 0, drawBad.slice(0, 3).join(' | '));
+  check('...the four modes all come up', Object.keys(seen.mode).length === 4, JSON.stringify(seen.mode));
+  check('...and all seven zones do',
+        Object.keys(seen.zone).length === 7, JSON.stringify(seen.zone));
+  check('...at MEDIUM, the difficulty that plays fairly in every mode',
+        seen.diff.country === 'medium' && seen.diff.capital === 'medium' && seen.diff.flag === 'medium',
+        JSON.stringify(seen.diff));
+  check('...except in locate, which is played at EASY (its medium band is famous cities only)',
+        seen.diff.locate === 'easy', seen.diff.locate);
+  check('...the draw is stored, so the walk shows what was picked', (() => {
+    const st = Z();
+    return st.mode === global.window.Quizzy.config().mode && st.zone === global.window.Quizzy.config().zone;
+  })());
+
+  /* ---------- 12. THE FLAG ANSWERS ARE SIZED BY THE PICTURE ----------
+     "Country -> flag" shows six pictures where the other modes show six words, so its
+     buttons are not the text row's buttons: the picture IS the answer and the row is
+     built around it. The numbers are asserted as a RELATION, not as a taste - bigger
+     than the 30-38 px they had, growing with the frame, and smaller again on the
+     shortest frames so the prompt and the map are not eaten. Read out of the
+     stylesheet: a headless DOM has no layout to measure. */
+  const cssRaw = fs.readFileSync(__dirname + '/../quiz.css', 'utf8');
+  const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+  /* THE FLAG'S SIZE IN ONE PLACE: the base rule, or one @media block - matched by
+     BALANCE, not by "the next one after here", so a block added above cannot silently
+     answer for another (this is the trap that made the first version of this check pass
+     on the wrong number). */
+  function mediaBody(cond) {
+    const at = css.indexOf('@media ' + cond);
+    if (at < 0) return null;
+    const open = css.indexOf('{', at);
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') { depth--; if (!depth) return css.slice(open + 1, i); }
+    }
+    return null;
+  }
+  /* the base rule is the one OUTSIDE every @media - taken by cutting the media blocks
+     out of a copy, so a rule declared after them still counts */
+  function topLevel() {
+    let out = css, at;
+    while ((at = out.indexOf('@media')) >= 0) {
+      const open = out.indexOf('{', at);
+      let depth = 0, end = out.length;
+      for (let i = open; i < out.length; i++) {
+        if (out[i] === '{') depth++;
+        else if (out[i] === '}') { depth--; if (!depth) { end = i + 1; break; } }
+      }
+      out = out.slice(0, at) + out.slice(end);
+    }
+    return out;
+  }
+  function flagSizeIn(cond) {
+    const scope = cond ? mediaBody(cond) : topLevel();
+    if (scope == null) return null;
+    const m = /\.qz-optflag\s*\{[^}]*?font-size:\s*(\d+)px/.exec(scope);
+    return m ? +m[1] : null;
+  }
+  const baseFlag = flagSizeIn(null);
+  const shortFlag = flagSizeIn('(max-height: 490px)');
+  const phoneFlag = flagSizeIn('(max-width: 700px)');
+  check('the flag answer is bigger than the 30-38 px it was', baseFlag >= 52, baseFlag);
+  check('...the phone gets a bigger one still (two columns, wider cells, three rows)',
+        phoneFlag > baseFlag, baseFlag + ' -> ' + phoneFlag);
+  check('...and the shortest frames get a smaller one, not the same',
+        shortFlag !== null && shortFlag < baseFlag, baseFlag + ' -> ' + shortFlag);
+  /* the BUTTON, not only the picture: the flag row was pinned at 66 px, which left a
+     56 px flag floating in glass. It now follows the picture, and it is taller than a
+     text answer's row. */
+  const ansBlock = /\.qz-answers-flags \.qz-ans\s*\{([^}]*)\}/.exec(css);
+  const textAns = /(^|\n)\.qz-ans\s*\{([^}]*)\}/.exec(css);
+  const minOf = b => {
+    const m = /min-height:\s*(\d+)px/.exec(b || '');
+    return m ? +m[1] : null;
+  };
+  check('the flag answer is taller than a text answer',
+        ansBlock && textAns && minOf(ansBlock[1]) > minOf(textAns[2]),
+        (ansBlock ? minOf(ansBlock[1]) : '?') + ' vs ' + (textAns ? minOf(textAns[2]) : '?'));
+  check('...and no longer pinned to the old 66 px row', !/min-height:\s*66px/.test(ansBlock ? ansBlock[1] : ''),
+        ansBlock ? ansBlock[1].trim().replace(/\s+/g, ' ') : '?');
+  check('...its row gap is tightened, so the flag is the content',
+        /gap:\s*5px/.test(ansBlock ? ansBlock[1] : ''));
+  check('...and its height still has a floor per frame (base, short, phone)',
+        /max-height: 490px/.test(css) && (css.match(/\.qz-answers-flags \.qz-ans\s*\{[^}]*min-height:/g) || []).length >= 3,
+        (css.match(/\.qz-answers-flags \.qz-ans\s*\{[^}]*min-height:/g) || []).length);
 
   console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
   if (errors.length) console.log('errors: ' + errors.join(' | '));

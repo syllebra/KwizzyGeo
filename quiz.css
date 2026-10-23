@@ -289,21 +289,38 @@ body.qz-playing #menu { display: none; }
 /* ---------- the answers as FLAGS (the "country -> flag" half of flag mode) ----------
    The option is a picture, not a word, so the grid goes 3 x 2 and the button is a
    centred flag with the same number badge as the text buttons (the keyboard 1-6 still
-   works, and so does the test). */
+   works, and so does the test).
+
+   THE PICTURE IS THE ANSWER, so the button is sized BY the flag and not around a text
+   row's numbers: `min-height: 0` lets the 46 px flag and its caption set the height
+   (the old rule kept every button at 66 px whatever the flag did - on a phone that was
+   a 30 px flag floating in 66 px of glass), and the row gap the text buttons use is
+   tightened to 5 px so the flag reads as the content rather than as an icon in a card.
+   Measured at 907x510 the grid is ~172 px tall against 219 px of room, and on a 390 px
+   phone ~232 px against 411: the flags grew without the answers ever leaving the frame. */
 .qz-answers-flags { grid-template-columns: 1fr 1fr 1fr; }
-.qz-answers-flags .qz-ans { justify-content: center; padding: 10px 8px; min-height: 66px; }
+.qz-answers-flags .qz-ans {
+  position: relative;
+  justify-content: center; flex-direction: column; gap: 5px;
+  /* TALLER THAN A TEXT ANSWER, and deliberately: the flag IS the answer, and a flag in a
+     52 px row read as a badge inside a button. 90 px holds a 56 px flag, its gap and the
+     caption the reveal adds. IT IS A MEASURED BUDGET, not a taste: the grid is anchored
+     to the bottom and the prompt to the top, so the room under the prompt is what pays
+     for it - 342 px at 907x510, 283 at 800x450, 411 at 390x780 (phone, two columns).
+     Three rows of 90 + two 8 px gaps = 286, which is why the shortest frames take their
+     own numbers below rather than an overflow nobody can see. */
+  min-height: 90px; padding: 10px 8px 9px;
+}
 .qz-answers-flags .qz-ans .n { position: absolute; left: 8px; top: 8px; width: auto; }
-.qz-answers-flags .qz-ans { position: relative; }
 .qz-answers-flags .qz-ans .fl { line-height: 0; }
 /* a flag option is a column once it has a caption: the flag, then the country */
-.qz-answers-flags .qz-ans { flex-direction: column; gap: 4px; }
 .qz-answers-flags .qz-ans .cap {
   font: 10px/13px system-ui, sans-serif; letter-spacing: .02em;
   color: rgba(190, 214, 234, .95); text-align: center;
 }
 .qz-optflag {
-  font-size: 38px;                      /* .fi sizes off the font size */
-  border-radius: 3px;
+  font-size: 56px;                      /* .fi sizes off the font size */
+  border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(198, 224, 246, .20), 0 2px 6px rgba(4, 14, 24, .38);
 }
 
@@ -407,7 +424,12 @@ body.qz-playing #menu { display: none; }
   .qz-ans .n { display: none; }        /* no keyboard on a phone */
   .qz-answers-flags { grid-template-columns: 1fr 1fr; }
   .qz-answers-flags .qz-ans .n { display: none; }
-  .qz-optflag { font-size: 30px; }
+  /* two columns instead of three: the cells are wider and six flags make THREE rows,
+     which is the expensive shape - so the frame is measured rather than guessed. At
+     390x780 the rows get 512 px of room (3 x 96 + 2 x 8 = 304) and at 360x640 they
+     still get 512 (the prompt is shorter), so both fit with the bigger picture. */
+  .qz-optflag { font-size: 58px; }
+  .qz-answers-flags .qz-ans { min-height: 96px; padding: 9px 6px 8px; }
   .qz-details { max-height: 122px; }
   .qz-figs { grid-template-columns: 1fr 1fr; }
   .qz-reveal { width: 100%; }
@@ -420,6 +442,15 @@ body.qz-playing #menu { display: none; }
   .qz-bigflag { font-size: 52px; }
   .qz-q { font-size: 15px; line-height: 20px; }
   .qz-ans { min-height: 40px; }
+}
+/* THE SHORTEST FRAMES PAY FOR THE FLAGS. Below 490 px of height three rows of 90 px no
+   longer fit under the prompt (800x450 leaves 283 px: 3 x 74 + 2 x 8 = 238), so the
+   button and its picture come down together, still well above a text answer's 40.
+   DECLARED AFTER the 560 block above, which also touches .qz-ans: same specificity,
+   so the later rule is the one that wins. */
+@media (max-height: 490px) {
+  .qz-answers-flags .qz-ans { min-height: 74px; padding: 8px 6px 7px; gap: 4px; }
+  .qz-optflag { font-size: 46px; }
 }
 @media (pointer: coarse) {
   .qz-ans { min-height: 50px; }
@@ -1013,6 +1044,23 @@ body.qz-playing #menu { display: none; }
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
 }
 .qz-creditsbtn:hover { background: rgba(22, 44, 66, .72); }
+/* RANDOM PLAY: Play with the choices taken away, so it sits one weight BELOW Play and
+   one ABOVE the other two ghost actions - same smoked glass as Explore, and the accent
+   word left to Explore so the column still reads "filled > accent > neutral > neutral".
+   It carries the dice glyph in front of its word: the one place in the game where the
+   picture says what the button does before the label is read. */
+.qz-randbtn {
+  justify-content: center; min-height: 46px;
+  background: rgba(12, 28, 44, .60);
+  color: rgba(234, 243, 251, .96);
+  border-color: rgba(198, 224, 246, .30);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+}
+.qz-randbtn:hover {
+  background: rgba(142, 208, 255, .14);
+  border-color: rgba(142, 208, 255, .55);
+}
 .qz-page-title .qz-foot {
   margin-top: 22px; display: flex; flex-direction: column; gap: 6px; align-items: center;
 }
@@ -1074,4 +1122,27 @@ body.cg .qz-topbar { padding-left: calc(10px + 36px + 12px); }
 @media (pointer: coarse), (max-width: 700px) {
   body.cg .qz-top { padding-left: 8px; }
   body.cg .qz-topbar { padding-left: calc(8px + 34px + 12px); }
+}
+
+/* ---------- the title page on a SHORT frame ----------
+   FOUR ACTIONS is one more than the column was built for, and short frames were already
+   over the edge before it: measured at 800x450 the footer's last line sat at 495 px
+   WITHOUT "Play at random" and at 551 with it. This is the frame CrazyGames shows a
+   landscape phone (800x450) and a small desktop window (821x462), so the column has to
+   give something back: the padding, the gaps and the two sizes come down together and
+   the tagline drops to one line's worth. Measured after: 800x450 lands at 447/450 and
+   821x462 at 459/462, both with the fourth button in place.
+   DECLARED LAST: same specificity as the rules above, so it must come after them. */
+@media (max-height: 560px) {
+  .qz-page-title .qz-titlewrap { padding: 10px 10px calc(8px + env(safe-area-inset-bottom, 0px)); gap: 0; }
+  .qz-page-title .qz-brand h1 { font: 600 30px/34px system-ui, sans-serif; }
+  .qz-page-title .qz-logomark { width: min(210px, 58vw); }
+  .qz-page-title .qz-brand p { margin: 2px 0 0; font: 11.5px/15px system-ui, sans-serif; }
+  .qz-page-title .qz-titleacts { margin-top: 10px; gap: 6px; }
+  .qz-page-title .qz-play.qz-xl { min-height: 42px; padding: 9px 24px; font-size: 15px; border-radius: 12px; }
+  .qz-page-title .qz-explorebtn,
+  .qz-page-title .qz-creditsbtn,
+  .qz-page-title .qz-randbtn { min-height: 38px; }
+  .qz-page-title .qz-foot { margin-top: 9px; gap: 3px; }
+  .qz-page-title .qz-foot .qz-best { display: none; }
 }
