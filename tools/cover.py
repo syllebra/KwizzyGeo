@@ -26,7 +26,32 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'docs', 'cover')
-FONT = '/tmp/sg.ttf'
+
+# SPACE GROTESK, SIL OFL 1.1 - fetched, not vendored (136 kB of binary in the repo for a
+# script that runs once per submission is a cost the repo does not need to carry). The
+# first version pointed at /tmp, which a reboot wipes: the durable copy lives in the
+# user's data dir, and the URL is the fallback, so the script reproduces itself anywhere.
+FONT_URL = 'https://github.com/google/fonts/raw/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf'
+FONT_PATHS = [
+    os.environ.get('KWIZZY_FONT', ''),
+    os.path.expanduser('~/.local/share/kwizzygeo/fonts/SpaceGrotesk.ttf'),
+    '/tmp/sg.ttf',
+]
+
+
+def font_path():
+    for p in FONT_PATHS:
+        if p and os.path.exists(p):
+            return p
+    dest = FONT_PATHS[1]
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    print('  fetching Space Grotesk (OFL) ->', dest)
+    import urllib.request
+    urllib.request.urlretrieve(FONT_URL, dest)
+    return dest
+
+
+FONT = font_path()
 
 # ---------- palette ----------
 # THE LOOK, in numbers, so a variant is a value and not a rewrite. Everything here was
