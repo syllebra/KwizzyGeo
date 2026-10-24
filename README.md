@@ -244,6 +244,55 @@ not yet meet is the Full Launch "land in gameplay in ≤ 1 click"** — the walk
 title → mode → zone → length → Play, four choices. Shortening it is a design decision,
 not an integration one.
 
+## Covers (docs/cover)
+
+The three images CrazyGames requires — landscape **1920×1080**, portrait
+**800×1200**, square **800×800** — plus a 1920×1024 landscape for anywhere that asks
+for it. They are **generated**, not drawn: `tools/cover.py` renders the globe from the
+same `data/so50.geojson` the game draws, in the game's own palette, with its own bloom.
+
+    python3 tools/cover.py            # all four, into docs/cover/
+    python3 tools/cover.py --sheet    # a contact sheet of looks, at /tmp/sheet.png
+
+Not a screenshot on purpose — that is CrazyGames' own guideline, and a still of the
+quiz UI says nothing at thumbnail size. What it says instead is *globe + name*: the
+globe is the subject, the wordmark holds a third of the frame, and the two never
+overlap, which is what makes the three sizes recognisably one game.
+
+How it works, in three notes that are also the traps:
+
+- **The globe is rendered by INVERSE MAPPING.** For every pixel of the disc the script
+  inverts the orthographic projection to a lon/lat and samples a land mask built once in
+  equirectangular space (`build_mask`). Drawing polygons one by one would need clipping at
+  the limb and would seam; the inverse lets the shading — terminator, limb darkening,
+  the coast line — be a plain function of the pixel.
+- **The coast is `la - blur(la)`**, which is zero in the middle of a continent and zero in
+  the open sea. The first version wrote `la - 0.88·blur(la)`, which is 0.12 *everywhere on
+  land*: the whole globe took +78 of accent light and every continent washed out to white.
+- **Every coordinate is a pixel of the canvas it draws on.** The supersampling factor is
+  applied once, by the caller. Applying it inside the projection as well put the globe's
+  centre off-canvas, and a dark globe with no continents was really a crop of one edge.
+
+The look is a table at the top of the file (`LAND_LIT`, `TONEMAP`, `COAST`, `SHEEN`) so a
+variant is a number, and `--sheet` renders a grid of them — the four numbers that decide
+whether the continents read were chosen off that sheet, not by eye on a single render.
+
+**The best score compares by RATIO**, then by score: 25/25 beats 10/10, and 9/10 beats
+4/5. The old per-key integer died with the fixed length. The flag mode's two halves are
+separate configs (`flag|asia|easy|flags` vs `...|name`), because picking a flag and
+naming a country are not the same skill.
+
+The **Stats** sheet (start-page footer) shows four figures (questions, right %, best
+streak, rounds kept), a table per mode and per zone with each one's best round, and the
+two lists a player actually wants: **"costs you the most"** — sorted by number of misses
+first, so one unlucky question does not top it — and **"never missed"**. It has a pinned
+header and footer with a scrolling body, so the way out is always on screen. **Reset** is
+a two-step button.
+
+Everything in `stats.js` is re-validated on load: a corrupt blob, `null`, an array, a
+bucket with `correct > asked`, a country with no counts, a `localStorage` that throws —
+each loads as a working (possibly empty) record, never as NaN in a percentage.
+
 ## Sound, music, haptics and animation
 
 All of it is the **Kwizzy** app's (`github.com/syllebra/Kwizzy`), ported rather than
@@ -723,22 +772,6 @@ from the settings and from the quiz's own config, so resetting one never wipes a
 | `byCfg{}` | per mode\|zone\|difficulty\|variant: `played, asked, correct, best, bestLen, last` |
 | `byMode{}`, `byZone{}` | the same counters grouped one level coarser |
 | `byCountry{}` | per country: `{n, f, a, c}` — name, flag code, asked, correct |
-
-**The best score compares by RATIO**, then by score: 25/25 beats 10/10, and 9/10 beats
-4/5. The old per-key integer died with the fixed length. The flag mode's two halves are
-separate configs (`flag|asia|easy|flags` vs `...|name`), because picking a flag and
-naming a country are not the same skill.
-
-The **Stats** sheet (start-page footer) shows four figures (questions, right %, best
-streak, rounds kept), a table per mode and per zone with each one's best round, and the
-two lists a player actually wants: **"costs you the most"** — sorted by number of misses
-first, so one unlucky question does not top it — and **"never missed"**. It has a pinned
-header and footer with a scrolling body, so the way out is always on screen. **Reset** is
-a two-step button.
-
-Everything in `stats.js` is re-validated on load: a corrupt blob, `null`, an array, a
-bucket with `correct > asked`, a country with no counts, a `localStorage` that throws —
-each loads as a working (possibly empty) record, never as NaN in a percentage.
 
 ### Fixing the data, not the code
 
