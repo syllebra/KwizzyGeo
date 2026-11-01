@@ -867,7 +867,7 @@ code rather than a name — `keyOf(it, mode)` returns `it.code` for `fnum`, `it.
 `fpref`, `it.name` otherwise, so "six distinct answers" and "the answer is among them"
 keep their usual meaning.
 
-The **révision table** is in `quizcore.js` (`FR_MODES`, `FR_ZONES`, `frZones`, `frInZone`,
+The **rules** live in `quizcore.js` (`FR_MODES`, `FR_ZONES`, `frZones`, `frInZone`,
 `frCityBand`, `frCityPool`); `quiz.js` only names things (`K_MODE` gains the five ids).
 
 ### Zones, and why the options may leave the zone
