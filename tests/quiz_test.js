@@ -239,8 +239,10 @@ async function afterLoad() {
 
   check('Play goes to the first step', (Qz.go('mode'), Z().screen === 'mode'), Z().screen);
   const h = Qz.html();
-  check('the first step is step 1 of 3',
-        /qz-stepd/.test(h) && /Step 1 of 3/.test(h), (h.match(/qz-kicker">[^<]*/) || [''])[0]);
+  /* FOUR STEPS since the France quiz: which map, what to find, which zone, how hard
+     (the scope screen is step 1 - see section 15, which walks it) */
+  check('the mode screen is step 2 of 4',
+        /qz-stepd/.test(h) && /Step 2 of 4/.test(h), (h.match(/qz-kicker">[^<]*/) || [''])[0]);
   check('the mode screen offers the three modes',
         /data-mode="country"/.test(h) && /data-mode="capital"/.test(h) && /data-mode="flag"/.test(h));
   check('the mode screen has a Continue button', /data-act="go" data-to="zone"/.test(h));
@@ -253,7 +255,7 @@ async function afterLoad() {
   check('the zone screen offers every zone',
         global.window.QuizCore.ZONES.every(z => hz.indexOf('data-zone="' + z.id + '"') >= 0));
   check('World is the default zone', Z().zone === 'world');
-  check('the zone screen is step 2 of 3', /Step 2 of 3/.test(hz));
+  check('the zone screen is step 3 of 4', /Step 3 of 4/.test(hz));
 
   Qz.go('diff');
   const hd = Qz.html();
@@ -1345,17 +1347,25 @@ async function afterLoad() {
     });
     const pct = () => { seen.length = 0; Qz.platformProgress(); return seen[seen.length - 1]; };
 
+    /* FIVE STEPS SINCE THE FRANCE QUIZ: the four world modes, then the France quiz
+       played at all (whichever of its five modes) - 20 % each. A player who has played
+       everything the WORLD quiz asks sits at 80 %, which is the honest figure: there is
+       a whole second map they have not opened. */
     stats.reset();
     check('an empty record reports 0', pct() === 0, JSON.stringify(seen));
     round('country');
-    check('one mode played is 25%', pct() === 25, JSON.stringify(seen));
+    check('one mode played is 20%', pct() === 20, JSON.stringify(seen));
     round('capital');
-    check('two modes is 50%', pct() === 50, JSON.stringify(seen));
+    check('two modes is 40%', pct() === 40, JSON.stringify(seen));
     round('flag');
-    check('three is 75%', pct() === 75, JSON.stringify(seen));
+    check('three is 60%', pct() === 60, JSON.stringify(seen));
     round('locate');
-    check('all four is 100% - the whole game has been seen', pct() === 100, JSON.stringify(seen));
-    round('locate');
+    check('the four world modes are 80% - the France quiz is still unopened',
+          pct() === 80, JSON.stringify(seen));
+    round('fnum');
+    check('one France round makes it 100% - the whole game has been seen',
+          pct() === 100, JSON.stringify(seen));
+    round('fpref');
     check('...and playing more keeps it at 100', pct() === 100, JSON.stringify(seen));
 
     /* the two flag halves are ONE mode for this purpose: a player who has picked a flag
@@ -1364,7 +1374,7 @@ async function afterLoad() {
     round('flag');
     round('flag');
     check('the flag mode counts once, whatever the variant',
-          pct() === 25, JSON.stringify(seen));
+          pct() === 20, JSON.stringify(seen));
     global.window.Crazy = wasCrazy;
   }
 

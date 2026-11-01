@@ -774,6 +774,13 @@ body.qz-playing #menu { display: none; }
 .qz-srow .b { font: 10px/16px ui-monospace, Menlo, monospace; color: #46d18e; min-width: 66px; text-align: right; }
 .qz-crow .nm { flex: 1 1 auto; color: rgba(234, 243, 251, .92); }
 .qz-crow .fi { flex: 0 0 auto; border-radius: 2px; box-shadow: 0 0 0 1px rgba(198, 224, 246, .16); }
+/* A DÉPARTEMENT'S BADGE IS ITS NUMBER, not a flag: same column, same width, so the two
+   tables (a country's record and a département's) line up on one screen */
+.qz-crow .qz-cnum {
+  flex: 0 0 auto; min-width: 22px; padding: 1px 4px; border-radius: 4px;
+  background: rgba(142, 208, 255, .12); color: #cfe6fa;
+  font: 700 10.5px/14px ui-monospace, Menlo, monospace; text-align: center;
+}
 
 /* ═══════════════ reduced motion ═══════════════
    Kwizzy's ADR 0004, taken literally: movement goes, the look and every word stay.
@@ -983,6 +990,19 @@ body.qz-playing #menu { display: none; }
 .qz-zcard:hover { background: rgba(22, 44, 66, .72); }
 .qz-zcard.on { background: rgba(22, 44, 66, .78); border-color: rgba(142, 208, 255, .60); }
 .qz-zcard .qz-tick { right: 11px; width: 18px; height: 18px; }
+/* THE FRANCE QUIZ'S RÉGION CARDS carry their size ("Corse 2"): the département count is
+   what tells a player how long a round there can be.
+   IT IS PLACED OUT OF FLOW, in the card's own top-right corner, because a région's name
+   WRAPS on a phone (Bourgogne-Franche-Comté takes three lines) and an in-flow count then
+   sits beside whichever line the flexbox happened to centre it on - measured on the
+   390 px frame, it read as a label for the second half of the name. Out of flow, the
+   name uses the whole width and the count is always in the same place.
+   `margin-left:auto` was the first attempt and did not hold: with nothing growing and
+   the name free to overflow, the auto margin had no free space to absorb. */
+.qz-zcard .qz-zn {
+  color: rgba(214, 233, 250, .62); margin-left: 4px;
+  font: 700 12px/16px system-ui, sans-serif; font-variant-numeric: tabular-nums;
+}
 
 /* ---------- the title screen ---------- */
 .qz-page-title { width: min(600px, calc(100vw - 24px)); position: relative; }

@@ -136,9 +136,13 @@ function answer(q, ok, item) {
   [bump(s.byCfg, cfgKey(cfg)), bump(s.byMode, cfg.mode), bump(s.byZone, cfg.zone)]
     .forEach(function (e) { if (e) { e.asked++; if (ok) e.correct++; } });
   if (item && item.id) {
+    /* `f` is what the stats sheet shows beside a name: two letters, so it draws a FLAG.
+       A French DÉPARTEMENT has no flag but has a number, and the number is the same
+       thing here - a short badge that identifies the row - so it goes in `f`. (Anything
+       that is not two letters is printed as text, see countryRows.) */
     var c = s.byCountry[item.id] || (s.byCountry[item.id] = { n: item.name || '', f: '', a: 0, c: 0 });
     c.n = item.name || c.n;
-    c.f = item.flag || c.f;            /* two letters: the stats sheet draws the flag */
+    c.f = item.flag || item.code || c.f;
     c.a++; if (ok) c.c++;
   }
   save(s);

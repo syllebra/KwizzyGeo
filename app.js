@@ -656,7 +656,18 @@ var COL = {
      ink, capitals are the accent - bolder and larger, which is how an atlas does it */
   countryLabel: 'rgba(206, 226, 244, .78)', countryHalo: 'rgba(9, 24, 40, .72)',
   capitalLabel: 'rgba(255, 255, 255, .98)', capitalHalo: 'rgba(8, 22, 36, .92)',
-  capitalPick: '#8ed0ff', capitalPickHalo: 'rgba(6, 18, 30, .95)'
+  capitalPick: '#8ed0ff', capitalPickHalo: 'rgba(6, 18, 30, .95)',
+  /* THE FRANCE OVERLAY (data/fr/). It is painted ON TOP of the world's land, so it has
+     to be a step brighter than that land or it would read as a smudge rather than as
+     the subject of the question - and its borders have to be visible without turning
+     into a wireframe: a thin dark line for a département, a pale accent line for a
+     région (the boundary a player is asked to work inside). Water is the ocean's own
+     blue so a lake never reads as a hole. */
+  frLand: '#37597c', frLandHover: '#41688f', frEdge: 'rgba(7, 18, 30, .58)',
+  frRegEdge: 'rgba(200, 228, 252, .40)',
+  frWater: '#173d5e', frWaterEdge: 'rgba(150, 205, 245, .30)',
+  frCode: 'rgba(226, 240, 252, .82)', frCodeSel: '#ffffff',
+  frNameLabel: 'rgba(255, 255, 255, .98)'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -681,7 +692,7 @@ var DATA_DIR = 'data/';
    simply stayed English - no error, just stale data). GitHub Pages also caches
    through its CDN, so this is not only a local-dev concern.
    BUMP THIS whenever a file in data/ changes. */
-var DATA_V = 3;
+var DATA_V = 4;
 function dataURL(name) { return DATA_DIR + name + '?v=' + DATA_V; }
 var LAYERS = [
   { id: '50m',  name: 'so50.geojson',      label: 'Natural Earth 50m sovereignty' },
@@ -1522,6 +1533,10 @@ function reproject() {
   var lvl = C.levelForK(view.k, LOD_MAXPX * Math.pow(2, lodBias));
   var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   C.recenterAll(feats, view.lon, view.lat, C.CUR, 0.2, C.LOD_U, lvl, FRAME);
+  /* THE FRANCE OVERLAY MOVES WITH IT, at the same level: a drag, a flight or a
+     projection change that re-projects the world and left the départements behind
+     would draw two pictures of two different moments. */
+  if (frOn && frReady()) recentreFrance(lvl);
   var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   frame = C.frameFor(C.CUR, 1);
   /* the 2nd argument is the INPUT sampling in degrees: 2 deg is plenty, because
@@ -1670,6 +1685,9 @@ function draw() {
   for (var v = 0; v < vis.length; v++) if (vis[v]._p) ctx.stroke(vis[v]._p);
   drawMs.path = (tB - tA); drawMs.paint = nowMs() - tB;
 
+  /* THE FRANCE OVERLAY: départements, water, the lit one and its numbers, painted on
+     top of the world's land (see drawFrance for the order inside it) */
+  drawFrance();
   if (hover >= 0 && hover !== picked && feats[hover]._p) {
     ctx.fillStyle = exploreOn ? COL.hoverX : COL.hover; ctx.fill(feats[hover]._p);
     ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.2; ctx.stroke(feats[hover]._p);
@@ -3210,6 +3228,479 @@ window.ViewState = {
   tilted: function () { return Math.abs(C.frameRoll(FRAME)) > 1e-9; }
 };
 
+/* ---------- THE FRANCE OVERLAY: data/fr/ ----------
+   THE FRANCE QUIZ PLAYS ON THE SAME MAP, one scale deeper. The world layer stays
+   underneath - a player must always be able to see WHERE France is on the planet -
+   and the French geometry is painted ON TOP of it:
+
+     departements.geojson  101 polygons (96 metropolitan + the 5 overseas), each with
+                           its number, its name, its région and its PRÉFECTURE
+     regions.geojson       18 regions: the thicker pale boundary
+     eau.geojson           the lakes (filled with the ocean's blue) and the rivers
+                           (thin blue lines) - what a map is read by when you are
+                           looking for a town you have never been to
+     villes.json           2 280 communes of 5 000 people or more, plus every
+                           préfecture: the pool the France locate mode asks about
+
+   WHY IT GOES THROUGH THE MAP'S OWN LOD MACHINERY (buildFeaturesLOD + prepareXYZ +
+   recenterAll) instead of projecting its own points: the overlay has to survive a
+   drag, a flight and a projection change exactly as the world does, and this is the
+   one code path that already knows how to re-project a ring around a moving centre,
+   cut it at the antimeridian and decimate it to a pixel. A parallel renderer would
+   have had to relearn all three (and the recentre is the part that gets it wrong).
+
+   THE COST, and how a still frame stays free: rebuilding 101 + 18 + 2 features every
+   frame is not free, but a frame that has not moved does not need rebuilding at all,
+   so a Path2D is cached per feature and stamped with `reprojectSeq` (which only moves
+   when the view does). A player reading a question pays for one build; a drag pays per
+   frame, as the world layer already does.
+
+   Attribution: the geometry is IGN ADMIN-EXPRESS (via france-geojson) and IGN BDCARTO,
+   Licence Ouverte / Etalab; the city names and populations are geo.api.gouv.fr. The
+   credits screen says so. */
+var FR_DIR = 'data/fr/';
+function frURL(name) { return FR_DIR + name + '?v=' + DATA_V; }
+var FR = {
+  asked: false, done: false, err: '', waiters: [],
+  deps: [], regs: [], lakes: null, rivers: null, lines: null,
+  depBy: {}, regions: [], items: [], cities: [], cityBy: {}, regByCode: {},
+  bboxMetro: null, bboxDom: null
+};
+var frOn = false;            /* is the overlay painted at all? (a France question) */
+var frPicked = -1;           /* the département lit up, by index in FR.deps */
+var frCodesOn = false;       /* the numbers, for every département on screen */
+var frNameOn = false;        /* the lit département's own name */
+var frStamp = -1;            /* reprojectSeq the cached Path2Ds were built for */
+var FR_MIN_WINDOW_DEG = 3.2; /* a fit never shows less than this (Paris is 0.15 deg) */
+var FR_REG_MIN_WINDOW_DEG = 5.5;
+
+/* the label point of an overlay feature: the geojson carries LABEL_X/LABEL_Y, which the
+   data build put INSIDE the shape (a centroid in the sea would put the name offshore) */
+function frAnchorOf(f) {
+  var p = f.props || {};
+  if (p.LABEL_X == null || p.LABEL_Y == null) return null;
+  return [p.LABEL_X, p.LABEL_Y];
+}
+function frStart() {
+  if (FR.asked) return;
+  FR.asked = true;
+  var jobs = [
+    fetch(frURL('departements.geojson')).then(function (r) { return r.json(); }),
+    fetch(frURL('regions.geojson')).then(function (r) { return r.json(); }),
+    fetch(frURL('eau.geojson')).then(function (r) { return r.json(); }),
+    fetch(frURL('villes.json')).then(function (r) { return r.json(); })
+  ];
+  Promise.all(jobs).then(function (a) {
+    frBuild(a[0], a[1], a[2], a[3]);
+    FR.done = true;
+    var w = FR.waiters; FR.waiters = [];
+    for (var i = 0; i < w.length; i++) { try { w[i](true); } catch (e) {} }
+    /* the rings can only be built once a frame exists, and the first frame after the
+       load is the one that draws them */
+    scheduleReproject();
+    if (typeof refreshUI === 'function') refreshUI();
+    return true;
+  }).catch(function (e) {
+    FR.err = (e && e.message) ? e.message : String(e);
+    FR.done = false;
+    fail('france: ' + FR.err);
+    var w = FR.waiters; FR.waiters = [];
+    for (var i = 0; i < w.length; i++) { try { w[i](false); } catch (e2) {} }
+  });
+}
+function frReady() { return FR.done && FR.deps.length > 0; }
+function frWhenReady(fn) {
+  if (FR.done) { if (fn) fn(true); return; }
+  if (FR.err) { if (fn) fn(false); return; }
+  FR.waiters.push(fn);
+  frStart();
+}
+function frBuild(depGeo, regGeo, eauGeo, villes) {
+  /* the densify step: 0.03 deg is 2 screen px at the zoom a France question plays at,
+     so a coastline is a curve and not a zigzag; the LOD ladder takes the rest out */
+  FR.deps = C.buildFeaturesLOD(depGeo, 0.03, true);
+  C.prepareXYZ(FR.deps);
+  FR.regs = C.buildFeaturesLOD(regGeo, 0.03, true);
+  C.prepareXYZ(FR.regs);
+
+  /* THE WATER. Lakes are polygons (the same path machinery as a département); rivers
+     are LINES, which buildFeaturesLOD cannot carry (it closes every ring), so they are
+     turned into rings BY HAND: one ring per course, with the densified lon/lat twin
+     that rebuildRing needs, and nothing that closes a path at draw time. */
+  var lakes = [], rivers = [];
+  var fs = (eauGeo && eauGeo.features) || [];
+  for (var i = 0; i < fs.length; i++) {
+    var f = fs[i], g = f.geometry;
+    if (!g) continue;
+    if (g.type === 'Polygon' || g.type === 'MultiPolygon') lakes.push(f);
+    else rivers.push(f);
+  }
+  FR.lakes = C.buildFeaturesLOD({ features: lakes }, 0.03, true);
+  C.prepareXYZ(FR.lakes);
+  var lineRings = [];
+  for (var r = 0; r < rivers.length; r++) {
+    var gg = rivers[r].geometry;
+    var lines = gg.type === 'LineString' ? [gg.coordinates] : (gg.coordinates || []);
+    for (var l = 0; l < lines.length; l++) {
+      if (!lines[l] || lines[l].length < 2) continue;
+      var ll = C.densifyLonLat(lines[l], 0.02);
+      if (ll.length < 4) continue;
+      lineRings.push({ pts: null, bbox: null, hole: false, levels: null, lw: null, ll: ll, xyz: null });
+    }
+  }
+  FR.lines = { props: { kind: 'river' }, rings: lineRings, bbox: [0, 0, 0, 0] };
+  C.prepareXYZ([FR.lines]);
+
+  /* the tables the game asks about */
+  FR.depBy = {}; FR.items = [];
+  var bbM = [Infinity, Infinity, -Infinity, -Infinity], bbD = [Infinity, Infinity, -Infinity, -Infinity];
+  for (var d = 0; d < FR.deps.length; d++) {
+    var p = FR.deps[d].props || {};
+    FR.depBy[String(p.code)] = d;
+    var it = {
+      id: 'D' + p.code, code: String(p.code), name: p.nom || '',
+      reg: String(p.reg || ''), regName: p.reg_nom || '',
+      pref: p.pref || '', prefLat: p.pref_lat, prefLon: p.pref_lon,
+      lat: p.LABEL_Y, lon: p.LABEL_X,
+      pop: p.pop || 0, area: p.area_km2 || 0, dom: p.dom ? 1 : 0,
+      /* the field cityQuestion groups by: "one question per country" becomes "one
+         question per département" in the France locate mode */
+      country: 'D' + p.code
+    };
+    FR.items.push(it);
+    /* the métropole and overseas boxes, for framing a zone: measured on the geometry
+       itself, so no coordinate is ever typed twice */
+    var box = it.dom ? bbD : bbM;
+    for (var rr = 0; rr < FR.deps[d].rings.length; rr++) {
+      var llr = FR.deps[d].rings[rr].ll;
+      if (!llr) continue;
+      for (var v = 0; v < llr.length; v += 2) {
+        if (llr[v] < box[0]) box[0] = llr[v];
+        if (llr[v + 1] < box[1]) box[1] = llr[v + 1];
+        if (llr[v] > box[2]) box[2] = llr[v];
+        if (llr[v + 1] > box[3]) box[3] = llr[v + 1];
+      }
+    }
+  }
+  FR.bboxMetro = bbM; FR.bboxDom = bbD;
+  FR.regions = []; FR.regByCode = {};
+  for (var q = 0; q < FR.regs.length; q++) {
+    var pr = FR.regs[q].props || {};
+    FR.regByCode[String(pr.code)] = q;
+    FR.regions.push({ code: String(pr.code), nom: pr.nom || '', ndep: pr.ndep || 0,
+                      dom: pr.dom ? 1 : 0, pop: pr.pop || 0 });
+  }
+  /* the cities the locate mode asks about, in the shape quizcore's cityPool expects:
+     `cap` is a capital's role, and the préfecture IS the capital at this scale */
+  FR.cities = []; FR.cityBy = {};
+  var regDom = {};
+  for (var q3 = 0; q3 < FR.regions.length; q3++) regDom[FR.regions[q3].code] = FR.regions[q3].dom;
+  var list = (villes && villes.list) || [];
+  for (var c = 0; c < list.length; c++) {
+    var ct = list[c];
+    FR.cityBy[ct.id] = c;
+    FR.cities.push({
+      id: ct.id, name: ct.name, lat: ct.lat, lon: ct.lon, pop: ct.pop || 0,
+      pref: ct.pref ? 1 : 0, cap: ct.pref ? 1 : 0,
+      dept: String(ct.dept || ''), reg: String(ct.reg || ''),
+      /* the zone filter reads `dom`, exactly as it does on a département */
+      dom: regDom[String(ct.reg)] ? 1 : 0,
+      country: String(ct.dept || ''), deptName: ''
+    });
+  }
+  /* the département's name on a city, for the reveal's "· Ille-et-Vilaine" */
+  var names = {};
+  for (var n2 = 0; n2 < FR.items.length; n2++) names[FR.items[n2].code] = FR.items[n2].name;
+  for (var c2 = 0; c2 < FR.cities.length; c2++) FR.cities[c2].deptName = names[FR.cities[c2].dept] || '';
+}
+
+/* ---------- framing ---------- */
+/* the board extent of a lon/lat box, at a centre, in the frame the flight will arrive
+   in - the bbox twin of fitTargetForFeature, which measures a FEATURE's rings */
+function fitLLBox(bb, pad) {
+  if (!bb || !isFinite(bb[0])) return null;
+  var lon0 = (bb[0] + bb[2]) / 2, lat0 = (bb[1] + bb[3]) / 2;
+  var m = C.rotMat(lon0, lat0, new Float64Array(9));
+  var o = [0, 0], e = [Infinity, Infinity, -Infinity, -Infinity];
+  var i, j;
+  for (i = 0; i <= 4; i++) {
+    for (j = 0; j <= 4; j++) {
+      var lon = bb[0] + (bb[2] - bb[0]) * i / 4, lat = bb[1] + (bb[3] - bb[1]) * j / 4;
+      C.projectRotLL(lon, lat, m, C.CUR, o);
+      if (!isFinite(o[0]) || !isFinite(o[1])) continue;
+      if (o[0] < e[0]) e[0] = o[0];
+      if (o[1] < e[1]) e[1] = o[1];
+      if (o[0] > e[2]) e[2] = o[0];
+      if (o[1] > e[3]) e[3] = o[1];
+    }
+  }
+  if (!isFinite(e[0])) return null;
+  return { lon: lon0, lat: lat0, k: fitKForExtent(e, pad == null ? FLY_PAD : pad), fit: true };
+}
+/* where a France zone opens. The métropole gets its own box, a région its own shape,
+   and OUTRE-MER the world - Guadeloupe, Cayenne and La Réunion are 9 000 km apart, so
+   there is no box that frames the overseas departments as one picture. */
+function frZoneTarget(zone) {
+  var z = String(zone == null ? '' : zone);
+  if (z === 'fr-dom') return { lon: view.lon, lat: view.lat, k: fitK, fit: false };
+  if (z === 'fr' || z === 'fr-metro') return fitLLBox(FR.bboxMetro, FLY_PAD) ||
+    { lon: view.lon, lat: view.lat, k: fitK, fit: false };
+  if (/^r[0-9]{2}$/.test(z)) {
+    var qi = FR.regByCode[z.slice(1)];
+    if (qi == null) return null;
+    var t = fitTargetForFeature(-1, frAnchorOf(FR.regs[qi]), FLY_PAD, FR.regs[qi], FR_REG_MIN_WINDOW_DEG);
+    return t || null;
+  }
+  return null;
+}
+function frFit(code) {
+  var i = FR.depBy[String(code)];
+  if (i == null) return null;
+  return fitTargetForFeature(-1, frAnchorOf(FR.deps[i]), FLY_PAD, FR.deps[i], FR_MIN_WINDOW_DEG);
+}
+
+/* how many screen pixels tall metropolitan France is, right now */
+function frSpanPx() {
+  if (!FR.bboxMetro) return 0;
+  var o = [0, 0];
+  var m = C.rotMat(view.lon, view.lat, new Float64Array(9));
+  var a = [Infinity, Infinity, -Infinity, -Infinity], i, j;
+  for (i = 0; i <= 2; i++) {
+    for (j = 0; j <= 2; j++) {
+      C.projectRotLL(FR.bboxMetro[0] + (FR.bboxMetro[2] - FR.bboxMetro[0]) * i / 2,
+                     FR.bboxMetro[1] + (FR.bboxMetro[3] - FR.bboxMetro[1]) * j / 2,
+                     m, C.CUR, o);
+      if (!isFinite(o[0])) continue;
+      if (o[0] < a[0]) a[0] = o[0];
+      if (o[1] < a[1]) a[1] = o[1];
+      if (o[0] > a[2]) a[2] = o[0];
+      if (o[1] > a[3]) a[3] = o[1];
+    }
+  }
+  return isFinite(a[0]) ? (a[3] - a[1]) * view.k : 0;
+}
+
+/* ---------- the projection pass ---------- */
+/* the overlay's rings, re-projected around the view centre exactly like the world's.
+   Called from reproject(), so a drag, a flight, a zoom and a projection change all
+   move it by the same rule, at the same LOD level. */
+function recentreFrance(lvl) {
+  if (!frReady()) return;
+  C.recenterAll(FR.regs, view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
+  C.recenterAll(FR.deps, view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
+  if (FR.lakes) C.recenterAll(FR.lakes, view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
+  if (FR.lines) C.recenterAll([FR.lines], view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
+}
+
+/* ---------- drawing ---------- */
+/* one feature's Path2D, cached by the reprojection it belongs to */
+function frPathOf(f, close) {
+  if (f._pStamp === frStamp && f._p) return f._p;
+  var p = new Path2D();
+  if (close) beginFeature(p, f);
+  else beginStrokeFeature(p, f);
+  f._p = p; f._pStamp = frStamp;
+  return p;
+}
+/* the line twin of beginFeature: same culling, same LOD, no closing segment */
+function beginStrokeFeature(path, f) {
+  var k = view.k, ox = W * 0.5 - view.cx * k, oy = H * 0.5 + view.cy * k;
+  var x0 = (0 - W * 0.5) / k + view.cx, x1 = (W - W * 0.5) / k + view.cx;
+  var y0 = -(H - H * 0.5) / k + view.cy, y1 = -(0 - H * 0.5) / k + view.cy;
+  for (var r = 0; r < f.rings.length; r++) {
+    var rg = f.rings[r];
+    if (!rg.pieces) continue;
+    for (var q = 0; q < rg.pieces.length; q++) {
+      var pc = rg.pieces[q], b = pc.bbox;
+      if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue;
+      var pts = C.pieceFlat(pc, view.k, LOD_MAXPX), n = pc._flatLen;
+      if (n < 2) continue;
+      segs += n; seenPieces++;
+      path.moveTo(pts[0] * k + ox, oy - pts[1] * k);
+      for (var v = 1; v < n; v++) path.lineTo(pts[v * 2] * k + ox, oy - pts[v * 2 + 1] * k);
+    }
+  }
+}
+/* THE FRANCE PASS, between the world's land and its labels: fills, water, borders,
+   then the lit département and the numbers. Everything here is skipped when the
+   overlay is off, so the world viewer and the world quiz are untouched. */
+function fStampNow() {
+  /* what a cached Path2D depends on: the reprojection it was built in, the viewport it
+     was built for and the zoom it was built at. resize() does not reproject (there is
+     nothing to re-project), so the size has to be part of the stamp or the first
+     resize after a question would draw the paths at the old scale. */
+  return reprojectSeq + '|' + W + 'x' + H + '|' + view.k;
+}
+function drawFrance() {
+  if (!frOn || !frReady()) return;
+  frStamp = fStampNow();
+  var i, f, p;
+  /* 1. the départements, in one colour: the subject, a step lighter than the world */
+  var vis = [];
+  for (i = 0; i < FR.deps.length; i++) {
+    f = FR.deps[i];
+    if (!onScreen(f)) { f._p = null; f._pStamp = -1; continue; }
+    vis.push(f);
+  }
+  ctx.fillStyle = COL.frLand;
+  for (i = 0; i < vis.length; i++) ctx.fill(frPathOf(vis[i], true));
+  /* 2. the water, over the land and under the borders: a lake is a hole in the
+     country, not a shape on it */
+  if (FR.lakes) {
+    ctx.fillStyle = COL.frWater;
+    for (i = 0; i < FR.lakes.length; i++) {
+      if (!onScreen(FR.lakes[i])) continue;
+      ctx.fill(frPathOf(FR.lakes[i], true));
+    }
+    ctx.strokeStyle = COL.frWaterEdge; ctx.lineWidth = 0.7;
+    for (i = 0; i < FR.lakes.length; i++) {
+      if (!onScreen(FR.lakes[i])) continue;
+      ctx.stroke(frPathOf(FR.lakes[i], true));
+    }
+  }
+  /* THE RIVERS are a bearing, not a subject: 58 named courses painted thin and FAINT,
+     because at a département's zoom they cross every polygone and a bright line reads
+     as a border (the first build at .46 alpha looked like a second set of borders -
+     measured by eye on the same screen). And not drawn at all when France is a
+     thumbnail in a world view: that costs a pass over 37 000 points to paint a smudge.
+     The threshold is in PIXELS of France's own height, so it is one number for a phone
+     and for a desktop. */
+  if (FR.lines && frSpanPx() > 160) {
+    ctx.strokeStyle = 'rgba(120, 178, 226, .26)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke(frPathOf(FR.lines, false));
+  }
+  /* 3. the borders: a thin dark line for a département, a pale accent one for a
+     région. The région's line is drawn from the regions file, so the two can never
+     disagree about where a boundary is. */
+  ctx.strokeStyle = COL.frEdge; ctx.lineWidth = 0.7;
+  for (i = 0; i < vis.length; i++) ctx.stroke(frPathOf(vis[i], true));
+  ctx.strokeStyle = COL.frRegEdge; ctx.lineWidth = 1.5;
+  for (i = 0; i < FR.regs.length; i++) {
+    if (!onScreen(FR.regs[i])) continue;
+    ctx.stroke(frPathOf(FR.regs[i], true));
+  }
+  /* 4. the lit département: the same pale highlight + glow the world quiz gives a
+     country, because it is the same sentence ("this one, name it") */
+  if (frPicked >= 0 && FR.deps[frPicked] && FR.deps[frPicked]._p) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(120, 190, 255, .38)';
+    ctx.shadowBlur = 26;
+    ctx.fillStyle = COL.pick;
+    ctx.fill(FR.deps[frPicked]._p);
+    ctx.shadowColor = 'rgba(198, 232, 255, .55)';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 1.6;
+    ctx.stroke(FR.deps[frPicked]._p);
+    ctx.restore();
+  }
+  drawFrLabels();
+}
+/* THE NUMBERS, and the lit one's name. Two flags, because they answer different
+   questions: `frCodesOn` is "may the map show the numbers" (it may not while "which
+   number is this département?" is being asked) and `frNameOn` is "may it name the
+   shape that is lit up" (it may not while the name IS the answer). A tiny
+   département (Val-de-Marne, Paris) only gets its number once its own box is wide
+   enough to hold the digits, so two numbers never sit on top of each other. */
+function drawFrLabels() {
+  if (!frCodesOn && !frNameOn) return;
+  var m = C.rotMat(view.lon, view.lat, new Float64Array(9));
+  var o = [0, 0];
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (var i = 0; i < FR.deps.length; i++) {
+    var f = FR.deps[i], pr = f.props || {};
+    var a = frAnchorOf(f);
+    if (!a) continue;
+    if (!C.projectRotLLVis(a[0], a[1], FRAME, C.CUR, o)) continue;
+    var px = sx(o[0]), py = sy(o[1]);
+    if (px < -30 || py < -20 || px > W + 30 || py > H + 20) continue;
+    var bw = (f.bbox[2] - f.bbox[0]) * view.k, bh = (f.bbox[3] - f.bbox[1]) * view.k;
+    if (i === frPicked && frNameOn) {
+      ctx.font = '700 14px system-ui, -apple-system, sans-serif';
+      var txt = String(pr.code) + ' \u00b7 ' + String(pr.nom || '');
+      ctx.lineWidth = 3.6; ctx.strokeStyle = COL.capitalHalo;
+      ctx.strokeText(txt, px, py);
+      ctx.fillStyle = COL.frNameLabel;
+      ctx.fillText(txt, px, py);
+      continue;
+    }
+    if (!frCodesOn) continue;
+    if (bw < 15 || bh < 12) continue;
+    /* smaller departments get smaller digits: a 15 px box cannot hold 16 px type */
+    var big = Math.min(bw, bh) > 46;
+    ctx.font = (big ? '700 15px' : '600 11px') + ' system-ui, -apple-system, sans-serif';
+    ctx.lineWidth = big ? 3.2 : 2.6; ctx.strokeStyle = COL.capitalHalo;
+    ctx.strokeText(String(pr.code), px, py);
+    ctx.fillStyle = COL.frCode;
+    ctx.fillText(String(pr.code), px, py);
+  }
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+  void m;
+}
+
+/* THE FRANCE OVERLAY'S OWN PANELS, built by the same panelRowsHTML the viewer's info
+   panel uses, so an answer on the verdict card and a click on the map say the same
+   thing with the same labels. */
+function frItemOfCode(code) {
+  for (var i = 0; i < FR.items.length; i++) if (FR.items[i].code === String(code)) return FR.items[i];
+  return null;
+}
+function frCityIdx(key) {
+  var i = FR.cityBy[String(key)];
+  return i == null ? -1 : i;
+}
+function regNameOf(code) {
+  for (var i = 0; i < FR.regions.length; i++) if (FR.regions[i].code === String(code)) return FR.regions[i].nom;
+  return '';
+}
+/* which département holds a point (ray casting on the built rings, in lon/lat): the
+   France twin of pickAt, only used by the tests and by nothing on screen */
+function frDepAt(lon, lat) {
+  for (var i = 0; i < FR.items.length; i++) {
+    var f = FR.deps[i], inside = false, r, v;
+    for (r = 0; r < f.rings.length; r++) {
+      var ll = f.rings[r].ll;
+      if (!ll) continue;
+      var n = ll.length / 2;
+      for (v = 0; v < n; v++) {
+        var j = (v + n - 1) % n;
+        var x1 = ll[v * 2], y1 = ll[v * 2 + 1], x2 = ll[j * 2], y2 = ll[j * 2 + 1];
+        if (((y1 > lat) !== (y2 > lat)) && (lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1)) inside = !inside;
+      }
+    }
+    if (inside) return FR.items[i].code;
+  }
+  return '';
+}
+function frDepPanelHTML(code) {
+  var it = frItemOfCode(code);
+  if (!it) return '';
+  var rows = [
+    ['name', '<span class="nm">' + it.name + '</span>'],
+    ['code', String(it.code)],
+    ['region', it.regName],
+    ['pref', it.pref],
+    ['population', it.pop ? fmtNum(it.pop) : ''],
+    ['area', it.area ? fmtKm2(it.area) : ''],
+    ['source', 'IGN ADMIN-EXPRESS \u00b7 geo.api.gouv.fr']
+  ];
+  return panelRowsHTML(rows);
+}
+function frCityPanelHTML(ci) {
+  var it = FR.cities[ci];
+  if (!it) return '';
+  var rows = [
+    ['name', '<span class="nm">' + it.name + '</span>'],
+    ['region', [it.deptName, regNameOf(it.reg)].filter(function (x) { return x; }).join(' \u00b7 ')],
+    ['population', it.pop ? fmtNum(it.pop) : ''],
+    ['type', it.pref ? TT('p_pref') : ''],
+    ['source', 'geo.api.gouv.fr']
+  ];
+  return panelRowsHTML(rows);
+}
+
 /* ---------- HOST API FOR THE QUIZ (quiz.js) ----------
    The game needs five things from this file and no more: the country list in the
    language in play, one country lit up and fitted to the viewport, a neutral world
@@ -3858,12 +4349,14 @@ window.MapApp = {
   /* the live name of a city, by item id ('p<index>'), in the language in play */
   placeLabel: function (key) {
     var i = placeIndexOf(key);
-    return i < 0 ? '' : cityName(i);
+    if (i < 0) { var fi = frCityIdx(key); return fi < 0 ? '' : FR.cities[fi].name; }
+    return cityName(i);
   },
   /* a city's own panel (country, region, population, time zone), by item id */
   placePanel: function (key) {
     var i = placeIndexOf(key);
-    return i < 0 ? '' : placePanelHTML(i);
+    if (i < 0) { var fi = frCityIdx(key); return fi < 0 ? '' : frCityPanelHTML(fi); }
+    return placePanelHTML(i);
   },
   /* WHERE A ZONE OPENS: {lon, lat, k}, and whether it is the whole world. Read-only, so
      a test can state the view a locate question starts from. */
@@ -3899,7 +4392,10 @@ window.MapApp = {
   /* frame both points, so the distance between them is a thing you can SEE: the reveal
      after an answer. Never closer than 2 degrees (~220 km) - a near-perfect answer would
      otherwise zoom to a street corner and show two labels on top of each other. */
-  fitMarks: function () {
+  /* `opt` (optional) rescales the reveal for a France question: {minR, fill}. The two
+     defaults are the world's (2.5 deg, the 0.2 band): on France's own scale a 60 km miss
+     is a picture of a département, and 2.5 deg of floor showed the whole country. */
+  fitMarks: function (opt) {
     if (!marks || !marks.guess || !marks.target) return null;
     var a = marks.guess, b = marks.target;
     /* THE FLIGHT GOES IN, not out: a miss of 30 km has to be a picture of two marks
@@ -3917,7 +4413,7 @@ window.MapApp = {
     if (sep / 2 <= cap * 0.8) {
       var mid = slerpLL(a.lon, a.lat, b.lon, b.lat, 0.5);
       lon0 = mid[0]; lat0 = mid[1];
-      R = Math.max(sep * 0.8, 2.5);
+      R = Math.max(sep * 0.8, (opt && opt.minR) || 2.5);
     } else {
       lon0 = b.lon; lat0 = b.lat;
       R = Math.min(30, cap * 0.6);
@@ -3925,7 +4421,8 @@ window.MapApp = {
     /* the reveal card covers the bottom of the screen, so the two marks are fitted ABOVE
        it: fill 0.2 of the height puts them in the band 0.3 -> 0.7 of the screen, which is
        what the screenshot of a 3 169 km miss showed to be the usable part. */
-    var k = frameCap(lon0, lat0, Math.min(R, cap * 0.9), 0.2) || fitK;
+    var k = frameCap(lon0, lat0, Math.min(R, cap * 0.9),
+                     (opt && opt.fill) || 0.2) || fitK;
     k = Math.max(k, fitK);           /* never out past the world: the figure ends there */
     flyTo(lon0, lat0, k);
     return { lon: lon0, lat: lat0, k: k };
@@ -3964,6 +4461,13 @@ window.MapApp = {
       if (quizSavedProj === null) quizSavedProj = projID;
       if (isPlanarProj(projID)) setProjection('persp');
     }
+    /* THE FRANCE OVERLAY: the same map, one scale deeper. It is painted ON TOP of the
+       world's countries (see drawFrance), so `france` only says "paint it" - the layer
+       stays 50m and nothing about the world side changes. */
+    if (opts && opts.france) {
+      frOn = true; frPicked = -1; frCodesOn = false; frNameOn = false;
+      picked = -1; hover = -1;
+    }
     quizOn = true;
     quizLabels = false;                 /* the quiz turns it on per mode (MapApp.labels) */
     aimOn = false; aimFn = null; marks = null; quizNames = false;
@@ -3975,6 +4479,9 @@ window.MapApp = {
   exit: function () {
     quizOn = false;
     quizLabels = false;
+    /* the overlay goes back with the map: the world viewer and the world quiz never
+       see a French border */
+    frOn = false; frPicked = -1; frCodesOn = false; frNameOn = false;
     /* the locate mode's arm and its two marks go with the hand-over: they belong to a
        question, and a question is over when the map is given back */
     aimOn = false; aimFn = null; marks = null; quizNames = false;
@@ -4046,6 +4553,68 @@ window.MapApp = {
     if (i < 0) return '';
     var ci = capitalOf(i);
     return ci < 0 ? '' : placePanelHTML(ci);
+  },
+  /* ---------- THE FRANCE OVERLAY, for the France quiz ----------
+     The game needs the same five things from the overlay that it needs from the world
+     layer: the items (départements, cities), one of them lit up and fitted, the map
+     handed over, the numbers on or off, and the details of an answer. */
+  frReady: function () { return frReady(); },
+  /* start the download; quiz.js calls this the moment the player picks the France
+     quiz, so the 2 MB arrive while they are still choosing a mode */
+  frLoad: function (fn) { frWhenReady(fn); return frReady(); },
+  frOn: function () { return frOn; },
+  /* the régions, for the zone screen: [{code, nom, ndep, dom}] */
+  frRegions: function () { return FR.regions.slice(); },
+  frItems: function () { return FR.items.slice(); },
+  frCities: function () { return FR.cities.slice(); },
+  /* the numbers on the map, and the lit one's name - two flags, because they answer
+     two different questions (see drawFrLabels). Read back with no arguments. */
+  frLabels: function (codes, name) {
+    if (codes === undefined) return { codes: frCodesOn, name: frNameOn };
+    frCodesOn = !!codes;
+    frNameOn = !!name;
+    return { codes: frCodesOn, name: frNameOn };
+  },
+  /* light one département up and fly to it - the France twin of show() */
+  frShow: function (code) {
+    var i = FR.depBy[String(code)];
+    if (i == null) return false;
+    frPicked = i;
+    picked = -1; hover = -1; hoverPlace = -1; pickedPlace = -1;
+    var t = frFit(code);
+    if (t) flyTo(t.lon, t.lat, t.k);
+    return true;
+  },
+  frFit: function (code) { return frFit(code); },
+  frZoneTarget: function (zone) { return frZoneTarget(zone); },
+  frGoZone: function (zone) {
+    var t = frZoneTarget(zone);
+    if (!t) return false;
+    flyTo(t.lon, t.lat, t.k);
+    return true;
+  },
+  frPick: function () {
+    return (frPicked >= 0 && FR.deps[frPicked]) ? String(FR.deps[frPicked].props.code) : '';
+  },
+  /* the names, read at call time like label() and capLabel() */
+  frName: function (code) { var it = frItemOfCode(code); return it ? it.name : ''; },
+  frPref: function (code) { var it = frItemOfCode(code); return it ? it.pref : ''; },
+  frRegionName: function (code) { return regNameOf(code); },
+  frPanel: function (code) { return frDepPanelHTML(code); },
+  frCityPanel: function (key) { var i = frCityIdx(key); return i < 0 ? '' : frCityPanelHTML(i); },
+  frDepAt: function (lon, lat) { return frDepAt(lon, lat); },
+  /* the overlay's own accounting, for the tests: what is loaded, and what the last
+     frame was told to paint */
+  frStats: function () {
+    return {
+      ready: frReady(), err: FR.err, on: frOn,
+      deps: FR.deps.length, regs: FR.regs.length,
+      lakes: FR.lakes ? FR.lakes.length : 0,
+      rivers: FR.lines ? FR.lines.rings.length : 0,
+      cities: FR.cities.length, items: FR.items.length,
+      picked: (frPicked >= 0 && FR.deps[frPicked]) ? String(FR.deps[frPicked].props.code) : '',
+      labels: { codes: frCodesOn, name: frNameOn }
+    };
   },
   pickedFeature: function () { return picked; },
   /* THE MENU'S BACKGROUND ANIMATION: on for the title and the choice screens, off for
