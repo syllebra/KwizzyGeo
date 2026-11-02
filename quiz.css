@@ -979,11 +979,16 @@ body.qz-playing #menu { display: none; }
 .qz-typed:not(.on) { color: rgba(160, 188, 212, .55); }
 .qz-typed-ph { letter-spacing: 0; }
 .qz-pad2ab { display: flex; gap: 8px; }
-.qz-pad2ab .chip { min-width: 54px; justify-content: center; }
+.qz-pad2ab .chip { pointer-events: auto; min-width: 54px; justify-content: center; }
 .qz-pad {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; width: 100%;
 }
 .qz-key {
+  /* `#quiz` is pointer-events:none and every interactive child opts back in - without this
+     line the keys are painted but every click goes through them to the canvas underneath
+     (measured: getComputedStyle(.qz-key).pointerEvents = 'none', and elementFromPoint at the
+     middle of the "5" key returned the CANVAS). */
+  pointer-events: auto;
   cursor: pointer; padding: 0; min-height: 46px; border-radius: 11px;
   font: 600 19px/1 ui-monospace, Menlo, monospace; color: #eaf3fb;
   background: var(--glass-tint-strong);

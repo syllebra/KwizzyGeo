@@ -2133,6 +2133,8 @@ T.bn = {
    département", "which number is X", "préfecture", "overseas". */
 var EXTRA = {
   en: {
+    marks_left: '{n} left to find, out of {total}.',
+    marks_all: 'Every one found. Play again to go round them all.',
     pad_del: 'Backspace',
     pad_ok: 'Enter the number',
     pad_typed: 'you typed {code}',
@@ -2179,6 +2181,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} départements in {zone}: the round is {n} questions.'
   },
   fr: {
+    marks_left: 'Encore {n} à trouver, sur {total}.',
+    marks_all: 'Tous trouvés. Rejouez pour tous les revoir.',
     pad_del: 'Effacer',
     pad_ok: 'Valider le numéro',
     pad_typed: 'vous avez saisi {code}',
@@ -2225,6 +2229,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} départements en {zone} : la partie fait {n} questions.'
   },
   de: {
+    marks_left: 'Noch {n} von {total} zu finden.',
+    marks_all: 'Alle gefunden. Nochmal spielen, um alle zu wiederholen.',
     pad_del: 'Löschen',
     pad_ok: 'Nummer bestätigen',
     pad_typed: 'du hast {code} eingegeben',
@@ -2271,6 +2277,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} Départements in {zone}: die Runde hat {n} Fragen.'
   },
   es: {
+    marks_left: 'Quedan {n} de {total} por encontrar.',
+    marks_all: 'Todos encontrados. Juega otra vez para repasarlos.',
     pad_del: 'Borrar',
     pad_ok: 'Confirmar el número',
     pad_typed: 'escribiste {code}',
@@ -2317,6 +2325,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departamentos en {zone}: la ronda es de {n} preguntas.'
   },
   pt: {
+    marks_left: 'Faltam {n} de {total} por encontrar.',
+    marks_all: 'Todos encontrados. Joga outra vez para os rever.',
     pad_del: 'Apagar',
     pad_ok: 'Confirmar o número',
     pad_typed: 'escreveste {code}',
@@ -2363,6 +2373,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departamentos em {zone}: a ronda tem {n} perguntas.'
   },
   nl: {
+    marks_left: 'Nog {n} van {total} te vinden.',
+    marks_all: 'Alles gevonden. Speel opnieuw om ze allemaal te herhalen.',
     pad_del: 'Wissen',
     pad_ok: 'Nummer bevestigen',
     pad_typed: 'je typte {code}',
@@ -2409,6 +2421,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departementen in {zone}: de ronde telt {n} vragen.'
   },
   sv: {
+    marks_left: '{n} av {total} kvar att hitta.',
+    marks_all: 'Alla hittade. Spela igen för att repetera dem.',
     pad_del: 'Radera',
     pad_ok: 'Bekräfta numret',
     pad_typed: 'du skrev {code}',
@@ -2455,6 +2469,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departement i {zone}: rundan blir {n} frågor.'
   },
   ru: {
+    marks_left: 'Осталось найти {n} из {total}.',
+    marks_all: 'Все найдены. Сыграйте снова, чтобы повторить.',
     pad_del: 'Стереть',
     pad_ok: 'Подтвердить номер',
     pad_typed: 'вы ввели {code}',
@@ -2501,6 +2517,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} департаментов в {zone}: в раунде {n} вопросов.'
   },
   uk: {
+    marks_left: 'Залишилося знайти {n} з {total}.',
+    marks_all: 'Усі знайдені. Зіграйте ще раз, щоб повторити.',
     pad_del: 'Стерти',
     pad_ok: 'Підтвердити номер',
     pad_typed: 'ви ввели {code}',
@@ -2547,6 +2565,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} департаментів у {zone}: раунд має {n} питань.'
   },
   el: {
+    marks_left: 'Μένουν {n} από {total} να βρεθούν.',
+    marks_all: 'Βρέθηκαν όλα. Παίξτε ξανά για επανάληψη.',
     pad_del: 'Διαγραφή',
     pad_ok: 'Επιβεβαίωση αριθμού',
     pad_typed: 'πληκτρολογήσατε {code}',
@@ -2593,6 +2613,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} διαμερίσματα στη {zone}: ο γύρος έχει {n} ερωτήσεις.'
   },
   zh: {
+    marks_left: '还有 {n} 个要找，共 {total} 个。',
+    marks_all: '全部都找到了。再玩一局复习一遍。',
     pad_del: '退格',
     pad_ok: '确认号码',
     pad_typed: '你输入了 {code}',
@@ -2639,6 +2661,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone} 只有 {n} 个省：这一轮就是 {n} 道题。'
   },
   ja: {
+    marks_left: '{total} のうち残り {n}。',
+    marks_all: 'すべて見つけました。もう一度遊ぶと復習できます。',
     pad_del: '一文字消す',
     pad_ok: '番号を決定',
     pad_typed: '入力したのは {code}',
@@ -2685,6 +2709,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone} の県は {n} つ：この回は {n} 問です。'
   },
   ko: {
+    marks_left: '{total}개 중 {n}개 남음.',
+    marks_all: '모두 찾았습니다. 다시 하면 복습할 수 있습니다.',
     pad_del: '지우기',
     pad_ok: '번호 확인',
     pad_typed: '입력한 번호 {code}',
@@ -2731,6 +2757,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone}에는 데파르트망이 {n}개: 이번 판은 {n}문제입니다.'
   },
   ar: {
+    marks_left: 'بقي {n} من {total} للعثور عليها.',
+    marks_all: 'تم العثور على الكل. العب مجددًا للمراجعة.',
     pad_del: 'حذف',
     pad_ok: 'تأكيد الرقم',
     pad_typed: 'أدخلت {code}',
@@ -2777,6 +2805,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} مقاطعات في {zone}: الجولة {n} أسئلة.'
   },
   fa: {
+    marks_left: '{n} از {total} باقی مانده.',
+    marks_all: 'همه پیدا شد. برای مرور دوباره بازی کن.',
     pad_del: 'پاک کردن',
     pad_ok: 'تأیید شماره',
     pad_typed: 'شمارهٔ واردشده {code}',
@@ -2823,6 +2853,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} شهرستان در {zone}: این دور {n} پرسش دارد.'
   },
   he: {
+    marks_left: 'נותרו {n} מתוך {total} למצוא.',
+    marks_all: 'כולם נמצאו. שחקו שוב כדי לחזור עליהם.',
     pad_del: 'מחיקה',
     pad_ok: 'אישור המספר',
     pad_typed: 'הקלדת {code}',
@@ -2869,6 +2901,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} מחוזות ב{zone}: הסבב הוא {n} שאלות.'
   },
   hi: {
+    marks_left: '{total} में से {n} बाकी हैं।',
+    marks_all: 'सभी मिल गए। दोहराने के लिए फिर खेलें।',
     pad_del: 'मिटाएँ',
     pad_ok: 'संख्या की पुष्टि',
     pad_typed: 'आपने {code} लिखा',
@@ -2915,6 +2949,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone} में {n} विभाग: यह दौर {n} प्रश्नों का है।'
   },
   bn: {
+    marks_left: '{total}-এর মধ্যে {n}টি বাকি।',
+    marks_all: 'সব পাওয়া গেছে। আবার খেলে পুনরাবৃত্তি করুন।',
     pad_del: 'মুছুন',
     pad_ok: 'নম্বর নিশ্চিত করুন',
     pad_typed: 'আপনি লিখেছেন {code}',

@@ -737,7 +737,7 @@ function question(sess, r) {
    is derived ONCE, so a session cannot change its own rules halfway - and the length is
    resolved against that pool, so "All" on a six-country zone is six questions and "25"
    on the same zone is six too, not twenty-five with repeats. */
-function newSession(items, cfg, seed) {
+function newSession(items, cfg, seed, opts) {
   /* THE MODE PICKS THE SCOPE, and the zone must belong to it: a config carried over
      from the world quiz ("Europe") into the France quiz cannot be honoured, so the
      France default replaces it - and the other way round. This is the same rule as the
@@ -761,6 +761,22 @@ function newSession(items, cfg, seed) {
   var pool = (c.mode === 'locate') ? cityPool(items, c.zone, c.difficulty)
            : (c.mode === 'floc')   ? frCityPool(items, c.zone, c.difficulty)
            : poolFor(items, c.zone, c.mode);
+  /* THE ONES ALREADY FOUND ARE NOT ASKED AGAIN. `opts.skip` is a set of answers the player
+     has already got right (the France quiz's record, which outlives a round); the pool of
+     ANSWERS drops them, so a resumed course asks what is left. The OPTIONS are untouched -
+     a question about the last three départements still offers six, five of them known - and
+     when everything has been found the skip is ignored rather than handing back an empty
+     round: `opts.skip` is a preference, not a filter that can empty the game. */
+  var skipped = 0;
+  if (opts && opts.skip) {
+    var keep = [], si;
+    for (si = 0; si < pool.length; si++) {
+      if (opts.skip[String(pool[si].code == null ? pool[si].id : pool[si].code)]) skipped++;
+      else keep.push(pool[si]);
+    }
+    if (keep.length) pool = keep;
+    else skipped = 0;                    /* nothing left to find: ask them again */
+  }
   /* THE LENGTH IS RESOLVED AGAINST THIS MODE'S OWN LIST: a stored 10 (a country round)
      is not a length locate offers, and "All" is not one of its choices at all. An
      unknown or absent choice falls back to the list's first entry, so a config carried
@@ -784,7 +800,7 @@ function newSession(items, cfg, seed) {
   var optPool = (fr && c.mode !== 'floc') ? poolFor(items, 'fr', c.mode) : null;
   /* the numbering's order, built once per session and only where it is used */
   var s2 = {
-    cfg: c, pool: pool, optPool: optPool, codeRank: null,
+    cfg: c, pool: pool, optPool: optPool, codeRank: null, skipped: skipped,
     used: {}, usedCountry: {}, byCountry: null, i: 0, score: 0, points: 0, km: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };

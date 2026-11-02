@@ -723,6 +723,68 @@ async function afterLoad() {
     global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
   }
 
+  /* ---------- 5b2. A RESUMED COURSE ASKS WHAT IS LEFT ----------
+     His note: "dans le mode où on enregistre la progression, lors de reprise de jeu, seule
+     les questions non posées ou mal répondues doivent être choisies". */
+  {
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+    /* fill the record by hand so the test states the rule instead of depending on draws:
+       60 found, one wrong */
+    const all = M().frItems().map(i => i.code);
+    const okSet = all.slice(0, 60), badOne = all[60];
+    const rec = { v: 1, m: { fdept: {} } };
+    okSet.forEach(c => rec.m.fdept[c] = 'ok');
+    rec.m.fdept[badOne] = 'bad';
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify(rec));
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 10 });
+    Qz2.go('diff');
+    const hd = Qz2.html();
+    check('the start screen says how many are left',
+          /41 left to find, out of 101/.test(hd), (hd.match(/marks_left[^<]*|left to find[^<]*/) || [''])[0]);
+    Qz2.start();
+    const st = Z();
+    check('a resumed round asks only what is left and what was missed',
+          st.roundLen === 10 && !okSet.includes(st.question.code),
+          st.question.code + ' (found: ' + (okSet.includes(st.question.code) ? 'YES' : 'no') + ')');
+    check('...the round is capped by what is left, not by the chosen length', (() => {
+      Qz2.quit();
+      Qz2.set({ len: 0 });                        /* "All" */
+      Qz2.start();
+      const n = Z().roundLen;
+      Qz2.quit();
+      return n === 41;                            /* 101 - 60 found */
+    })(), Z().roundLen);
+    /* the asked answers are never one of the 60 found, and a wrong one DOES come back */
+    check('...the found ones are never asked again', (() => {
+      Qz2.set({ len: 0 }); Qz2.start();
+      const asked = [];
+      for (let i = 0; i < Z().roundLen; i++) {
+        asked.push(Z().question.code);
+        const r = Z().question.options.findIndex(o => o.code === Z().question.code);
+        Qz2.choose(r); Qz2.next();
+      }
+      const bad = asked.filter(c => okSet.includes(c));
+      return bad.length === 0 && asked.length === 41;
+    })());
+    check('...and the one answered wrong comes back', (() => {
+      /* a wrong mark is not a skip: the pool keeps it (the rule is in marksSkip - only
+         'ok' is skipped) */
+      const rec2 = { v: 1, m: { fdept: {} } };
+      rec2.m.fdept[badOne] = 'bad';
+      global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify(rec2));
+      Qz2.quit();
+      Qz2.set({ len: 0, mode: 'fdept', zone: 'fr' });
+      Qz2.start();
+      const n = Z().roundLen;
+      Qz2.quit();
+      global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+      return n === 101;                 /* nothing skipped: one wrong mark skips nothing */
+    })(), badOne);
+    Qz2.quit();
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+  }
+
   /* ---------- 5c. THE PAD's shortcuts ---------- */
   {
     Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 });

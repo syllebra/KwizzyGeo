@@ -164,6 +164,21 @@ function marksForRound() {
   if (!marksKeep(cfg)) return {};
   return marksStored()[cfg.mode] || {};
 }
+/* THE ONES TO SKIP on resume: the answers kept for this mode that are RIGHT. A wrong one
+   comes back (that is the point of keeping it red), a never-asked one comes back, and a
+   mode that keeps nothing skips nothing. */
+/* how many are FOUND (right), as opposed to answered */
+function marksDone(mode) {
+  var m = marksStored()[mode || cfg.mode] || {}, n = 0, k;
+  for (k in m) if (m.hasOwnProperty(k) && m[k] === 'ok') n++;
+  return n;
+}
+function marksSkip(c) {
+  if (!marksKeep(c)) return null;
+  var m = marksStored()[c.mode] || {}, out = {}, k, any = false;
+  for (k in m) { if (m.hasOwnProperty(k) && m[k] === 'ok') { out[k] = 1; any = true; } }
+  return any ? out : null;
+}
 function marksSet(code, ok) {
   if (!code || !MARK_MODES[cfg.mode]) return;
   marks[String(code)] = ok ? 'ok' : 'bad';
@@ -715,8 +730,16 @@ function diffHTML() {
      have been playing for a week is not a thing to put next to Play without saying so. */
   var kept = marksCount(cfg.mode);
   if (marksKeep(cfg) && kept) {
+    /* ...AND WHAT IS LEFT. Found ones are not asked again and wrong ones come back, so the
+       number that matters is how many are still to find - it is also what the round length
+       is capped by (see poolOf), and saying it here is what stops "10 questions" looking
+       broken on a course with three left. */
+    var done = marksDone(cfg.mode), total = Q.poolFor(M.frItems(), cfg.zone, cfg.mode).length;
+    var left = Math.max(0, total - done);
     b += '<div class="qz-block qz-marks"><div class="qz-h">' + esc(T('marks_head')) + '</div>' +
          '<div class="qz-note">' + esc(T('marks_kept', { n: kept })) + '</div>' +
+         (left ? '<div class="qz-note">' + esc(T('marks_left', { n: left, total: total })) + '</div>'
+               : '<div class="qz-note">' + esc(T('marks_all')) + '</div>') +
          '<div class="qz-actions"><button class="qz-ghost" data-act="marks-reset">' +
          esc(marksArmed ? T('marks_confirm') : T('marks_reset')) + '</button></div></div>';
   } else {
@@ -801,8 +824,16 @@ function poolOf(c) {
   if (!flagsReady()) return [];
   if (isFrMode(cc.mode)) {
     if (!frOk()) return [];
-    return cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
-                              : Q.poolFor(M.frItems(), cc.zone, cc.mode);
+    var frPool = cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
+                                    : Q.poolFor(M.frItems(), cc.zone, cc.mode);
+    /* WHAT THE ROUND WILL ACTUALLY ASK: the ones already found are skipped (see
+       marksSkip), so "10 questions" of a course with 3 left is 3, and the note says so */
+    var sk = marksSkip(cc);
+    if (sk) {
+      var rest = frPool.filter(function (it) { return !sk[String(it.code == null ? it.id : it.code)]; });
+      if (rest.length) return rest;
+    }
+    return frPool;
   }
   if (cc.mode === 'locate') return Q.cityPool(M.cities(), cc.zone, cc.difficulty);
   return Q.poolFor(M.items(), cc.zone, cc.mode);
@@ -1617,7 +1648,8 @@ function startSession() {
   /* THE MARKS OF THE PREVIOUS GAMES, for the whole-France modes (empty in a région) */
   marks = marksForRound();
   if (M.frHistory) M.frHistory(marks);
-  session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0);
+  session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0,
+                         { skip: marksSkip(cfg) });
   infoMsg = '';
   var j = J();
   if (j) j.sfx('start');            /* the one loud yes of a run, as in Kwizzy */
