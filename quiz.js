@@ -52,9 +52,12 @@ function T(key, vars) {
 function dirOf() { return I18 ? I18.dir(lang()) : 'ltr'; }
 /* the id -> key maps for the vocabularies that live in quizcore (which is language
    neutral by design: it holds ids and rules, never words) */
-var K_MODE = { country: 'm_country', capital: 'm_capital', flag: 'm_flag', locate: 'm_locate' };
+var K_MODE = { country: 'm_country', capital: 'm_capital', flag: 'm_flag', locate: 'm_locate',
+               fdept: 'm_dept', fplace: 'm_place', fnum: 'm_num', fname: 'm_name',
+               fpref: 'm_pref', floc: 'm_locate' };
 var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag_s',
-                   locate: 'm_locate_s' };
+                   locate: 'm_locate_s', fdept: 'm_dept_s', fplace: 'm_place_s', fnum: 'm_num_s',
+                   fname: 'm_name_s', fpref: 'm_pref_s', floc: 'm_locate_s' };
 var K_ZONE = { world: 'z_world', africa: 'z_africa', asia: 'z_asia', europe: 'z_europe',
                'north-america': 'z_na', 'south-america': 'z_sa', oceania: 'z_oceania' };
 var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard' };
@@ -81,14 +84,18 @@ var backEl = document.getElementById('qback');
 
 /* the config survives a reload; a private-mode browser simply forgets it */
 var STORE = 'kwizzy.quiz.cfg';
-var cfg = { mode: 'country', zone: 'world', difficulty: 'medium', len: 10, variant: 'name' };
+var cfg = { scope: 'world', mode: 'country', zone: 'world', difficulty: 'medium', len: 10,
+            variant: 'name' };
 try {
   var saved = window.localStorage.getItem(STORE);
   if (saved) {
     var o = JSON.parse(saved);
     if (o && typeof o === 'object') {
-      if (Q.MODES.length) for (var i0 = 0; i0 < Q.MODES.length; i0++) if (o.mode === Q.MODES[i0].id) cfg.mode = o.mode;
-      for (var i1 = 0; i1 < Q.ZONES.length; i1++) if (o.zone === Q.ZONES[i1].id) cfg.zone = o.zone;
+      if (o.scope === 'france' || o.scope === 'world') cfg.scope = o.scope;
+      var ALLM = Q.MODES.concat(Q.FR_MODES);
+      for (var i0 = 0; i0 < ALLM.length; i0++) if (o.mode === ALLM[i0].id) cfg.mode = o.mode;
+      if (Q.isFrZone && Q.isFrZone(o.zone)) { if (cfg.scope === 'france') cfg.zone = o.zone; }
+      else for (var i1 = 0; i1 < Q.ZONES.length; i1++) if (o.zone === Q.ZONES[i1].id) cfg.zone = o.zone;
       for (var i2 = 0; i2 < Q.DIFFS.length; i2++) if (o.difficulty === Q.DIFFS[i2].id) cfg.difficulty = o.difficulty;
       for (var i3 = 0; i3 < Q.FLAG_ASK.length; i3++) if (o.variant === Q.FLAG_ASK[i3].id) cfg.variant = o.variant;
       for (var i4 = 0; i4 < Q.LENS.length; i4++) if (o.len === Q.LENS[i4].id) cfg.len = o.len;
@@ -102,8 +109,11 @@ function storeCfg() {
 /* THE SCREENS, in the order the arrows walk them (Kwizzy's own shape: a title, then
    one question per screen, then the run). `question` and `end` are the game; the rest
    are the menu the player walks through before a round. */
-var STEPS = ['title', 'mode', 'zone', 'diff'];
-var screen = 'title';        /* title | mode | zone | diff | about | question | end */
+/* THE WALK, one question per screen: which map, what to find, which zone, how hard.
+   `scope` is the new first step - the France quiz and the world quiz are two games
+   with two vocabularies, so the choice comes before the vocabulary is shown. */
+var STEPS = ['title', 'scope', 'mode', 'zone', 'diff'];
+var screen = 'title';        /* title | scope | mode | zone | diff | about | question | end */
 var soundOpen = false;       /* the sound & music drawer, over whichever screen */
 var soundEl = document.getElementById('qz-sound');   /* a SIBLING of #quiz, so a screen
                                                        re-render cannot wipe the drawer */
@@ -128,16 +138,79 @@ function flagSpan(code, cls) {
   if (!code || !/^[a-z]{2}$/.test(code)) return '';
   return '<span class="fi fi-' + code + (cls ? ' ' + cls : '') + '"></span>';
 }
-function zoneLabel(id) { return K_ZONE[id] ? T(K_ZONE[id]) : id; }
+/* A ZONE'S NAME, in the scope it belongs to: the world's continents from the table,
+   the France aggregates from it too, and a RÉGION from the data (a proper name -
+   "Bretagne" is "Bretagne" in all 18 languages, like "Bretagne" on a map) */
+var K_ZONE_FR = { 'fr': 'z_fr', 'fr-metro': 'z_fr_metro', 'fr-dom': 'z_fr_dom' };
+function zoneLabel(id) {
+  var s2 = String(id == null ? '' : id);
+  if (K_ZONE_FR[s2]) return T(K_ZONE_FR[s2]);
+  if (/^r[0-9]{2}$/.test(s2)) {
+    var nm = (M.frRegionName && M.frRegionName(s2.slice(1))) || '';
+    if (nm) return nm;
+  }
+  return K_ZONE[id] ? T(K_ZONE[id]) : id;
+}
 function diffLabel(id) { return K_DIFF[id] ? T(K_DIFF[id]) : id; }
 function diffSub(id) {
-  var k = (cfg.mode === 'locate' ? K_DIFF_SUB_LOCATE : K_DIFF_SUB)[id];
+  var k = (isLoc(cfg.mode) ? K_DIFF_SUB_LOCATE : K_DIFF_SUB)[id];
   return k ? T(k) : '';
 }
 function modeLabel(id) { return K_MODE[id] ? T(K_MODE[id]) : id; }
 function modeSub(id) { return K_MODE_SUB[id] ? T(K_MODE_SUB[id]) : ''; }
 function variantLabel(id) { return K_VARIANT[id] ? T(K_VARIANT[id]) : id; }
 function variantSub(id) { return K_VARIANT_SUB[id] ? T(K_VARIANT_SUB[id]) : ''; }
+/* ---------- THE SCOPE: which quiz ----------
+   THE FIRST QUESTION IS NOT WHAT TO FIND, IT IS WHICH MAP. "France" is not another
+   mode of the world quiz: it is the same game played on one country's own
+   subdivisions (101 départements, 18 régions), with its own modes, its own zones, its
+   own data (~2 MB of IGN geometry, fetched only when it is chosen) and its own
+   overlay on the map. Everything below follows from `cfg.scope`. */
+function isFrMode(m) { return !!(Q && Q.isFr && Q.isFr(m)); }
+/* a locate question, whichever map it is played on: the marker, the distance and the
+   "Confirm" bar are the same machinery in both scopes */
+function isLoc(m) { return m === 'locate' || m === 'floc'; }
+function frOk() { return !!(M.frReady && M.frReady()); }
+function modesHere() { return Q.modesOf(cfg.scope); }
+function zonesHere() {
+  if (cfg.scope !== 'france') return Q.ZONES;
+  return Q.frZones(M.frRegions ? M.frRegions() : []);
+}
+/* IS THERE ENOUGH DATA FOR THIS CONFIG? The world needs the layer; France needs the
+   layer AND its overlay (the overlay is drawn on top of the countries, so one without
+   the other is not a picture of anything) */
+function dataReady() {
+  if (!flagsReady()) return false;
+  return cfg.scope === 'france' ? frOk() : true;
+}
+var K_SCOPE = { world: 'scope_world', france: 'scope_france' };
+function scopeLabel(id) { return K_SCOPE[id] ? T(K_SCOPE[id]) : id; }
+function scopeSub(id) {
+  var k = id === 'france' ? 'scope_france_s' : 'scope_world_s';
+  return T(k);
+}
+/* THE LABELS A FRANCE QUESTION MAY PUT ON THE MAP, per mode. Two separate questions:
+   `codes` is "may the map show the numbers", `name` is "may it name the shape that is
+   lit up". Each mode turns on exactly what it GIVES AWAY:
+     fdept  the name is the answer            -> neither
+     fnum   the name is given, the number is
+            the answer                        -> name only
+     fname  the number is given, the name is
+            the answer                        -> numbers only
+     fpref  the département is given          -> both
+     floc   nothing is lit: the numbers are
+            the context the marker is placed in-> numbers only
+   (After an answer both come on, exactly like the world quiz's labels(true).) */
+function frLabelPlan(mode) {
+  if (mode === 'fdept') return { codes: false, name: false };
+  if (mode === 'fnum') return { codes: false, name: true };
+  if (mode === 'fpref') return { codes: true, name: true };
+  /* "place it": the name is GIVEN and the shape is the answer, so the map may show
+     neither the name nor the numbers - the shape alone is the question. */
+  if (mode === 'fplace') return { codes: false, name: false };
+  return { codes: true, name: false };
+}
+
 /* THE LOGO SLOT. The final mark drops in as media/logo.png; until that file exists the
    wordmark is the logo. Probed ONCE at boot rather than put in the markup with an
    onerror, so a missing file is a quiet 404 in the network log and never a broken
@@ -261,6 +334,55 @@ function bigLoadHTML() {
          '<div class="qz-loadsteps">' + lines + '</div></div>';
 }
 
+/* ---------- the scope screen: France, or the world ----------
+   Two cards, the same one-question-per-screen the rest of the walk has. Choosing
+   France is also the moment its data starts downloading: 2 MB that a world player
+   must never pay for, and a player who has just said "France" is the one person who
+   will not mind waiting a second for it. */
+function scopeHTML() {
+  var b = '<div class="qz-choices qz-choices-pairs">';
+  /* THE WORLD QUIZ IS THE DEFAULT, so it is the FIRST card - the four modes the game
+     has always had come before the one that needs 2 MB of French geometry. */
+  b += choiceHTML('scope', 'world', '\u29BF', scopeLabel('world'),
+                  scopeSub('world'), cfg.scope === 'world');
+  /* ...and FRANCE WEARS ITS FLAG, not a fleur-de-lys: the same flag-icons set the game
+     already ships (`.fi.fi-fr`), so the card says "France" in the one visual language a
+     player reads without a label. `choiceHTML` takes markup for its icon slot. */
+  b += choiceHTML('scope', 'france', '<span class="fi fi-fr qz-scopeflag"></span>', scopeLabel('france'),
+                  frOk() ? scopeSub('france') : T('loading_france'),
+                  cfg.scope === 'france');
+  b += '</div>';
+  /* THE NOTE NEEDS ITS OWN GLASS. It is a whole sentence of explanation, and on a phone
+     it lands on the map's own labels at .95 alpha - the first build left it bare and the
+     text was read against "NIGERIA"/"LAGOS" (measured on the 390 px frame). A block,
+     not a note, because there is nothing else on this page to group it with. */
+  b += '<div class="qz-block"><div class="qz-note">' + esc(T('scope_note')) + '</div></div>';
+  return shellHTML({
+    step: 1, steps: 4, title: T('h_pick_scope'), body: b,
+    foot: '<button class="qz-play" data-act="go" data-to="mode"' +
+          (dataReady() ? '' : ' disabled') + '>' + esc(T('cont')) + '</button>'
+  });
+}
+/* picking a scope also puts the config back on its feet: a France mode is not a world
+   mode and a France zone is not a continent, so the pair is reset rather than carried
+   across - `newSession` would refuse it anyway, and a screen showing a mode the game
+   will replace is a lie. */
+function pickScope(id) {
+  if (id !== 'france' && id !== 'world') return;
+  if (cfg.scope === id) return;
+  cfg.scope = id;
+  if (id === 'france') {
+    cfg.mode = Q.FR_MODES[1].id;          /* "name -> number": the mode this quiz is for */
+    cfg.zone = 'fr';
+  } else {
+    cfg.mode = 'country';
+    cfg.zone = 'world';
+  }
+  cfg.len = 10;                            /* both maps' default: a short round */
+  storeCfg();
+  if (id === 'france' && M.frLoad) M.frLoad(function () { if (screen === 'scope' || screen === 'mode') render(); });
+}
+
 /* ---------- screen 1: the title ---------- */
 function titleHTML() {
   var ready = flagsReady();
@@ -322,13 +444,20 @@ function titleHTML() {
 
 /* ---------- screen 2: what to find ---------- */
 function modeHTML() {
-  /* FOUR MODES, SO A 2x2. Three in a row and the fourth alone under them read as an
-     afterthought - the row layout was written when there were three modes and it kept
-     hanging the fourth card on its own line. `qz-choices-pairs` is the 2x2 on a wide
-     screen and one column on a phone (the same rule the length chips follow). */
-  var b = '<div class="qz-choices qz-choices-pairs">';
-  for (var i = 0; i < Q.MODES.length; i++) {
-    var md = Q.MODES[i];
+  /* FOUR MODES, SO A 2x2 (five, in the France quiz). Three in a row and the fourth
+     alone under them read as an afterthought - the row layout was written when there
+     were three modes and it kept hanging the fourth card on its own line.
+     `qz-choices-pairs` is the 2x2 on a wide screen and one column on a phone (the same
+     rule the length chips follow), and it lays out a fifth card without a special
+     case. */
+  var MD = modesHere();
+  var b = '';
+  /* the loader, while the overlay's 2 MB are still arriving: the mode cards are
+     already usable, so it is a line and not a spinner over the screen */
+  if (cfg.scope === 'france' && !frOk()) b += '<div class="qz-note">' + esc(T('loading_france')) + '</div>';
+  b += '<div class="qz-choices qz-choices-pairs">';
+  for (var i = 0; i < MD.length; i++) {
+    var md = MD[i];
     var waitCap = (md.id === 'capital' && !capsReady());
     b += choiceHTML('mode', md.id, md.ico, modeLabel(md.id),
                     waitCap ? T('loading_capitals_short') : modeSub(md.id),
@@ -348,23 +477,36 @@ function modeHTML() {
     b += '</div><div class="qz-note">' + esc(variantSub(cfg.variant)) + '</div></div>';
   }
   return shellHTML({
-    step: 1, steps: 3, title: T('h_pick_mode'), body: b,
+    step: 2, steps: 4, title: T('h_pick_mode'), body: b,
     foot: '<button class="qz-play" data-act="go" data-to="zone">' + esc(T('cont')) + '</button>'
   });
 }
 
 /* ---------- screen 3: which part of the world ---------- */
 function zoneHTML() {
+  /* THE ZONES OF THIS SCOPE: six continents for the world, "all / metropolitan /
+     overseas" and the eighteen régions for France (from the data, so a région that
+     ever leaves ADMIN-EXPRESS leaves this screen too). A France région card carries
+     its département count, because "Corse · 2" is what tells a player how long the
+     round can be. */
+  var Z = zonesHere();
   var b = '<div class="qz-choices qz-zones">';
-  for (var i = 0; i < Q.ZONES.length; i++) {
-    var z = Q.ZONES[i];
+  for (var i = 0; i < Z.length; i++) {
+    var z = Z[i];
     b += '<button class="qz-zcard' + (cfg.zone === z.id ? ' on' : '') + '" data-zone="' + z.id + '">' +
-         '<span class="qz-zname">' + esc(zoneLabel(z.id)) + '</span>' +
+         /* THE COUNT RIDES WITH THE NAME, inside its own span: a région's name wraps on a
+            phone, and a count placed anywhere else (an auto margin, or the card's corner)
+            ends up beside a line the player did not choose - measured on the 390 px
+            frame, where it read as a label for the second half of the name. */
+         '<span class="qz-zname">' + esc(zoneLabel(z.id)) +
+         (z.n ? ' <span class="qz-zn">' + z.n + '</span>' : '') + '</span>' +
          '<span class="qz-tick" aria-hidden="true"></span></button>';
   }
   b += '</div>';
   return shellHTML({
-    step: 2, steps: 3, title: T('h_pick_zone'), body: b,
+    /* THE TITLE NAMES THE SCOPE: "which part of the world" over a list of French
+       régions is a question the page then answers with Bretagne and Mayotte */
+    step: 3, steps: 4, title: T(cfg.scope === 'france' ? 'h_pick_zone_fr' : 'h_pick_zone'), body: b,
     foot: '<button class="qz-play" data-act="go" data-to="diff">' + esc(T('cont')) + '</button>'
   });
 }
@@ -387,9 +529,9 @@ function diffHTML() {
   var best = bestText();
   if (best) b += '<div class="qz-note qz-bestline">' + esc(best) + '</div>';
   return shellHTML({
-    step: 3, steps: 3, title: T('h_pick_diff'), body: b,
-    foot: '<button class="qz-play qz-xl" data-act="start"' + (flagsReady() ? '' : ' disabled') + '>' +
-          esc(flagsReady() ? T('play') : T('loading_map')) + '</button>'
+    step: 4, steps: 4, title: T('h_pick_diff'), body: b,
+    foot: '<button class="qz-play qz-xl" data-act="start"' + (dataReady() ? '' : ' disabled') + '>' +
+          esc(dataReady() ? T('play') : (flagsReady() ? T('loading_france') : T('loading_map'))) + '</button>'
   });
 }
 
@@ -397,6 +539,21 @@ function diffHTML() {
 /* The two things a player should be able to find without reading the README: what the
    map is made of (and whose it is), and what this device remembers about them. The
    memory half is the stats sheet's own content, rendered by the same builder. */
+/* which files this page really loaded: read off the <script> tags, so it cannot lie */
+function buildStamp() {
+  var out = [], want = { 'app.js': 1, 'quiz.js': 1, 'quizcore.js': 1, 'i18n.js': 1 };
+  var tags = (document.getElementsByTagName ? document.getElementsByTagName('script') : []) || [];
+  for (var i = 0; i < tags.length; i++) {
+    var src = String((tags[i] && tags[i].getAttribute && tags[i].getAttribute('src')) || '');
+    for (var f in want) {
+      if (!want.hasOwnProperty(f)) continue;
+      if (src.indexOf(f + '?v=') >= 0) out.push(src.replace(/^.*\//, ''));
+    }
+  }
+  /* an environment with no <script> to read (a test's fake DOM, a bundler): say so
+     rather than print a dash that looks like a bug */
+  return out.join(' \u00b7 ') || 'no script tags';
+}
 function creditRow(name, what, href) {
   var n = href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(name) + '</a>'
                : esc(name);
@@ -410,11 +567,23 @@ function aboutHTML() {
        '<div class="qz-note">' + esc(T('ab_layers_v')) + '</div></div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_flags')) + '</div>' +
        creditRow('flag-icons', T('ab_fi'), 'https://github.com/lipis/flag-icons') + '</div>';
+  /* THE FRANCE QUIZ'S OWN PROVENANCE, on the same screen: the geometry is IGN's, the
+     names and populations are the state's commune API. Attribution is not decoration -
+     the sources are Licence Ouverte, which asks to be named. */
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_fr_head')) + '</div>' +
+       creditRow('IGN', T('ab_fr_ign'), 'https://www.ign.fr/') +
+       creditRow('geo.api.gouv.fr', T('ab_fr_insee'), 'https://geo.api.gouv.fr/') +
+       '<div class="qz-note">' + esc(T('ab_fr_note')) + '</div></div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_map')) + '</div>' +
        creditRow('KwizzyGeo', T('ab_code')) +
        '<div class="qz-note">' + esc(T('ab_map_note')) + '</div></div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('snd_title')) + '</div>' +
        '<div class="qz-note">' + esc(T('ab_music_note')) + '</div></div>';
+  /* THE BUILD STAMP. "it is not on the site" has one honest answer and it is this line:
+     the cache-busters live in index.html, so a cached HTML loads an older app.js and the
+     newest work looks unshipped. The numbers here are what THIS page actually loaded. */
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_build')) + '</div>' +
+       '<div class="qz-note">' + esc(buildStamp()) + '</div></div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_memory')) + '</div>' +
        '<div class="qz-note">' + esc(T('ab_memory_note')) + '</div>' +
        '<div class="qz-actions"><button class="qz-ghost" data-act="stats-open">' + esc(T('stats')) +
@@ -434,6 +603,11 @@ function aboutHTML() {
 function poolOf(c) {
   var cc = c || cfg;
   if (!flagsReady()) return [];
+  if (isFrMode(cc.mode)) {
+    if (!frOk()) return [];
+    return cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
+                              : Q.poolFor(M.frItems(), cc.zone, cc.mode);
+  }
   if (cc.mode === 'locate') return Q.cityPool(M.cities(), cc.zone, cc.difficulty);
   return Q.poolFor(M.items(), cc.zone, cc.mode);
 }
@@ -448,15 +622,21 @@ function chosenLen() {
 function lenSub() {
   var want = chosenLen();
   var n = poolOf(cfg).length;
+  /* the note counts the RIGHT NOUN: a round of continents counts countries, a round of
+     the France quiz counts départements (and "every country of Île-de-France" would be
+     a sentence about a country that does not exist) */
+  var fr = cfg.scope === 'france';
   if (!want) {
-    return n ? T('l_note_all', { zone: zoneLabel(cfg.zone), n: n }) : T('l_all');
+    return n ? T(fr ? 'l_note_all_fr' : 'l_note_all', { zone: zoneLabel(cfg.zone), n: n })
+             : T(fr ? 'l_all_fr' : 'l_all');
   }
-  if (n && n < want) return T('l_note_clip', { zone: zoneLabel(cfg.zone), n: n });
+  if (n && n < want) return T(fr ? 'l_note_clip_fr' : 'l_note_clip', { zone: zoneLabel(cfg.zone), n: n });
   return K_LEN_SUB[want] ? T(K_LEN_SUB[want]) : '';
 }
 function defaultInfo() {
   if (!flagsReady()) return T('loading_map');
   if (cfg.mode === 'capital' && !capsReady()) return T('loading_caps');
+  if (cfg.scope === 'france' && !frOk()) return T('loading_france');
   return '';
 }
 function bestText() {
@@ -482,6 +662,9 @@ function kindLabel() {
 }
 function askHTML() {
   var h = '<div class="qz-qkind">' + esc(kindLabel()) + ' \u00b7 ' + esc(subZoneDiff(q)) + '</div>';
+  /* the France quiz's five prompts live in frAskHTML, so this builder stays one
+     branch per mode and each scope reads as its own thing */
+  if (isFrMode(q.mode)) return h + frAskHTML();
   if (q.mode === 'country') {
     h += '<div class="qz-q">' + esc(T('ask_country')) + '</div>';
   } else if (q.mode === 'capital') {
@@ -537,6 +720,11 @@ function continent(it) {
    capital's - never the string the item was built with, so a language change is not
    frozen into a half-translated question */
 function optionLabel(it) {
+  /* the France quiz's options are NUMBERS, PRÉFECTURES or NAMES, depending on what the
+     question asks for - and the names are read live, like the world's */
+  if (q.mode === 'fnum') return String(it.code);
+  if (q.mode === 'fpref') return it.pref || '';
+  if (isFrMode(q.mode)) return M.frName(it.code) || it.name || '';
   if (q.mode === 'capital') return M.capLabel(it.id) || it.cap || '';
   return M.label(it.id) || it.name || '';
 }
@@ -571,6 +759,7 @@ function answersHTML() {
   return h + '</div>';
 }
 function revealHTML() {
+  if (isFrMode(q.mode)) return frRevealHTML();
   var a = q.answer;
   /* THE VERDICT IS THE VERDICT, and the line beside it is the ANSWER. Printing the
      right answer inside the verdict as well ("✕ Trinidad and Tobago" next to
@@ -608,18 +797,87 @@ function revealHTML() {
        wrong  (anything else)      -> the cross.
      CLOSE_POINTS is 800, i.e. within about 335 km: the distance at which the miss is
      still "the right part of the map". */
-  var near = q.points >= Q.CLOSE_POINTS;
   return '<div class="qz-reveal">' +
-    '<div class="qz-head">' +
-    '<span class="qz-verdict ' + (q.ok ? 'good' : (near ? 'near' : 'bad')) + '">' +
-    (q.ok ? '\u2713 ' + esc(T('correct'))
-          : (near ? '\u25C9 ' + esc(T('close')) : '\u2715 ' + esc(T('wrong')))) + '</span>' +
+    '<div class="qz-head">' + verdictHTML() +
     '<span class="qz-facts">' + facts + '</span>' +
     '<button class="qz-next" data-act="next">' + esc(last ? T('results') : T('next')) +
     '</button></div>' +
     (details ? '<div class="qz-details">' + details + '</div>' : '') +
     '</div>';
 }
+/* ---------- THE FRANCE QUIZ'S OWN PROMPTS AND VERDICT ----------
+   Same card, same six buttons, same verdict block: only the words and the facts
+   change. The prompts go through `named()` like the world's do, so a language that
+   puts the name at the end of its sentence only has to move {dept} in its own string.
+   `q.answer` is a DÉPARTEMENT (code, name, pref, reg) in four of the five modes and a
+   CITY in the fifth (`locateRevealHTML` handles that one). */
+function frAskHTML() {
+  if (q.mode === 'fdept') return '<div class="qz-q">' + esc(T('ask_dept')) + '</div>';
+  if (q.mode === 'fnum') {
+    return '<div class="qz-q">' + named('ask_num', M.frName(q.answer.code) || q.answer.name, 'dept') + '</div>';
+  }
+  if (q.mode === 'fname') {
+    return '<div class="qz-q">' + named('ask_name', String(q.answer.code), 'num') + '</div>';
+  }
+  if (q.mode === 'fpref') {
+    return '<div class="qz-q">' + named('ask_pref', M.frName(q.answer.code) || q.answer.name, 'dept') + '</div>';
+  }
+  if (q.mode === 'fplace') {
+    /* the name is GIVEN and the shape is the answer - the mirror of "find the
+       département", one sentence apart */
+    return '<div class="qz-q">' + named('ask_place', M.frName(q.answer.code) || q.answer.name, 'dept') + '</div>';
+  }
+  /* floc: the city is the question (the same sentence the world locate mode uses) */
+  return '<div class="qz-q">' + named('ask_locate', M.placeLabel(q.answer.id) || q.answer.name, 'city') + '</div>';
+}
+/* THE VERDICT LINE. The answer is always printed as `number · name`, in an order that
+   leads with what the question asked about: a question about a number leads with the
+   number, a question about a name leads with the name, a question about the préfecture
+   leads with the town. */
+function frRevealHTML() {
+  var a = q.answer;
+  var nm = M.frName(a.code) || a.name;
+  var reg = M.frRegionName(a.reg) || a.regName || '';
+  var last = (session.i >= session.cfg.len);
+  var facts;
+  if (q.mode === 'fpref') {
+    facts = '<b>' + esc(a.pref) + '</b> <span class="qz-dim">\u00b7 ' + esc(T('p_pref')) +
+            ' \u00b7 ' + esc(nm) + (reg ? ' \u00b7 ' + esc(reg) : '') + '</span>';
+  } else if (q.mode === 'fplace') {
+    /* what was clicked, when it was wrong: the map has turned it red, and the card has to
+       be able to say WHICH one it was */
+    facts = '<b>' + esc(String(a.code)) + ' \u00b7 ' + esc(nm) + '</b>' +
+            (reg ? ' <span class="qz-dim">\u00b7 ' + esc(reg) + '</span>' : '');
+    if (!q.ok && q.picked) {
+      facts += ' <span class="qz-dim">\u00b7 ' +
+               esc(T('place_picked', { code: q.picked, name: M.frName(q.picked) || '' })) + '</span>';
+    }
+  } else if (q.mode === 'fname') {
+    facts = '<b>' + esc(nm) + '</b> <span class="qz-dim">\u00b7 ' + esc(String(a.code)) +
+            (reg ? ' \u00b7 ' + esc(reg) : '') + '</span>';
+  } else {
+    facts = '<b>' + esc(String(a.code)) + ' \u00b7 ' + esc(nm) + '</b>' +
+            (reg ? ' <span class="qz-dim">\u00b7 ' + esc(reg) + '</span>' : '');
+  }
+  var details = '';
+  try { details = M.frPanel ? M.frPanel(a.code) : ''; } catch (e) { details = ''; }
+  return '<div class="qz-reveal">' +
+    '<div class="qz-head">' + verdictHTML() +
+    '<span class="qz-facts">' + facts + '</span>' +
+    '<button class="qz-next" data-act="next">' + esc(last ? T('results') : T('next')) +
+    '</button></div>' +
+    (details ? '<div class="qz-details">' + details + '</div>' : '') +
+    '</div>';
+}
+/* the ✓ / ✕ / "close" block, in one place: two modes print it and it must not drift */
+function verdictHTML() {
+  var near = q.points >= Q.CLOSE_POINTS;
+  var cls = q.ok ? 'good' : (near ? 'near' : 'bad');
+  var word = q.ok ? '\u2713 ' + esc(T('correct'))
+                  : (near ? '\u25C9 ' + esc(T('close')) : '\u2715 ' + esc(T('wrong')));
+  return '<span class="qz-verdict ' + cls + '">' + word + '</span>';
+}
+
 /* THE LOCATE BAR. There are no answers to press, so the bottom of the screen holds the
    one thing there is to do. Before a marker is placed it says what to do; after, it
    confirms, and it is the only enabled control in the game that is not a six-option
@@ -631,6 +889,14 @@ function locateBarHTML() {
     esc(T('loc_confirm')) + '</button>' +
     '</div>';
 }
+/* THE "PLACE IT" BAR. There is nothing to press - a click is the answer - so it is one
+   line of instruction in the place the locate mode puts its Confirm, and after the answer
+   the verdict card takes that place, exactly as it does there. */
+function placeBarHTML() {
+  return '<div class="qz-locbar qz-placebar">' +
+    '<div class="qz-lochint">' + esc(T('place_hint')) + '</div></div>';
+}
+
 /* kilometres as a player reads them: one decimal under 10 km (a bullseye is a real
    number, "0 km" would look like a bug), whole kilometres above */
 function fmtKm(km) {
@@ -659,7 +925,7 @@ function locateRevealHTML() {
     (q.ok ? '\u2713 ' + esc(T('correct'))
           : (near ? '\u25C9 ' + esc(T('close')) : '\u2715 ' + esc(T('wrong')))) + '</span>' +
     '<span class="qz-facts"><b>' + esc(nm) + '</b>' +
-    (a.country ? ' <span class="qz-dim">· ' + esc(a.country) + '</span>' : '') +
+    ((a.deptName || a.country) ? ' <span class="qz-dim">· ' + esc(a.deptName || a.country) + '</span>' : '') +
     ' <span class="qz-locres">' + esc(T('loc_away', { n: fmtKm(q.km) })) + ' · ' +
     esc(T('loc_pts', { n: q.points })) + '</span></span>' +
     '<button class="qz-next" data-act="next">' + esc(last ? T('results') : T('next')) +
@@ -678,14 +944,18 @@ function questionHTML() {
        '<div class="qz-mid"><span class="qz-prog">' +
        esc(T('question_of', { i: session.i, n: session.cfg.len })) +
        '</span><span class="qz-score' + (bumped ? ' bump' : '') + '">' +
-       esc(q.mode === 'locate' ? T('loc_pts', { n: session.points || 0 })
+       esc(isLoc(q.mode) ? T('loc_pts', { n: session.points || 0 })
                               : T('score_mark', { n: session.score })) + '</span></div>' +
        '</div>';
   h += '<div class="qz-ask' + (q.mode === 'flag' && q.variant === 'name' ? ' qz-ask-flag' : '') +
-       (q.mode === 'locate' ? ' qz-ask-locate' : '') + '">' +
+       (isLoc(q.mode) ? ' qz-ask-locate' : '') + '">' +
        askHTML() + '</div>';
-  if (q.mode === 'locate') {
+  if (isLoc(q.mode)) {
     h += '<div class="qz-bottom">' + (answered ? locateRevealHTML() : locateBarHTML()) + '</div>';
+  } else if (q.mode === 'fplace') {
+    /* no grid and no bar to press: the click IS the answer, and the verdict takes the
+       place the grid would have had */
+    h += '<div class="qz-bottom">' + (answered ? frRevealHTML() : placeBarHTML()) + '</div>';
   } else {
     h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
   }
@@ -720,7 +990,7 @@ function endHTML() {
   return '<div class="qz-scrim"></div><div class="qz-card qz-endcard">' +
     '<div class="qz-h">' + esc(modeLabel(session.cfg.mode)) + ' · ' + esc(zoneLabel(session.cfg.zone)) +
     ' · ' + esc(diffLabel(session.cfg.difficulty)) + '</div>' +
-    (session.cfg.mode === 'locate'
+    (isLoc(session.cfg.mode)
       ? '<div class="qz-endh' + (fresh ? ' fresh' : '') + '">' + (session.points || 0) +
         ' <span>/ ' + (n * Q.POINTS_MAX) + '</span></div>'
       : '<div class="qz-endh' + (fresh ? ' fresh' : '') + '">' + ok + ' <span>/ ' + n + '</span></div>') +
@@ -838,8 +1108,12 @@ function countryRows(list) {
   var h = '';
   for (var i = 0; i < list.length; i++) {
     var c = list[i];
-    h += '<div class="qz-crow">' + flagSpan(c.flag, 'fis') +
-         '<span class="nm">' + esc(M.label(c.id) || c.name) + '</span>' +
+    /* A FRANCE ROW's `flag` is its département number ('2A', '971'), not a country code:
+       anything that is not two letters is printed as the number it is */
+    var badge = flagSpan(c.flag, 'fis');
+    if (!badge && c.flag) badge = '<span class="qz-cnum">' + esc(String(c.flag)) + '</span>';
+    h += '<div class="qz-crow">' + badge +
+         '<span class="nm">' + esc(M.label(c.id) || M.frName(c.flag) || c.name) + '</span>' +
          '<span class="q">' + c.correct + '/' + c.asked + '</span>' +
          '<span class="v">' + pctText(c.pct, c.asked) + '</span></div>';
   }
@@ -943,6 +1217,7 @@ function render() {
   applyDir();
   setBack();
   if (screen === 'title') quizEl.innerHTML = titleHTML();
+  else if (screen === 'scope') quizEl.innerHTML = scopeHTML();
   else if (screen === 'mode') quizEl.innerHTML = modeHTML();
   else if (screen === 'zone') quizEl.innerHTML = zoneHTML();
   else if (screen === 'diff') quizEl.innerHTML = diffHTML();
@@ -989,7 +1264,15 @@ function platformGameplay(on) {
    The number comes from the RECORD (stats.js), so it survives a reload and says 100 to a
    returning player on their first visit, and it can only grow: one mode = 25, four =
    100. `C.progress` drops a repeat, so calling this on every round end costs nothing. */
-var COMPLETION_MODES = ['country', 'capital', 'flag', 'locate'];
+/* THE MILESTONE IS STILL "has seen the whole game", and the whole game is now two
+   maps: the four world modes AND the France quiz (played at all, whichever of its five
+   modes). Five steps of 20 % would put a player who has played everything the world
+   quiz can ask at 80 %, which is honest; counting all nine modes would put them at
+   44 %, which is not - a mode they have never been shown is not a mode they skipped.
+   The 'france' entry below is the pseudo-mode platformProgress resolves from the five
+   France ids. */
+var COMPLETION_MODES = ['country', 'capital', 'flag', 'locate', 'france'];
+var FRANCE_MODES = ['fdept', 'fnum', 'fname', 'fpref', 'floc'];
 function platformProgress() {
   var C = window.Crazy;
   if (!C || !C.progress) return;
@@ -997,6 +1280,7 @@ function platformProgress() {
   if (!st) return;
   var played = {}, rows = st.summary().modes, i, n = 0;
   for (i = 0; i < rows.length; i++) if (rows[i].played > 0) played[rows[i].key] = 1;
+  for (i = 0; i < FRANCE_MODES.length; i++) if (played[FRANCE_MODES[i]]) played.france = 1;
   for (i = 0; i < COMPLETION_MODES.length; i++) if (played[COMPLETION_MODES[i]]) n++;
   C.progress(Math.round(n * 100 / COMPLETION_MODES.length));
 }
@@ -1006,18 +1290,32 @@ function info(msg) { infoMsg = msg || ''; if (isMenu()) render(); }
 function startSession() {
   if (!flagsReady()) { info(T('loading_map')); return false; }
   if (cfg.mode === 'capital' && !capsReady()) { info(T('loading_caps')); return false; }
+  /* THE FRANCE QUIZ NEEDS ITS OVERLAY, and it needs it BEFORE the map is handed over:
+     a round whose questions are départements and whose map has no département on it is
+     not a round. The download is started by the scope screen, so this is normally
+     already true; on a slow link it is the one honest "not yet". */
+  if (cfg.scope === 'france' && !frOk()) {
+    if (M.frLoad) M.frLoad(function () { if (isMenu()) render(); });
+    info(T('loading_france'));
+    return false;
+  }
   /* HAND THE MAP OVER FIRST, then read the country list: enter() pins the layer, and
      the list must be the one the pinned layer actually draws (app.js paints the 50m
      layer and swaps the 10m one in when its 11 MB arrive - building the items before
      that would key a session to a layer that is no longer on screen). */
-  if (!M.enter({ locate: cfg.mode === 'locate' })) { info(T('map_not_ready')); return false; }
+  var fr = cfg.scope === 'france';
+  if (!M.enter({ locate: isLoc(cfg.mode), france: fr })) { info(T('map_not_ready')); return false; }
   /* the items the session holds are the mode's own: countries for the three
-     multiple-choice modes, cities for locate. */
-  var items = cfg.mode === 'locate' ? M.cities() : M.items();
+     multiple-choice modes, cities for locate - and départements / communes in France. */
+  var items = fr ? (isLoc(cfg.mode) ? M.frCities() : M.frItems())
+                 : (isLoc(cfg.mode) ? M.cities() : M.items());
   var pool = poolOf(cfg);
   /* "six options" is the multiple-choice rule; locate needs a pool at all, and its
-     round is capped to that pool by newSession. */
-  if (pool.length < (cfg.mode === 'locate' ? 1 : Q.N_OPT)) {
+     round is capped to that pool by newSession. IN FRANCE the options come from the
+     whole territory, so a zone only has to hold ONE answer (Mayotte has one
+     département; its question is still six options, five of them elsewhere). */
+  var need = (isLoc(cfg.mode) || fr) ? 1 : Q.N_OPT;
+  if (pool.length < need) {
     M.exit();
     info(T('not_enough', { zone: zoneLabel(cfg.zone) }));
     return false;
@@ -1050,10 +1348,20 @@ function startSession() {
 var RAND_TRIES = 24;
 function randomStart() {
   if (!flagsReady()) { info(T('loading_map')); return false; }
+  /* THE DRAW STAYS IN THE SCOPE the player is in: Fast Play on the France quiz draws a
+     France mode and a France zone, and the floor below is "all of France", not the
+     world (a French player asking for a random round has not asked for Chad). */
+  if (cfg.scope === 'france' && !frOk()) {
+    if (M.frLoad) M.frLoad(function () { if (isMenu()) render(); });
+    info(T('loading_france'));
+    return false;
+  }
+  var fr = cfg.scope === 'france';
+  var ML = Q.modesOf(cfg.scope), ZL = zonesHere();
   var modes = [], i;
-  for (i = 0; i < Q.MODES.length; i++) modes.push(Q.MODES[i].id);
+  for (i = 0; i < ML.length; i++) modes.push(ML[i].id);
   var zones = [];
-  for (i = 0; i < Q.ZONES.length; i++) zones.push(Q.ZONES[i].id);
+  for (i = 0; i < ZL.length; i++) zones.push(ZL[i].id);
   var pick = null;
   for (var t = 0; t < RAND_TRIES && !pick; t++) {
     var c = { mode: modes[(Math.random() * modes.length) | 0],
@@ -1062,22 +1370,23 @@ function randomStart() {
               difficulty: 'medium',
               variant: cfg.variant,
               len: cfg.len };
-    if (c.mode === 'locate') c.difficulty = 'easy';
+    if (isLoc(c.mode)) c.difficulty = 'easy';
     if (c.mode === 'capital' && !capsReady()) continue;
-    if (poolOf(c).length < (c.mode === 'locate' ? 1 : Q.N_OPT)) continue;
+    if (poolOf(c).length < (isLoc(c.mode) || fr ? 1 : Q.N_OPT)) continue;
     pick = c;
   }
   if (!pick) {
     /* the floor: the whole world, in a mode that is always drawable */
+    var floorZone = fr ? 'fr' : 'world';
     for (i = 0; i < modes.length; i++) {
-      var cc = { mode: modes[i], zone: 'world',
-                 difficulty: modes[i] === 'locate' ? 'easy' : 'medium',
+      var cc = { mode: modes[i], zone: floorZone,
+                 difficulty: isLoc(modes[i]) ? 'easy' : 'medium',
                  variant: cfg.variant, len: cfg.len };
       if (modes[i] === 'capital' && !capsReady()) continue;
-      if (poolOf(cc).length >= (modes[i] === 'locate' ? 1 : Q.N_OPT)) { pick = cc; break; }
+      if (poolOf(cc).length >= (isLoc(modes[i]) ? 1 : Q.N_OPT)) { pick = cc; break; }
     }
   }
-  if (!pick) { info(T('not_enough', { zone: zoneLabel('world') })); return false; }
+  if (!pick) { info(T('not_enough', { zone: zoneLabel(fr ? 'fr' : 'world') })); return false; }
   cfg.mode = pick.mode;
   cfg.zone = pick.zone;
   cfg.difficulty = pick.difficulty;
@@ -1110,8 +1419,31 @@ function nextQuestion() {
      So the label follows the QUESTION, not the mode: the same flag mode has one half
      that may say the name and one that may not. */
   if (M.labels) M.labels(q.mode === 'capital' || (q.mode === 'flag' && q.variant === 'flags'));
+  /* THE FRANCE QUIZ lights a DÉPARTEMENT, not a country, and says which of its two
+     labels it may show (see frLabelPlan): the map's own overlay does the lighting. */
+  if (isFrMode(q.mode)) {
+    var plan = frLabelPlan(q.mode);
+    if (M.frLabels) M.frLabels(plan.codes, plan.name);
+    guess = null;
+    if (q.mode === 'floc') { locateArm(); render(); return; }
+    if (M.aim) M.aim(false);
+    if (M.clearMarks) M.clearMarks();
+    if (M.frMark) M.frMark(null, null);      /* no mark left over from the last question */
+    if (q.mode === 'fplace') { placeArm(); render(); return; }
+    if (q.mode === 'fdept' || q.mode === 'fpref') {
+      /* the two modes that light a département fly to it */
+      if (M.frShow) M.frShow(q.answer.code);
+    } else if (M.frGoZone) {
+      /* the two modes that GIVE the shape away (name -> number, number -> name) frame
+         the ZONE instead: the picture to read is the map of départements, and flying
+         to one of them would point at the answer. */
+      M.frGoZone(q.zone);
+    }
+    render();
+    return;
+  }
   guess = null;
-  if (q.mode === 'locate') { locateArm(); render(); return; }
+  if (isLoc(q.mode)) { locateArm(); render(); return; }
   if (M.aim) M.aim(false);
   if (M.clearMarks) M.clearMarks();
   M.show(q.answer.id);
@@ -1124,15 +1456,70 @@ function nextQuestion() {
    town a lottery), and the aim: from now on a tap on the map reports a point instead of
    picking a country. */
 function locateArm() {
-  if (!q || q.mode !== 'locate') return;
+  if (!q || !isLoc(q.mode)) return;
   if (M.labels) M.labels(false);          /* no single country lit up: nothing is "the" one */
-  if (M.countryNames) M.countryNames(true);
   if (M.clearMarks) M.clearMarks();
-  if (M.goZone) M.goZone(q.answer && q.answer.cont, q.answer);
+  if (q.mode === 'floc') {
+    /* the France locate mode frames the ZONE (a région, the métropole) and keeps the
+       department NUMBERS on - they are the grid the marker is placed in, and they never
+       say where the city is */
+    if (M.frLabels) M.frLabels(true, false);
+    if (M.frGoZone) M.frGoZone(q.zone);
+  } else {
+    if (M.countryNames) M.countryNames(true);
+    if (M.goZone) M.goZone(q.answer && q.answer.cont, q.answer);
+  }
   if (M.aim) M.aim(true, onAim);
 }
+/* ---------- PLACE THE DÉPARTEMENT: arming the map ----------
+   The same aim as locate (one rule for mouse and finger), but the answer is a SHAPE, not
+   a point: the click is turned into a département by the map's own overlay
+   (MapApp.frDepAt, a ray cast in lon/lat, so it does not care what the view is doing),
+   and a click that lands in the sea resolves to '' - which is NOT an answer, it is a
+   tap, so nothing happens and the player can try again. */
+function placeArm() {
+  if (!q || q.mode !== 'fplace') return;
+  if (M.labels) M.labels(false);
+  if (M.clearMarks) M.clearMarks();
+  if (M.countryNames) M.countryNames(false);
+  if (M.frMark) M.frMark(null, null);
+  /* a tighter window than the name -> number modes use: the question is which SHAPE it
+     is, and that is read between neighbours, not by finding a région inside France */
+  if (M.frGoZone) M.frGoZone(q.zone, 2.6);
+  if (M.aim) M.aim(true, onPlace);
+}
+function onPlace(pt) {
+  if (!pt || screen !== 'question' || !q || q.mode !== 'fplace' || answered) return;
+  var code = M.frDepAt ? M.frDepAt(pt.lon, pt.lat) : '';
+  if (!code) { info(T('place_miss')); return; }      /* the sea: not an answer */
+  answerPlace(code);
+}
+/* THE VERDICT OF A CLICK: the rule is quizcore's (answerDept), the picture is the map's
+   (MapApp.frMark: the clicked shape in red, the right one in green). */
+function answerPlace(code) {
+  if (!q || q.mode !== 'fplace' || answered) return false;
+  var res = Q.answerDept(session, q, code);
+  if (!res) return false;
+  answered = true;
+  bumped = res.ok;
+  var right = String(q.answer.code);
+  if (M.aim) M.aim(false);
+  if (M.frMark) M.frMark(res.ok ? '' : res.picked, right);
+  if (M.frLabels) M.frLabels(true, true);
+  if (S()) S().answer(q, res.ok, q.answer);
+  info('');
+  render();
+  bumped = false;
+  var j = J();
+  if (j) {
+    j.haptic(res.ok ? 60 : [25, 40, 25]);
+    j.sfx(res.ok ? 'correct' : 'wrong');
+  }
+  return res.ok;
+}
+
 function onAim(pt) {
-  if (!pt || screen !== 'question' || !q || q.mode !== 'locate' || answered) return;
+  if (!pt || screen !== 'question' || !q || !isLoc(q.mode) || answered) return;
   guess = { lon: pt.lon, lat: pt.lat };
   /* the marker is drawn by the map itself, so the player sees what they chose before
      they confirm - the picture is the state */
@@ -1146,7 +1533,7 @@ function aimOff() {
 /* CONFIRM: the answer is a point, so it goes through the point rule - distance,
    points, and the two marks that show the miss. */
 function confirmGuess() {
-  if (!q || q.mode !== 'locate' || answered || !guess) return false;
+  if (!q || !isLoc(q.mode) || answered || !guess) return false;
   var res = Q.answerPoint(session, q, guess);
   if (!res) return false;
   answered = true;
@@ -1155,8 +1542,10 @@ function confirmGuess() {
   var nm = M.placeLabel(q.answer.id) || q.answer.name;
   if (M.marks) M.marks(guess, { lon: q.answer.lon, lat: q.answer.lat }, nm, res.km);
   /* frame both points: the reveal is a picture, and two marks 200 km apart have to be
-     two marks, not one */
-  if (M.fitMarks) M.fitMarks();
+     two marks, not one. IN FRANCE the same question is asked at a tenth of the scale,
+     so the floor is 0.6 deg (~65 km) and the marks fill a third of the height instead
+     of a fifth. */
+  if (M.fitMarks) M.fitMarks(q.mode === 'floc' ? { minR: 0.6, fill: 0.32 } : null);
   if (S()) S().answer(q, res.ok, { id: q.answer.id, name: nm });
   render();
   bumped = false;
@@ -1183,6 +1572,9 @@ function choose(i) {
      map may name the country too - which is the moment a player wants the two pictures
      (the shape and the name) to be the same thing. */
   if (M.labels) M.labels(true);
+  /* ...and in France both of the overlay's labels come on: the verdict card prints the
+     number and the name anyway, and the map should agree with it */
+  if (isFrMode(q.mode) && M.frLabels) M.frLabels(true, true);
   if (S()) S().answer(q, res.ok, q.answer);
   render();
   bumped = false;
@@ -1307,7 +1699,7 @@ function onQuizClick(e) {
          button cannot start a round from a screen that has no difficulty yet) */
       if (act === 'start' || act === 'again') startSession();
       else if (act === 'random') randomStart();
-      else if (act === 'play') go('mode');
+      else if (act === 'play') go('scope');
       else if (act === 'go') go(el.getAttribute('data-to'));
       else if (act === 'back') back();
       else if (act === 'about') go('about');
@@ -1334,6 +1726,8 @@ function onQuizClick(e) {
       soundRender();
       return;
     }
+    el = attrUp(e.target, 'scope');
+    if (el) { tapSfx(); pickScope(el.getAttribute('data-scope')); info(''); render(); return; }
     el = attrUp(e.target, 'mode');
     if (el) { tapSfx(); cfg.mode = el.getAttribute('data-mode'); storeCfg(); info(''); render(); return; }
     el = attrUp(e.target, 'zone');
@@ -1429,7 +1823,8 @@ function switchToggle(which) {
    one key each, so a player who never touches the mouse can still play. During a
    question the digits answer and Enter takes the next one, as before. */
 function stepForward() {
-  if (screen === 'title') return go('mode');
+  if (screen === 'title') return go('scope');
+  if (screen === 'scope') return go('mode');
   if (screen === 'mode') return go('zone');
   if (screen === 'zone') return go('diff');
   if (screen === 'diff') return startSession();
@@ -1471,6 +1866,11 @@ function watchReady() {
   readyTimer = setInterval(function () {
     if (!flagsReady()) return;
     if (!isMenu()) { clearInterval(readyTimer); readyTimer = null; return; }
+    /* NOT the France overlay: a returning France player has to be able to press Play
+       on the TITLE with the world map loaded, and the overlay is fetched when they
+       pick France (or at boot, below, if that is where they left off). Waiting for it
+       here left the title buttons disabled for ever on a browser whose stored config
+       says "france" - the timer never rendered again. */
     if (cfg.mode === 'capital' && !capsReady() && infoMsg) return;
     render();
     clearInterval(readyTimer); readyTimer = null;
@@ -1511,7 +1911,7 @@ window.Quizzy = {
      test drives exactly the same path a tap does. */
   state: function () {
     return {
-      screen: screen,
+      screen: screen, scope: cfg.scope,
       mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty, len: cfg.len,
       /* the length of the ROUND IN PROGRESS, which "All" resolves against the pool
          (cfg.len stays 0 = All, so the choice survives) */
@@ -1527,16 +1927,28 @@ window.Quizzy = {
         mode: q.mode, variant: q.variant, correct: q.correct,
         answer: q.answer.name, answerId: q.answer.id, flag: q.answer.flag,
         capital: q.answer.cap,
-        options: q.options.map(function (it) { return { name: it.name, cap: it.cap, flag: it.flag, id: it.id }; })
+        /* the France quiz's own fields, null everywhere else */
+        code: q.answer.code != null ? q.answer.code : null,
+        pref: q.answer.pref != null ? q.answer.pref : null,
+        reg: q.answer.reg != null ? q.answer.reg : null,
+        options: q.options.map(function (it) {
+        return { name: it.name, cap: it.cap, flag: it.flag, id: it.id,
+                 code: it.code != null ? it.code : null, pref: it.pref != null ? it.pref : null };
+      })
       } : null,
       info: infoMsg
     };
   },
   config: function () {
-    return { mode: cfg.mode, zone: cfg.zone, difficulty: cfg.difficulty, variant: cfg.variant };
+    return { scope: cfg.scope, mode: cfg.mode, zone: cfg.zone,
+             difficulty: cfg.difficulty, variant: cfg.variant };
   },
   set: function (patch) {
     if (!patch) return;
+    if (patch.scope) cfg.scope = patch.scope;
+    /* ...and a programmatic scope change starts the overlay's download, exactly as the
+       scope card does: every way in goes through one behaviour */
+    if (patch.scope === 'france' && M.frLoad) M.frLoad(function () { if (isMenu()) render(); });
     if (patch.mode) cfg.mode = patch.mode;
     if (patch.zone) cfg.zone = patch.zone;
     if (patch.difficulty) cfg.difficulty = patch.difficulty;
@@ -1579,6 +1991,12 @@ window.Quizzy = {
 };
 
 render();
+/* A RETURNING FRANCE PLAYER has their scope in the stored config: the overlay is
+   fetched at boot so the walk and Fast Play are ready when they are. It costs a world
+   player nothing - this is one `if`. */
+if (cfg.scope === 'france' && M.frLoad) {
+  M.frLoad(function () { if (isMenu()) render(); });
+}
 /* the record this device already has, for the platform's completion figure: a returning
    player who has played all four modes is complete BEFORE they answer anything */
 platformProgress();

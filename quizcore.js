@@ -33,11 +33,87 @@ var N_OPT = 6;
 var R_KM = 6371.0088;
 
 var MODES = [
-  { id: 'country', label: 'Find the country', sub: 'A country is lit up: name it.', ico: '\u25C9' },
-  { id: 'capital', label: 'Find the capital', sub: 'Pick the capital city.', ico: '\u2605' },
-  { id: 'flag',    label: 'Find the flag',    sub: 'a flag, or the country of a flag', ico: '\u2691' },
-  { id: 'locate',  label: 'Locate the city',  sub: 'a city is named: put it on the map', ico: '\u25CE' }
+  { id: 'country', label: 'Find the country', sub: 'A country is lit up: name it.', ico: '\u25C9', scope: 'world' },
+  { id: 'capital', label: 'Find the capital', sub: 'Pick the capital city.', ico: '\u2605', scope: 'world' },
+  { id: 'flag',    label: 'Find the flag',    sub: 'a flag, or the country of a flag', ico: '\u2691', scope: 'world' },
+  { id: 'locate',  label: 'Locate the city',  sub: 'a city is named: put it on the map', ico: '\u25CE', scope: 'world' }
 ];
+
+/* ---------- THE FRANCE QUIZ: the same game, one country deep ----------
+   A scope is the first question the walk asks now ("which quiz?"), and the whole
+   vocabulary below it follows from the answer: this list of modes, the zones (the
+   régions), the items (départements or cities) and the map's own overlay.
+
+   FIVE MODES, and each one is a question a French map can actually ask:
+     fdept  a département is LIT UP, the six options are names     (find the country)
+     fnum   the name is given, the six options are NUMBERS          (01, 2A, 971...)
+     fname  the number is given, the six options are names
+     fpref  a département is named and lit, the options are its
+            PRÉFECTURES - the chef-lieu, which is what a capital is
+            at this scale                                            (find the capital)
+     floc   a city is named and the player puts a marker on the map (locate)
+
+   WHY THE NUMBERS ARE A MODE OF THEIR OWN, in both directions: they are the two
+   halves of the same fact, and neither is guessable from the other - a player who
+   knows 75 is Paris may still not know that 2A is Corse-du-Sud. Asking them apart is
+   the whole point of a department-number quiz, and it is the only pair of modes in
+   the app where the answer is not a name at all (it is a CODE, so `keyOf` reads
+   `it.code` and the option labels are numbers).
+
+   THE ZONES are "all of France", "metropolitan France", "overseas" and the eighteen
+   régions - and the régions come from the DATA (app.js builds them out of
+   data/fr/regions.geojson), so they are not in this file: this file is language- and
+   data-neutral on purpose. */
+var FR_MODES = [
+  { id: 'fdept', label: 'Find the département', sub: 'A département is lit up: name it.', ico: '\u25C9', scope: 'france' },
+  /* THE MIRROR OF fdept: the name is given, the SHAPE is the answer. There are no options
+     - the answer is a place on the map, like locate - so the verdict is a right/wrong on
+     the département the player clicked (see answerDept). */
+  { id: 'fplace', label: 'Place the département', sub: 'A département is named: click it on the map.', ico: '\u2316', scope: 'france' },
+  { id: 'fnum',  label: 'Name \u2192 number',   sub: 'The name is given: pick its number.', ico: '#', scope: 'france' },
+  { id: 'fname', label: 'Number \u2192 name',   sub: 'The number is given: pick its name.', ico: '\u2317', scope: 'france' },
+  { id: 'fpref', label: 'Find the préfecture',  sub: 'Pick the chef-lieu of the département.', ico: '\u2605', scope: 'france' },
+  { id: 'floc',  label: 'Locate the city',      sub: 'A French city is named: put it on the map.', ico: '\u25CE', scope: 'france' }
+];
+var FR_IDS = { fdept: 1, fplace: 1, fnum: 1, fname: 1, fpref: 1, floc: 1 };
+function isFr(mode) { return !!FR_IDS[mode]; }
+function modesOf(scope) { return scope === 'france' ? FR_MODES : MODES; }
+
+/* THE THREE AGGREGATE ZONES. The eighteen régions are added by the UI from the data,
+   as `r<code>` ('r11' Île-de-France, 'r01' Guadeloupe - the region codes are NOT the
+   department codes and the `r` prefix is what keeps the two apart). */
+var FR_ZONES = [
+  { id: 'fr',       label: 'All of France',       scope: 'france' },
+  { id: 'fr-metro', label: 'Metropolitan France', scope: 'france' },
+  { id: 'fr-dom',   label: 'Overseas',            scope: 'france' }
+];
+function isFrZone(z) {
+  var s = String(z == null ? '' : z);
+  return s === 'fr' || s === 'fr-metro' || s === 'fr-dom' || /^r[0-9]{2}$/.test(s);
+}
+/* the zones a scope offers. `regions` is [{code, nom, ndep}] from the map's own
+   regions file, so a region that ever disappears from the data disappears from the
+   game instead of offering an empty round. */
+function frZones(regions) {
+  var out = FR_ZONES.slice(0), i, r;
+  for (i = 0; i < (regions || []).length; i++) {
+    r = regions[i];
+    if (!r || r.code == null) continue;
+    out.push({ id: 'r' + r.code, label: r.nom || String(r.code), scope: 'france',
+               n: r.ndep || 0, dom: !!r.dom });
+  }
+  return out;
+}
+/* is an item in a France zone? An ITEM carries `reg` (the region code) and `dom`
+   (0/1), which is all this needs - for a département and for a city alike. */
+function frInZone(it, zone) {
+  if (!it) return false;
+  var z = String(zone == null ? '' : zone);
+  if (z === 'fr') return true;
+  if (z === 'fr-metro') return !it.dom;
+  if (z === 'fr-dom') return !!it.dom;
+  return String(it.reg == null ? '' : it.reg) === z.replace(/^r/, '');
+}
 
 /* The zone list is the CONTINENT vocabulary of the layers, minus the two that are
    not a zone. A country whose CONTINENT is "Seven seas (open ocean)" - Seychelles,
@@ -81,7 +157,7 @@ var LENS_LOCATE = [
   { id: 10, label: '10', sub: 'a round' },
   { id: 25, label: '25', sub: 'a long round' }
 ];
-function lensOf(mode) { return mode === 'locate' ? LENS_LOCATE : LENS; }
+function lensOf(mode) { return (mode === 'locate' || mode === 'floc') ? LENS_LOCATE : LENS; }
 
 var DIFFS = [
   { id: 'easy',   label: 'Easy',   sub: 'the wrong answers are far away' },
@@ -149,14 +225,25 @@ function zoneOf(it) {
   return SUB_ZONE[it.sub] || null;
 }
 function pointOf(it, mode) {
+  /* THE DISTANCE RULE RUNS ON THIS POINT, in every mode: the capital's own
+     coordinates for "find the capital", the PRÉFECTURE's for "find the préfecture"
+     (two préfectures 40 km apart are what a player confuses, not two department
+     centroids), the département's label point for the three shape/number modes. */
   if (mode === 'capital' && it.capLat != null && it.capLon != null) {
     return { lat: it.capLat, lon: it.capLon };
+  }
+  if (mode === 'fpref' && it.prefLat != null && it.prefLon != null) {
+    return { lat: it.prefLat, lon: it.prefLon };
   }
   return { lat: it.lat, lon: it.lon };
 }
 /* the KEY of an option: what makes two options "the same answer". In capital mode
-   it is the capital's name - the country does not appear on the button. */
+   it is the capital's name, in the number mode it IS the number, and in the
+   préfecture mode it is the town - the département never appears on the button. */
 function keyOf(it, mode) {
+  if (mode === 'fnum') return norm(it.code);
+  if (mode === 'fpref') return norm(it.pref);
+  if (isFr(mode)) return norm(it.name);
   return norm(mode === 'capital' ? it.cap : it.name);
 }
 
@@ -165,6 +252,13 @@ function usable(it, mode) {
   if (it.lat == null || it.lon == null || !isFinite(it.lat) || !isFinite(it.lon)) return false;
   if (mode === 'capital' && (!norm(it.cap) || it.capLat == null || it.capLon == null)) return false;
   if (mode === 'flag' && !norm(it.flag)) return false;
+  if (isFr(mode)) {
+    /* a France item is a DÉPARTEMENT: the number is what half the modes ask about, so
+       an item without one cannot answer them at all */
+    if (!norm(it.code)) return false;
+    if (mode === 'fpref' && (!norm(it.pref) || it.prefLat == null || it.prefLon == null)) return false;
+    if (mode === 'fplace' && (it.lat == null || it.lon == null)) return false;
+  }
   return true;
 }
 
@@ -176,6 +270,22 @@ function usable(it, mode) {
 function poolFor(items, zone, mode) {
   var z = byId(ZONES, zone) || ZONES[0];
   var out = [], seen = {}, i, it, k;
+  /* THE FRANCE POOL is filtered by ADMINISTRATIVE ZONE, not by continent: one list of
+     101 départements, sorted into "all / metropolitan / overseas / this région". One
+     entry per ANSWER (name or number, whichever the mode asks for), so a question can
+     never offer the same answer twice. */
+  if (isFr(mode)) {
+    for (i = 0; i < (items || []).length; i++) {
+      it = items[i];
+      if (!usable(it, mode)) continue;
+      if (!frInZone(it, zone)) continue;
+      k = keyOf(it, mode);
+      if (!k || seen[k]) continue;
+      seen[k] = 1;
+      out.push(it);
+    }
+    return out;
+  }
   for (i = 0; i < (items || []).length; i++) {
     it = items[i];
     if (!usable(it, mode)) continue;
@@ -225,6 +335,13 @@ var BULLSEYE_KM = 25;            /* "you found it" - the ✓ on the score screen
 var CLOSE_POINTS = 800;
 var POINTS_MAX = 1000;           /* per question; a round is n x 1000 */
 var SCORE_KM = 1500;             /* the distance that costs 63 % of the points */
+/* THE SCALE OF THE MISS IS THE SCALE OF THE MAP. 1 500 km is the half-width of a
+   continent: right for the world quiz, absurd in France, where 400 km is another
+   région - with the world's curve, almost any guess inside France scored over 900 and
+   the "close" verdict (800 points) fired for a 300 km miss. 120 km is the same
+   judgement one scale down: 25 km is still a bullseye, 100 km costs 57 % of the
+   points, and "close" now means within 27 km. */
+var SCORE_KM_FR = 120;
 
 function cityBand(it) {
   if (!it) return null;
@@ -254,13 +371,70 @@ function cityPool(items, zone, difficulty) {
   }
   return out;
 }
+/* ---------- LOCATE IN FRANCE: fame is POPULATION ----------
+   Natural Earth's min_zoom is not available for a French commune, and it would be the
+   wrong measure anyway: at this scale what makes a city findable is how many people
+   have heard of it, which is exactly its size. So the bands are population, and they
+   are ABSOLUTE, because "a big city in France" must not depend on which région was
+   picked:
+
+     easy   100 000 and up   - the 42 cities a French map names (Paris, Lyon, Vitry?)
+     medium  30 000 and up   - the 292 towns with a lycée and a hospital
+     hard    10 000 and up   - the 1 067 smaller towns: "place smaller cities"
+
+   A PRÉFECTURE is eligible a band earlier than its population warrants (a chef-lieu
+   is a place you can be asked about even at 8 000 people: Privas, Foix, Mende), and
+   a zone whose band holds fewer than six cities is topped up with its biggest ones -
+   otherwise "Corse / easy" would be a round of two questions about Ajaccio and Bastia
+   and "Mayotte / easy" would have no cities at all. */
+var FR_CITY_POP = { easy: 100000, medium: 30000, hard: 10000 };
+function frCityBand(it) {
+  if (!it || !norm(it.name)) return null;
+  var p = it.pop;
+  if (p == null || !isFinite(p)) return null;
+  if (p >= FR_CITY_POP.easy) return 'easy';
+  if (p >= FR_CITY_POP.medium) return 'medium';
+  if (p >= FR_CITY_POP.hard) return 'hard';
+  return null;
+}
+/* the cities a France locate round can ask about, in the zone and in the band */
+function frCityPool(items, zone, difficulty) {
+  var band = byId(DIFFS, difficulty) ? difficulty : 'medium';
+  var thr = FR_CITY_POP[band];
+  var zoneC = [], out = [], seen = {}, i, it, k;
+  for (i = 0; i < (items || []).length; i++) {
+    it = items[i];
+    if (!it || !norm(it.name)) continue;
+    if (it.lat == null || it.lon == null || !isFinite(it.lat) || !isFinite(it.lon)) continue;
+    if (!frInZone(it, zone)) continue;
+    zoneC.push(it);
+  }
+  function take(it) {
+    k = norm(it.name) + '|' + Number(it.lat).toFixed(2) + ',' + Number(it.lon).toFixed(2);
+    if (seen[k]) return;
+    seen[k] = 1;
+    out.push(it);
+  }
+  for (i = 0; i < zoneC.length; i++) {
+    it = zoneC[i];
+    if ((it.pop || 0) >= thr || (it.pref && (it.pop || 0) >= thr / 3)) take(it);
+  }
+  if (out.length < N_OPT) {
+    /* a zone too small for its band: the biggest towns of the zone, largest first */
+    zoneC.sort(function (a, b) { return (b.pop || 0) - (a.pop || 0); });
+    for (i = 0; i < zoneC.length && out.length < N_OPT; i++) take(zoneC[i]);
+  }
+  return out;
+}
+
 /* THE SCORE OF ONE ANSWER. Points fall off with the distance: a bullseye is the full
    1000, 100 km is 936, 500 km 717, 1 000 km 513, 2 000 km 264, 5 000 km 36. The curve
    is exponential because a mistake's cost is proportional to the scale you were
    already working at: being 200 km off is nothing in Siberia and a lot in Belgium. */
-function pointsFor(km) {
+function pointsFor(km, scaleKm) {
   if (!isFinite(km) || km < 0) return 0;
-  return Math.round(POINTS_MAX * Math.exp(-km / SCORE_KM));
+  var sc = (scaleKm > 0) ? scaleKm : SCORE_KM;
+  return Math.round(POINTS_MAX * Math.exp(-km / sc));
 }
 
 /* ---------- HOW A CITY IS CHOSEN: COUNTRY FIRST, THEN CITY ----------
@@ -336,9 +510,39 @@ function cityQuestion(sess, r) {
   var answer = free[Math.floor(r() * free.length)] || by[pick][0];
   sess.used[answer.id] = 1;
   return {
-    mode: 'locate', zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
+    mode: sess.cfg.mode, zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
     variant: null, answer: answer, options: [], correct: -1
   };
+}
+
+/* ---------- PLACE THE DÉPARTEMENT: one answer, no options ----------
+   The mirror of the locate mode one scale up: the answer is a SHAPE, the player points at
+   one, and the rule is a single comparison. It lives here, next to question(), because
+   "how many options a question has" is a rule and not a screen's business (0 here, 6
+   everywhere else, and locate has 0 too). */
+function deptQuestion(sess, r) {
+  var pool = sess.pool;
+  if (!pool.length) return null;
+  var free = [], i;
+  for (i = 0; i < pool.length; i++) if (!sess.used[pool[i].id]) free.push(pool[i]);
+  if (!free.length) { sess.used = {}; free = pool.slice(0); }
+  var answer = free[Math.floor(r() * free.length)];
+  sess.used[answer.id] = 1;
+  return {
+    mode: sess.cfg.mode, zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
+    variant: null, answer: answer, options: [], correct: -1
+  };
+}
+/* ONE ANSWER GIVEN AS A DÉPARTEMENT CODE. `picked` is the code the player clicked (the
+   map resolves the point, see MapApp.frDepAt) and '' when the click missed every shape -
+   which the UI does not send: a tap on the sea is not an answer, it is a tap. */
+function answerDept(sess, q, picked) {
+  if (!q || q._done) return null;
+  q._done = true;
+  q.picked = String(picked == null ? '' : picked);
+  q.ok = q.picked !== '' && q.picked === String(q.answer.code);
+  if (q.ok) sess.score++;
+  return { ok: q.ok, picked: q.picked, correct: String(q.answer.code) };
 }
 
 /* ---------- the distractors ---------- */
@@ -376,7 +580,14 @@ function pickDistractors(cands, need, difficulty, r) {
 /* ---------- one question ---------- */
 function question(sess, r) {
   var pool = sess.pool, cfg = sess.cfg, mode = cfg.mode;
-  if (pool.length < N_OPT) return null;
+  /* THE ANSWER comes from the ZONE, the OPTIONS from the MODE's own list - and in the
+     France quiz those two are not the same list. A région can hold five départements,
+     which is not six options: asked "which département is lit up" in Normandie, the
+     five wrong answers may perfectly well be in another région, and a real quiz works
+     exactly that way. `optPool` is the whole of France for every France mode; the
+     WORLD modes have no such list and keep their old rule (the zone must fill six). */
+  var optPool = (sess.optPool && sess.optPool.length >= N_OPT) ? sess.optPool : pool;
+  if (!pool.length || optPool.length < N_OPT) return null;
   var i, it, free = [];
   for (i = 0; i < pool.length; i++) if (!sess.used[pool[i].id]) free.push(pool[i]);
   if (!free.length) {                       /* every country asked: start over */
@@ -389,12 +600,13 @@ function question(sess, r) {
   var aPoint = pointOf(answer, mode), aKey = keyOf(answer, mode);
   var seen = {}, cands = [];
   seen[aKey] = 1;
-  for (i = 0; i < pool.length; i++) {
-    it = pool[i];
+  for (i = 0; i < optPool.length; i++) {
+    it = optPool[i];
     if (it.id === answer.id) continue;
     var k = keyOf(it, mode);
     if (!k || seen[k]) continue;             /* the same name twice on screen is a bug */
     if (mode === 'flag' && norm(it.flag) === norm(answer.flag)) continue;
+    if (mode === 'fpref' && norm(it.pref) === norm(answer.pref)) continue;
     seen[k] = 1;
     cands.push({ it: it, d: distanceKm(aPoint, pointOf(it, mode)) });
   }
@@ -425,9 +637,15 @@ function question(sess, r) {
    resolved against that pool, so "All" on a six-country zone is six questions and "25"
    on the same zone is six too, not twenty-five with repeats. */
 function newSession(items, cfg, seed) {
+  /* THE MODE PICKS THE SCOPE, and the zone must belong to it: a config carried over
+     from the world quiz ("Europe") into the France quiz cannot be honoured, so the
+     France default replaces it - and the other way round. This is the same rule as the
+     length's: a stored setting never starts a round the player did not ask for. */
+  var fr = isFr(cfg.mode);
+  var modeList = fr ? FR_MODES : MODES;
   var c = {
-    mode: (byId(MODES, cfg.mode) || MODES[0]).id,
-    zone: (byId(ZONES, cfg.zone) || ZONES[0]).id,
+    mode: (byId(modeList, cfg.mode) || modeList[0]).id,
+    zone: null,
     difficulty: (byId(DIFFS, cfg.difficulty) || DIFFS[1]).id,
     len: 10,
     lenWanted: 10,
@@ -435,11 +653,13 @@ function newSession(items, cfg, seed) {
        setting that does not apply to it */
     variant: null
   };
+  if (fr) c.zone = isFrZone(cfg.zone) ? String(cfg.zone) : FR_ZONES[0].id;
+  else c.zone = (byId(ZONES, cfg.zone) || ZONES[0]).id;
   if (c.mode === 'flag') c.variant = (byId(FLAG_ASK, cfg.variant) || FLAG_ASK[0]).id;
-  if (c.mode === 'locate') c.variant = null;
-  var pool = (c.mode === 'locate')
-    ? cityPool(items, c.zone, c.difficulty)
-    : poolFor(items, c.zone, c.mode);
+  if (c.mode === 'locate' || c.mode === 'floc') c.variant = null;
+  var pool = (c.mode === 'locate') ? cityPool(items, c.zone, c.difficulty)
+           : (c.mode === 'floc')   ? frCityPool(items, c.zone, c.difficulty)
+           : poolFor(items, c.zone, c.mode);
   /* THE LENGTH IS RESOLVED AGAINST THIS MODE'S OWN LIST: a stored 10 (a country round)
      is not a length locate offers, and "All" is not one of its choices at all. An
      unknown or absent choice falls back to the list's first entry, so a config carried
@@ -456,15 +676,23 @@ function newSession(items, cfg, seed) {
      turned a 25-question round of Oceania/medium into TWO questions (6 cities, 2
      countries), when the honest round there is six cities in two countries. */
   c.len = Math.max(1, Math.min(want, pool.length || want, 500));
+  /* THE SCALE OF THE MISS, carried by the session: a France round scores on France's
+     own distances, a world round on the world's (see SCORE_KM_FR) */
+  c.scoreKm = isFr(c.mode) ? SCORE_KM_FR : SCORE_KM;
+  /* the options of a France question come from the whole territory (see question()) */
+  var optPool = (fr && c.mode !== 'floc') ? poolFor(items, 'fr', c.mode) : null;
   return {
-    cfg: c, pool: pool,
+    cfg: c, pool: pool, optPool: optPool,
     used: {}, usedCountry: {}, byCountry: null, i: 0, score: 0, points: 0, km: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };
 }
 function nextQuestion(sess) {
   if (!sess || sess.i >= sess.cfg.len) return null;
-  var q = (sess.cfg.mode === 'locate') ? cityQuestion(sess, sess.rnd) : question(sess, sess.rnd);
+  var m = sess.cfg.mode;
+  var q = (m === 'locate' || m === 'floc') ? cityQuestion(sess, sess.rnd)
+        : (m === 'fplace') ? deptQuestion(sess, sess.rnd)
+        : question(sess, sess.rnd);
   if (!q) return null;
   sess.i++;
   sess.asked.push(q);
@@ -490,7 +718,7 @@ function answerPoint(sess, q, guess) {
   q._done = true;
   q.guess = { lat: guess.lat, lon: guess.lon };
   q.km = distanceKm({ lat: q.answer.lat, lon: q.answer.lon }, q.guess);
-  q.points = pointsFor(q.km);
+  q.points = pointsFor(q.km, sess.cfg.scoreKm);
   q.ok = q.km <= BULLSEYE_KM;
   sess.points = (sess.points || 0) + q.points;
   sess.km = (sess.km || 0) + q.km;
@@ -499,16 +727,19 @@ function answerPoint(sess, q, guess) {
 }
 
 var QUIZCORE = {
-  N_OPT: N_OPT, MODES: MODES, ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
+  N_OPT: N_OPT, MODES: MODES, FR_MODES: FR_MODES, modesOf: modesOf, isFr: isFr,
+  FR_ZONES: FR_ZONES, frZones: frZones, isFrZone: isFrZone, frInZone: frInZone,
+  FR_CITY_POP: FR_CITY_POP, frCityBand: frCityBand, frCityPool: frCityPool,
+  ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
   LENS_LOCATE: LENS_LOCATE, lensOf: lensOf,
-  BULLSEYE_KM: BULLSEYE_KM, POINTS_MAX: POINTS_MAX, SCORE_KM: SCORE_KM,
+  BULLSEYE_KM: BULLSEYE_KM, POINTS_MAX: POINTS_MAX, SCORE_KM: SCORE_KM, SCORE_KM_FR: SCORE_KM_FR,
   CLOSE_POINTS: CLOSE_POINTS,
   CITY_Z: CITY_Z, EASY_MIN_POP: EASY_MIN_POP, ASK_MIN_POP: ASK_MIN_POP,
   COUNTRY_WEIGHT: COUNTRY_WEIGHT, citiesByCountry: citiesByCountry,
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
   cityBand: cityBand, cityPool: cityPool, pointsFor: pointsFor,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,
-  answerPoint: answerPoint,
+  answerPoint: answerPoint, answerDept: answerDept, _deptQuestion: deptQuestion,
   /* exposed for the tests, and for nothing else */
   _rng: rng, _shuffle: shuffle, _question: question, _keyOf: keyOf
 };

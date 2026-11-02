@@ -520,5 +520,209 @@ check('flag options are all different flags', flagQ.every(q => {
         Q.COUNTRY_WEIGHT > 0 && Q.COUNTRY_WEIGHT < 1, Q.COUNTRY_WEIGHT);
 })();
 
+
+/* ---------- THE FRANCE QUIZ'S RULES ----------
+   A synthetic France: 13 départements strung east along a parallel every 0.5 deg,
+   numbered 01..13, six of them in région 'R1' and the rest in 'R2', plus one overseas
+   département ('971') alone in 'R3'. It is a fixture, not the real data: what is
+   asserted here are the RULES (zones, options, numbers, the score scale), which is
+   what quizcore owns; `tests/france_test.js` runs the same rules on the real files. */
+(function () {
+  const FR = [];
+  for (let i = 1; i <= 13; i++) {
+    const code = String(i).padStart(2, '0');
+    FR.push({
+      id: 'D' + code, code: code, name: 'Département ' + code,
+      reg: i <= 6 ? '11' : '24', regName: 'Région ' + (i <= 6 ? '11' : '24'),
+      pref: 'Préf ' + code, prefLat: 46 + i * 0.1, prefLon: 1 + i * 0.5,
+      lat: 46 + i * 0.1, lon: 1 + i * 0.5,
+      pop: 100000, dom: 0, country: 'D' + code
+    });
+  }
+  FR.push({ id: 'D971', code: '971', name: 'Guadeloupe', reg: '01', regName: 'Guadeloupe',
+            pref: 'Basse-Terre', prefLat: 16, prefLon: -61.7, lat: 16.2, lon: -61.5,
+            pop: 400000, dom: 1, country: 'D971' });
+
+  check('the France quiz has six modes, all tagged france',
+        Q.FR_MODES.length === 6 && Q.FR_MODES.every(m => m.scope === 'france'),
+        Q.FR_MODES.map(m => m.id).join(','));
+  check('modesOf(france) is the France list, modesOf(world) the world one',
+        Q.modesOf('france') === Q.FR_MODES && Q.modesOf('world') === Q.MODES);
+  check('isFr knows the five and nothing else',
+        ['fdept', 'fplace', 'fnum', 'fname', 'fpref', 'floc'].every(Q.isFr) &&
+        !Q.isFr('country') && !Q.isFr('locate') && !Q.isFr(undefined));
+
+  /* zones: the three aggregates plus the régions, and the filter reads `reg`/`dom` */
+  const zones = Q.frZones([{ code: '11', nom: 'Région 11', ndep: 6 },
+                           { code: '01', nom: 'Guadeloupe', ndep: 1, dom: true }]);
+  check('frZones is all / metropolitan / overseas + one per région',
+        zones.length === 5 && zones[0].id === 'fr' && zones[3].id === 'r11', zones.map(z => z.id).join(','));
+  check('isFrZone accepts the three aggregates and r<code> only',
+        Q.isFrZone('fr') && Q.isFrZone('fr-metro') && Q.isFrZone('fr-dom') &&
+        Q.isFrZone('r11') && !Q.isFrZone('europe') && !Q.isFrZone('11') && !Q.isFrZone(null));
+  check('the pools follow the zones', (() => {
+    const all = Q.poolFor(FR, 'fr', 'fdept').length;
+    const metro = Q.poolFor(FR, 'fr-metro', 'fdept').length;
+    const dom = Q.poolFor(FR, 'fr-dom', 'fdept').length;
+    const r1 = Q.poolFor(FR, 'r11', 'fdept').length;
+    return all === 14 && metro === 13 && dom === 1 && r1 === 6;
+  })(), [Q.poolFor(FR, 'fr', 'fdept').length, Q.poolFor(FR, 'fr-metro', 'fdept').length,
+        Q.poolFor(FR, 'fr-dom', 'fdept').length, Q.poolFor(FR, 'r11', 'fdept').length].join('/'));
+
+  /* THE OPTIONS COME FROM FRANCE, THE ANSWER FROM THE ZONE: a one-département zone is
+     still a six-option question (this is what makes Mayotte playable at all) */
+  check('a one-département zone still asks six options', (() => {
+    const s = Q.newSession(FR, { mode: 'fname', zone: 'r01', difficulty: 'medium', len: 10 }, 4);
+    const q = Q.nextQuestion(s);
+    return s.cfg.len === 1 && q.answer.code === '971' && q.options.length === 6 &&
+           q.options.filter(o => o.reg !== '01').length === 5;
+  })());
+  check('...and its round is one question', (() => {
+    const s = Q.newSession(FR, { mode: 'fname', zone: 'r01', difficulty: 'medium', len: 25 }, 4);
+    return s.cfg.len === 1;
+  })());
+
+  /* the number modes: the ANSWER is a code, and the options are codes */
+  check('name -> number offers six codes and the right one', (() => {
+    const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 }, 8);
+    const q = Q.nextQuestion(s);
+    return q.options.length === 6 &&
+           q.options.every(o => /^[0-9]{2,3}$/.test(o.code)) &&
+           q.options[q.correct].code === q.answer.code;
+  })());
+  check('number -> name offers six names', (() => {
+    const s = Q.newSession(FR, { mode: 'fname', zone: 'fr', difficulty: 'medium', len: 10 }, 8);
+    const q = Q.nextQuestion(s);
+    return q.options.every(o => o.name) && q.options[q.correct].code === q.answer.code;
+  })());
+  check('two départements can never be two options of the same question', (() => {
+    for (let i = 0; i < 30; i++) {
+      const s = Q.newSession(FR, { mode: 'fdept', zone: 'fr', difficulty: 'easy', len: 10 }, 300 + i);
+      const q = Q.nextQuestion(s);
+      if (new Set(q.options.map(o => o.code)).size !== 6) return false;
+    }
+    return true;
+  })());
+  /* the préfecture mode: the OPTIONS are the towns, and the distance rule runs on them */
+  check('the préfecture mode offers préfectures, never the département', (() => {
+    for (let i = 0; i < 30; i++) {
+      const s = Q.newSession(FR, { mode: 'fpref', zone: 'fr', difficulty: 'medium', len: 10 }, 400 + i);
+      const q = Q.nextQuestion(s);
+      if (q.options.some(o => o.name === q.answer.pref)) return false;
+      if (new Set(q.options.map(o => o.pref)).size !== 6) return false;
+    }
+    return true;
+  })());
+  /* ...on the METROPOLITAN answers: an overseas département's nearest neighbour really
+     is 6 800 km away, and that is the data being right, not the band being wrong */
+  let hardMax = 0;
+  check('...and hard picks the NEAREST préfectures', (() => {
+    const s = Q.newSession(FR, { mode: 'fpref', zone: 'fr-metro', difficulty: 'hard', len: 20 }, 12);
+    let max = 0;
+    for (let i = 0; i < 10; i++) {
+      const q = Q.nextQuestion(s);
+      if (!q) break;
+      q.options.filter(o => o.pref !== q.answer.pref).forEach(o => {
+        max = Math.max(max, Q.distanceKm({ lat: q.answer.prefLat, lon: q.answer.prefLon },
+                                         { lat: o.prefLat, lon: o.prefLon }));
+      });
+    }
+    hardMax = Math.round(max);
+    return max < 400;           /* the fixture's préfectures are 0.5 deg apart */
+  })(), hardMax + ' km');
+
+  /* PLACE THE DÉPARTEMENT: no options at all, and the answer is a shape */
+  check('a place question has no options and a code for an answer', (() => {
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 21);
+    const q = Q.nextQuestion(s);
+    return q.options.length === 0 && q.correct === -1 && !!q.answer.code;
+  })());
+  check('...and it is scored by the code, once', (() => {
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 21);
+    const q = Q.nextQuestion(s);
+    const right = Q.answerDept(s, q, q.answer.code);
+    const again = Q.answerDept(s, q, '99');
+    return right.ok === true && s.score === 1 && again === null;
+  })());
+  check('...and a code that is not the answer is wrong', (() => {
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 21);
+    const q = Q.nextQuestion(s);
+    const w = Q.answerDept(s, q, q.answer.code === '01' ? '02' : '01');
+    return w.ok === false && s.score === 0 && w.correct === q.answer.code;
+  })());
+  check('a place round never asks the same département twice while others remain', (() => {
+    /* "All" on the metropolitan zone: 13 départements, so 13 questions - and a length
+       that is not one of 10/25/All falls back to 10 (that is newSession's own rule) */
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr-metro', difficulty: 'medium', len: 0 }, 3);
+    const seen = {}, order = [];
+    let q;
+    while ((q = Q.nextQuestion(s))) { seen[q.answer.code] = (seen[q.answer.code] || 0) + 1; order.push(q.answer.code); }
+    return order.length === 13 && order.every(c => seen[c] === 1);
+  })());
+
+  /* THE SCORE SCALE IS THE SESSION'S */
+  check("a France session scores on France distances, a world one on the world's",
+        (() => {
+          const f = Q.newSession(FR, { mode: 'floc', zone: 'fr', difficulty: 'easy', len: 5 }, 2);
+          const w = Q.newSession(ALL, { mode: 'locate', zone: 'world', difficulty: 'easy', len: 5 }, 2);
+          return f.cfg.scoreKm === Q.SCORE_KM_FR && w.cfg.scoreKm === Q.SCORE_KM &&
+                 Q.SCORE_KM_FR < Q.SCORE_KM;
+        })());
+  check('the points curve takes the scale as an argument', (() => {
+    return Q.pointsFor(25, Q.SCORE_KM_FR) === 812 &&
+           Q.pointsFor(120, Q.SCORE_KM_FR) === 368 &&
+           Q.pointsFor(25) === Q.pointsFor(25, Q.SCORE_KM) &&
+           Q.pointsFor(25, 0) === Q.pointsFor(25);
+  })(), Q.pointsFor(25, Q.SCORE_KM_FR) + ' / ' + Q.pointsFor(120, Q.SCORE_KM_FR));
+
+  /* a France config cannot carry a world zone, and the other way round */
+  check('a world zone in a France mode falls back to all of France',
+        Q.newSession(FR, { mode: 'fnum', zone: 'europe', difficulty: 'medium', len: 10 }, 1).cfg.zone === 'fr');
+  check('a France zone in a world mode falls back to the world',
+        Q.newSession(ALL, { mode: 'country', zone: 'fr', difficulty: 'medium', len: 10 }, 1).cfg.zone === 'world');
+  /* the SCOPE follows the MODE: a world id makes a world session (and takes the world
+     zone list with it), so a config can never be half in each */
+  check('a world mode id makes a world session, whatever the zone says',
+        (() => {
+          const w = Q.newSession(FR, { mode: 'country', zone: 'fr', difficulty: 'medium', len: 10 }, 1);
+          return w.cfg.mode === 'country' && w.cfg.zone === 'world' && w.cfg.scoreKm === Q.SCORE_KM;
+        })());
+  check("...and an id from NEITHER list falls back to that scope's first",
+        Q.newSession(FR, { mode: 'nonsense', zone: 'fr', difficulty: 'medium', len: 10 }, 1).cfg.mode === 'country');
+  check('locate has no flag variant, in France too',
+        Q.newSession(FR, { mode: 'floc', zone: 'fr', difficulty: 'medium', len: 5, variant: 'flags' }, 1).cfg.variant === null);
+
+  /* the city bands are populations, absolute, and a zone is topped up to six */
+  /* ten of each band, so no band has to be topped up here - the top-up is its own
+     check below, on a zone that cannot fill its band */
+  const CITIES = [];
+  for (let i = 0; i < 40; i++) {
+    CITIES.push({ id: 'v' + i, name: 'Ville ' + i, lat: 45 + i * 0.05, lon: 1 + i * 0.05,
+                  pop: i < 10 ? 500000 : i < 20 ? 50000 : i < 30 ? 15000 : 5000,
+                  pref: i === 25 ? 1 : 0, reg: i < 8 ? '11' : '24', dom: 0, country: 'D01' });
+  }
+  check('the France bands are population thresholds, absolute',
+        Q.frCityPool(CITIES, 'fr', 'easy').every(c => c.pop >= 100000) &&
+        Q.frCityPool(CITIES, 'fr', 'medium').length > Q.frCityPool(CITIES, 'fr', 'easy').length &&
+        Q.frCityPool(CITIES, 'fr', 'hard').length > Q.frCityPool(CITIES, 'fr', 'medium').length);
+  /* a préfecture of 15 000 people is a MEDIUM question (the 30 000 threshold, one band
+     early), and it is NOT an easy one - the allowance is one band, not a free pass */
+  check('a préfecture is admitted a band early',
+        Q.frCityPool(CITIES, 'fr', 'medium').some(c => c.name === 'Ville 25') &&
+        !Q.frCityPool(CITIES, 'fr', 'easy').some(c => c.name === 'Ville 25'),
+        'med ' + Q.frCityPool(CITIES, 'fr', 'medium').length +
+        ' / easy ' + Q.frCityPool(CITIES, 'fr', 'easy').map(c => c.name + ':' + c.pop).join(' '));
+  /* the top-up: a zone with fewer than six in its band takes its biggest towns, so a
+     round about Corse or Mayotte is a round and not an empty screen */
+  check('a zone too small for its band is topped up to six',
+        Q.frCityPool(CITIES, 'r24', 'easy').length === 6,
+        Q.frCityPool(CITIES, 'r24', 'easy').length);
+  check('...and every one of them is in the zone',
+        Q.frCityPool(CITIES, 'r24', 'easy').every(c => c.reg === '24'));
+  check('...with the zone\'s biggest first, not a random six',
+        Q.frCityPool(CITIES, 'r24', 'easy').map(c => c.pop).join(',') === '500000,500000,50000,50000,50000,50000',
+        Q.frCityPool(CITIES, 'r24', 'easy').map(c => c.pop).join(','));
+})();
+
 console.log(checks + ' checks, ' + (fails ? fails + ' FAILED' : 'ALL PASS'));
 process.exit(fails ? 1 : 0);

@@ -103,7 +103,10 @@ const KEYS = I.keys();
        Dutch "type", Swedish "region", the abbreviations "GDP" and "km²" (the unit
        symbol is the same everywhere), and the conventional "est." */
     p_name: 1, p_type: 1, p_region: 1, p_capital: 1, p_population: 1,
-    p_codes: 1, p_source: 1, p_gdp: 1, p_est: 1, p_popmax: 1, p_km2: 1
+    p_codes: 1, p_source: 1, p_gdp: 1, p_est: 1, p_popmax: 1, p_km2: 1,
+    /* "préfecture" is the FRENCH word, used as it is in English (like "département"):
+       the France quiz's row label is the same string in exactly those two tables */
+    p_pref: 1
   };
   function core(v) {
     return String(v).replace(/\{\w+\}/g, '').replace(/[^\p{L}]+/gu, ' ').trim().toLowerCase();
@@ -127,7 +130,7 @@ const KEYS = I.keys();
   });
   const stale = Object.keys(SAME_OK).filter(k => !shared[k] && k !== 'score_mark');
   check('the whitelist has no stale entry', stale.length === 0, stale.join(','));
-  check('the whitelist is short (it is exceptions, not the rule)', Object.keys(SAME_OK).length <= 26,
+  check('the whitelist is short (it is exceptions, not the rule)', Object.keys(SAME_OK).length <= 30,
         Object.keys(SAME_OK).length);
 
   /* a "sentence" copied from English but edited by one word would pass the check above:
@@ -190,8 +193,15 @@ const KEYS = I.keys();
   check('the screens use a lot of keys', asked.length > 40, asked.length);
   /* the id -> key maps in quiz.js must cover the vocabularies in quizcore */
   const qc = fs.readFileSync(path.join(__dirname, '..', 'quizcore.js'), 'utf8');
-  ['country', 'capital', 'flag'].forEach(id => {
-    check('mode ' + id + ' has a label key', new RegExp("K_MODE[^}]*" + id + ": 'm_").test(quiz), id);
+  /* EVERY mode id, in both scopes, must have a label key AND that key must exist: an id
+     with no key renders as the raw id on the card (the France quiz's "place the
+     département" did, as a bare "fplace", until this check was widened) */
+  ['country', 'capital', 'flag', 'locate',
+   'fdept', 'fplace', 'fnum', 'fname', 'fpref', 'floc'].forEach(id => {
+    const m = new RegExp("(^|[\\s])" + id + ": '(m_[a-z_]+)'").exec(quiz);
+    check('mode ' + id + ' has a label key', !!m, id);
+    /* `t()` returns the KEY ITSELF when the table does not have it, so that is the test */
+    if (m) check('...and ' + m[2] + ' really exists', I.t(m[2], null, 'en') !== m[2], m[2]);
   });
   ['world', 'africa', 'asia', 'europe', 'north-america', 'south-america', 'oceania'].forEach(id => {
     /* the map writes unquoted keys (world: 'z_world') and quoted ones for the two
