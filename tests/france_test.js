@@ -754,10 +754,10 @@ async function afterLoad() {
     const code = Z().question.code;
     const right = Z().question.options.findIndex(o => o.code === code);
     Qz2.choose(right);
-    check('a whole-France answer is stored', (() => {
+    check('a whole-France answer is stored under mode|difficulty', (() => {
       const raw = global.window.localStorage.getItem('kwizzygeo.fr.marks.v1');
       const o = JSON.parse(raw || '{}');
-      return o.m && o.m.fdept && o.m.fdept[code] === 'ok';
+      return o.m && o.m['fdept|medium'] && o.m['fdept|medium'][code] === 'ok';
     })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
     /* a new round of the SAME mode starts with those marks already on the map */
     Qz2.quit();
@@ -780,12 +780,12 @@ async function afterLoad() {
     L['quiz:click']({ target: resetBtn, preventDefault() {} });
     check('the Reset asks first, and does not erase on one press',
           /Really erase them\?/.test(Qz2.html()) &&
-          (JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}').m || {}).fdept,
+          (JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}').m || {})['fdept|medium'],
           (Qz2.html().match(/marks-reset">[^<]*/) || [''])[0]);
     L['quiz:click']({ target: resetBtn, preventDefault() {} });
     check('...and the second press erases the record', (() => {
       const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
-      return !(o.m && o.m.fdept && o.m.fdept[code]);
+      return !(o.m && o.m['fdept|medium'] && o.m['fdept|medium'][code]);
     })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
     check('...and the button is gone', !/data-act="marks-reset"/.test(Qz2.html()));
     /* a RÉGION round keeps nothing */
@@ -795,7 +795,7 @@ async function afterLoad() {
     Qz2.choose(r2);
     check('a région round does not write the record', (() => {
       const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
-      return !(o.m && o.m.fdept && o.m.fdept[c2]);
+      return !(o.m && o.m['fdept|medium'] && o.m['fdept|medium'][c2]);
     })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
     check('...but the mark is on the map for the round', (M().frHistory() || {})[c2] === 'ok');
     Qz2.quit();
@@ -811,9 +811,10 @@ async function afterLoad() {
        60 found, one wrong */
     const all = M().frItems().map(i => i.code);
     const okSet = all.slice(0, 60), badOne = all[60];
-    const rec = { v: 1, m: { fdept: {} } };
-    okSet.forEach(c => rec.m.fdept[c] = 'ok');
-    rec.m.fdept[badOne] = 'bad';
+    /* the key is MODE|DIFFICULTY (his call): a course found at Normal is not the Hard one */
+    const rec = { v: 2, m: { 'fdept|medium': {} } };
+    okSet.forEach(c => rec.m['fdept|medium'][c] = 'ok');
+    rec.m['fdept|medium'][badOne] = 'bad';
     global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify(rec));
     Qz2.quit();
     Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 10 });
@@ -849,8 +850,8 @@ async function afterLoad() {
     check('...and the one answered wrong comes back', (() => {
       /* a wrong mark is not a skip: the pool keeps it (the rule is in marksSkip - only
          'ok' is skipped) */
-      const rec2 = { v: 1, m: { fdept: {} } };
-      rec2.m.fdept[badOne] = 'bad';
+      const rec2 = { v: 2, m: { 'fdept|medium': {} } };
+      rec2.m['fdept|medium'][badOne] = 'bad';
       global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify(rec2));
       Qz2.quit();
       Qz2.set({ len: 0, mode: 'fdept', zone: 'fr' });
@@ -860,6 +861,61 @@ async function afterLoad() {
       global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
       return n === 101;                 /* nothing skipped: one wrong mark skips nothing */
     })(), badOne);
+    Qz2.quit();
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+  }
+
+  /* ---------- 5b3. THE PROGRESS IS PER MODE **AND PER DIFFICULTY** ----------
+     His note: "la progression doit être sauvegardée par mode ET par difficulté". A course
+     found at Easy is not the same course at Hard - the wrong answers are the neighbours -
+     so the two records are separate: a Hard round must not skip what an Easy round found,
+     nor show its green marks. */
+  {
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+    /* a Normal round: three answers written */
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 5 });
+    Qz2.start();
+    const normalCodes = [];
+    for (let i = 0; i < 3; i++) {
+      const c = Z().question.code;
+      normalCodes.push(c);
+      Qz2.choose(Z().question.options.findIndex(o => o.code === c));
+      Qz2.next();
+    }
+    Qz2.quit();
+    const rec = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+    check('the record is keyed by mode AND difficulty', !!(rec.m || {})['fdept|medium'],
+          Object.keys(rec.m || {}).join(' '));
+    check('...and nothing is filed under the bare mode any more',
+          !(rec.m || {}).fdept, Object.keys(rec.m || {}).join(' '));
+    /* a HARD round of the same mode: its own empty record, its own marks */
+    Qz2.set({ difficulty: 'hard' });
+    Qz2.go('diff');
+    check('Start over is NOT offered at Hard while only Normal has a record',
+          !/data-act="marks-reset"/.test(Qz2.html()),
+          (Qz2.html().match(/marks_head[^<]*|VOS RÉPONSES[^<]*/i) || [''])[0]);
+    Qz2.start();
+    check('...a Hard round opens with NO green marks from the Normal one',
+          Object.keys(M().frHistory() || {}).length === 0, JSON.stringify(M().frHistory()));
+    check('...and the first Hard question is not constrained by Normal\'s three',
+          typeof Z().question.code === 'string', Z().question.code);
+    /* answer one at Hard, then go back to Normal: the two records are intact and apart */
+    Qz2.choose(Z().question.options.findIndex(o => o.code === Z().question.code));
+    Qz2.quit();
+    const rec2 = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+    check('both difficulties keep their own course',
+          Object.keys((rec2.m || {})['fdept|medium'] || {}).length === 3 &&
+          Object.keys((rec2.m || {})['fdept|hard'] || {}).length === 1,
+          JSON.stringify(Object.keys(rec2.m || {})));
+    Qz2.set({ difficulty: 'medium' });
+    Qz2.go('diff');
+    check('...and the screen names the difficulty the record belongs to',
+          /Difficile|Normal/.test(Qz2.html()) && /data-act="marks-reset"/.test(Qz2.html()),
+          (Qz2.html().match(/VOS RÉPONSES[^<]*/i) || [''])[0]);
+    Qz2.start();
+    check('...and resuming Normal brings its three marks back',
+          Object.keys(M().frHistory() || {}).length === 3, JSON.stringify(M().frHistory()));
     Qz2.quit();
     global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
   }

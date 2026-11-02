@@ -122,30 +122,48 @@ try {
 var MARK_KEY = 'kwizzygeo.fr.marks.v1';
 var MARK_MODES = { fdept: 1, fnum: 1, fname: 1, fpref: 1 };
 var marks = {};            /* code -> 'ok' | 'bad', for the round in progress */
+
+/* THE KEY IS THE MODE **AND THE DIFFICULTY** (his call, 2026-11-02). A course found at
+   Easy is not a course found at Hard: the six wrong answers of a hard question are the
+   neighbours, so "I found 60 of them" is a different sentence in each band - and resuming
+   at Hard after a Normal course would either hand back a round of leftovers or silently
+   skip départements the player has never been asked at that difficulty. So the record is
+   per (mode, difficulty) and the two are never mixed.
+   The old shape was `m[mode][code]`; `marksStored` reads BOTH (a `m.fdept` is the Normal
+   course of that mode, which is where the pre-2026-11-02 record came from), so a player
+   who has already played does not lose what they found. */
+function markKey(c) { return String(c.mode) + '|' + String(c.difficulty || 'medium'); }
 function marksStored() {
   try {
     var raw = window.localStorage.getItem(MARK_KEY);
     var o = raw ? JSON.parse(raw) : null;
     if (!o || typeof o !== 'object' || !o.m) return {};
-    var out = {}, k, m;
+    var out = {}, k, m, c, v;
     for (k in o.m) {
       if (!o.m.hasOwnProperty(k) || !o.m[k] || typeof o.m[k] !== 'object') continue;
       m = {};
-      for (var c in o.m[k]) {
+      for (c in o.m[k]) {
         if (!o.m[k].hasOwnProperty(c)) continue;
-        var v = o.m[k][c];
+        v = o.m[k][c];
+        /* a nested map is a MODE from an older build: it is the Normal course of it */
+        if (v && typeof v === 'object') {
+          var inner = {};
+          for (var c2 in v) if (v.hasOwnProperty(c2) && (v[c2] === 'ok' || v[c2] === 'bad')) inner[String(c2)] = v[c2];
+          if (Object.keys(inner).length) out[k + '|medium'] = inner;
+          continue;
+        }
         if (v === 'ok' || v === 'bad') m[String(c)] = v;
       }
-      out[k] = m;
+      if (Object.keys(m).length) out[k] = m;
     }
     return out;
   } catch (e) { return {}; }
 }
-function marksSave(mode, map) {
+function marksSave(key, map) {
   try {
     var all = marksStored();
-    all[mode] = map || {};
-    window.localStorage.setItem(MARK_KEY, JSON.stringify({ v: 1, m: all }));
+    all[key] = map || {};
+    window.localStorage.setItem(MARK_KEY, JSON.stringify({ v: 2, m: all }));
     return true;
   } catch (e) { return false; }
 }
@@ -153,30 +171,31 @@ function marksSave(mode, map) {
 function marksKeep(c) {
   return c.scope === 'france' && c.zone === 'fr' && !!MARK_MODES[c.mode];
 }
-/* how many answers this mode already has (the Reset note and button) */
-function marksCount(mode) {
-  var m = marksStored()[mode || cfg.mode] || {};
+/* how many answers this (mode, difficulty) already has (the Reset note and button) */
+function marksCount(c) {
+  var cc = c || cfg;
+  var m = marksStored()[markKey(cc)] || {};
   var n = 0;
-  for (var c in m) if (m.hasOwnProperty(c)) n++;
+  for (var k in m) if (m.hasOwnProperty(k)) n++;
   return n;
 }
 /* the marks the map should paint for the round being started */
 function marksForRound() {
   if (!marksKeep(cfg)) return {};
-  return marksStored()[cfg.mode] || {};
+  return marksStored()[markKey(cfg)] || {};
 }
-/* THE ONES TO SKIP on resume: the answers kept for this mode that are RIGHT. A wrong one
-   comes back (that is the point of keeping it red), a never-asked one comes back, and a
-   mode that keeps nothing skips nothing. */
 /* how many are FOUND (right), as opposed to answered */
-function marksDone(mode) {
-  var m = marksStored()[mode || cfg.mode] || {}, n = 0, k;
+function marksDone(c) {
+  var m = marksStored()[markKey(c || cfg)] || {}, n = 0, k;
   for (k in m) if (m.hasOwnProperty(k) && m[k] === 'ok') n++;
   return n;
 }
+/* THE ONES TO SKIP on resume: the answers kept for this mode AND difficulty that are RIGHT.
+   A wrong one comes back (that is the point of keeping it red), a never-asked one comes
+   back, and a config that keeps nothing skips nothing. */
 function marksSkip(c) {
   if (!marksKeep(c)) return null;
-  var m = marksStored()[c.mode] || {}, out = {}, k, any = false;
+  var m = marksStored()[markKey(c)] || {}, out = {}, k, any = false;
   for (k in m) { if (m.hasOwnProperty(k) && m[k] === 'ok') { out[k] = 1; any = true; } }
   return any ? out : null;
 }
@@ -184,14 +203,15 @@ function marksSet(code, ok) {
   if (!code || !MARK_MODES[cfg.mode]) return;
   marks[String(code)] = ok ? 'ok' : 'bad';
   if (marksKeep(cfg)) {
-    var m = marksStored()[cfg.mode] || {};
+    var key = markKey(cfg);
+    var m = marksStored()[key] || {};
     m[String(code)] = ok ? 'ok' : 'bad';
-    marksSave(cfg.mode, m);
+    marksSave(key, m);
   }
   if (M.frHistory) M.frHistory(marks);
 }
 function marksReset() {
-  if (marksKeep(cfg)) marksSave(cfg.mode, {});
+  if (marksKeep(cfg)) marksSave(markKey(cfg), {});
   marks = {};
   if (M.frHistory) M.frHistory(marks);
 }
@@ -732,15 +752,19 @@ function diffHTML() {
      of France, in the four modes that light a département. The button is a GHOST and it
      says what it erases: it is not the stats reset, and a one-tap wipe of a course you
      have been playing for a week is not a thing to put next to Play without saying so. */
-  var kept = marksCount(cfg.mode);
+  var kept = marksCount(cfg);
   if (marksKeep(cfg) && kept) {
     /* ...AND WHAT IS LEFT. Found ones are not asked again and wrong ones come back, so the
        number that matters is how many are still to find - it is also what the round length
        is capped by (see poolOf), and saying it here is what stops "10 questions" looking
        broken on a course with three left. */
-    var done = marksDone(cfg.mode), total = Q.poolFor(M.frItems(), cfg.zone, cfg.mode).length;
+    var done = marksDone(cfg), total = Q.poolFor(M.frItems(), cfg.zone, cfg.mode).length;
     var left = Math.max(0, total - done);
-    b += '<div class="qz-block qz-marks"><div class="qz-h">' + esc(T('marks_head')) + '</div>' +
+    /* THE HEAD NAMES THE DIFFICULTY: the record is per (mode, difficulty) - a course found
+       at Easy is not the same course at Hard - so the block must say which one it is about,
+       or "60 found, 41 left" reads as a claim about every band at once. */
+    b += '<div class="qz-block qz-marks"><div class="qz-h">' + esc(T('marks_head')) +
+         ' \u00b7 ' + esc(diffLabel(cfg.difficulty)) + '</div>' +
          '<div class="qz-note">' + esc(T('marks_kept', { n: kept })) + '</div>' +
          (left ? '<div class="qz-note">' + esc(T('marks_left', { n: left, total: total })) + '</div>'
                : '<div class="qz-note">' + esc(T('marks_all')) + '</div>') +
