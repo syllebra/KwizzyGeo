@@ -65,7 +65,7 @@
      and puts the `cg` class on the body that the stylesheets hang the layout on -->
 <script src="crazy.js?v=4"></script>
 <script src="core.js?v=40"></script>
-<script src="app.js?v=139"></script>
+<script src="app.js?v=140"></script>
 <script src="quizcore.js?v=5"></script>
 <!-- the music rules, a plain <script> AND require()d by tests/playlist_test.js: one
      source, so what a player hears is what the test checks -->
@@ -74,7 +74,43 @@
 <script src="stats.js?v=2"></script>
 <!-- the quiz's UI strings in the map's 18 languages: one table, keyed by the same codes
      the burger's language chips use -->
-<script src="i18n.js?v=16"></script>
-<script src="quiz.js?v=47"></script>
+<script src="i18n.js?v=17"></script>
+<script src="quiz.js?v=48"></script>
+<!-- SELF-HEAL AGAINST A STALE index.html.
+     The cache-busters above live in THIS file, and this host sends no Cache-Control on
+     it, so a browser may reuse an old copy by heuristic freshness - which loads the OLD
+     quiz.js/app.js from the old `?v=` numbers and makes a new build look like it was
+     never shipped (measured 2026-11-02: a new mode existed on the server and in a fresh
+     browser, and not in the one that had visited before).
+     So the page asks for its own HTML with `no-store` once, reads the newest `app.js?v=`
+     out of it, and reloads ONCE if it disagrees with the one it loaded. A stale HTML
+     cannot carry this script, so the very first load after a fix still needs a hard
+     reload - after that, this makes it impossible. sessionStorage guards the loop: one
+     reload per version, never a refresh storm, and a failed fetch (file://, an offline
+     moment, the CrazyGames iframe) is silently ignored. -->
+<script>
+(function () {
+  var here = document.currentScript && document.currentScript.previousElementSibling;
+  var cur = '';
+  var tags = document.getElementsByTagName('script');
+  for (var i = 0; i < tags.length; i++) {
+    var m0 = /app\.js\?v=(\d+)/.exec(tags[i].getAttribute('src') || '');
+    if (m0) cur = m0[1];
+  }
+  if (!cur || !window.fetch || !window.sessionStorage) return;
+  fetch('index.html?probe=' + Date.now(), { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.text() : ''; })
+    .then(function (t) {
+      var m = /app\.js\?v=(\d+)/.exec(t || '');
+      if (!m || m[1] === cur) return;
+      try {
+        if (sessionStorage.getItem('kwizzy.reloaded') === m[1]) return;
+        sessionStorage.setItem('kwizzy.reloaded', m[1]);
+      } catch (e) { return; }            /* no storage: reloading would loop */
+      location.reload();
+    })
+    .catch(function () {});
+})();
+</script>
 </body>
 </html>

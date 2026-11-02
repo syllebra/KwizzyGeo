@@ -193,6 +193,26 @@ Move the data or rename that folder — one string, no other path in the app
 hardcodes a layer name. The server test suite reads the same files from
 `tests/../data/`.
 
+### A stale `index.html` (and the self-heal)
+
+The cache-busters above live in **`index.html`**, and a host that sends no `Cache-Control`
+on it lets a browser reuse an old copy by heuristic freshness — which then loads the old
+`app.js?v=…` files. The symptom is the worst kind: the new build is on the server and in a
+fresh browser, and the player's own tab does not have it (measured 2026-11-02: a new mode
+existed everywhere except in the browser that had visited before).
+
+Two answers, both in the page:
+
+* **the self-heal** (an inline script at the end of `index.html`): once per load it fetches
+  its own HTML with `cache: 'no-store'`, reads the newest `app.js?v=` out of it, and
+  reloads **once** if it disagrees with the one it loaded. `sessionStorage` guards the
+  loop (one reload per version), and a failed fetch (`file://`, offline, the CrazyGames
+  iframe) is ignored. A stale HTML cannot carry the script, so the first load after a fix
+  still needs one hard reload — after that it is impossible;
+* **the build stamp** on the credits screen (`Build` → `app.js?v=140 · quizcore.js?v=5 ·
+  i18n.js?v=17 · quiz.js?v=48`), read off the `<script>` tags themselves, so "is my tab on
+  the current build?" is a question with a visible answer.
+
 ### Deploying
 
 Upload the app files at the root and `data/` + `media/` beside them (`i18n.js` is one of

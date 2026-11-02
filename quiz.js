@@ -539,6 +539,19 @@ function diffHTML() {
 /* The two things a player should be able to find without reading the README: what the
    map is made of (and whose it is), and what this device remembers about them. The
    memory half is the stats sheet's own content, rendered by the same builder. */
+/* which files this page really loaded: read off the <script> tags, so it cannot lie */
+function buildStamp() {
+  var out = [], want = { 'app.js': 1, 'quiz.js': 1, 'quizcore.js': 1, 'i18n.js': 1 };
+  var tags = (document.getElementsByTagName ? document.getElementsByTagName('script') : []) || [];
+  for (var i = 0; i < tags.length; i++) {
+    var src = String((tags[i] && tags[i].getAttribute && tags[i].getAttribute('src')) || '');
+    for (var f in want) {
+      if (!want.hasOwnProperty(f)) continue;
+      if (src.indexOf(f + '?v=') >= 0) out.push(src.replace(/^.*\//, ''));
+    }
+  }
+  return out.join(' \u00b7 ') || '\u2014';
+}
 function creditRow(name, what, href) {
   var n = href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(name) + '</a>'
                : esc(name);
@@ -564,6 +577,11 @@ function aboutHTML() {
        '<div class="qz-note">' + esc(T('ab_map_note')) + '</div></div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('snd_title')) + '</div>' +
        '<div class="qz-note">' + esc(T('ab_music_note')) + '</div></div>';
+  /* THE BUILD STAMP. "it is not on the site" has one honest answer and it is this line:
+     the cache-busters live in index.html, so a cached HTML loads an older app.js and the
+     newest work looks unshipped. The numbers here are what THIS page actually loaded. */
+  b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_build')) + '</div>' +
+       '<div class="qz-note">' + esc(buildStamp()) + '</div></div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('ab_memory')) + '</div>' +
        '<div class="qz-note">' + esc(T('ab_memory_note')) + '</div>' +
        '<div class="qz-actions"><button class="qz-ghost" data-act="stats-open">' + esc(T('stats')) +
