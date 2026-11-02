@@ -178,6 +178,7 @@ docs/     screens/                                                   <- the pict
 | `tools/shp2geojson_places.py` | the converter for that table (shapefile -> `data/places.json` + the 18 `cities.<code>.json`) |
 | `tools/shp2geojson10m.py` | the 10m map-units converter, including every `NAME_<CODE>` the selector needs |
 | `tools/fetch_flags.py` | copies the flags the app can ask for and regenerates `flags.css` |
+| `tools/stamp.js` | rewrites the `?v=` cache-busters in `index.html` from each file's own sha1 (`--check` reports staleness; `tests/cache_test.js` enforces it) |
 | `tools/screens.js` | the README's screenshots: the real page in a real Chromium at three viewports (needs `playwright-core`; dev only, never shipped) |
 | `tests/` | the node test scripts (below) — development only. `tests/france_test.js` needs `data/fr/` |
 | `README.md`, `LICENSE` | this document, MIT |
@@ -192,6 +193,19 @@ var DATA_DIR = 'data/';
 Move the data or rename that folder — one string, no other path in the app
 hardcodes a layer name. The server test suite reads the same files from
 `tests/../data/`.
+
+### The cache-busters are derived, not remembered
+
+`?v=` is **`parseInt(sha1(file).slice(0,8), 16)`** — `node tools/stamp.js` writes them,
+`tests/cache_test.js` recomputes them and **fails** on a stale one. It has to be automatic,
+and here is why: on 2026-11-02 `quizcore.js?v=5` was stamped once, in the first France
+commit, and the file then gained a **sixth mode** without its number moving. The server had
+the new file at that URL; every browser that had already loaded `?v=5` kept the old copy
+for ever, so the France quiz showed **five** cards where the build had six, and a hard
+reload did not help — the URL was identical. (A decimal, not the hex string, so every
+`\?v=\d+` regex in the tests, the scripts and the page's own self-heal keeps working.)
+
+Run `node tools/stamp.js` after editing any asset; the test tells you if you forget.
 
 ### A stale `index.html` (and the self-heal)
 
@@ -209,8 +223,8 @@ Two answers, both in the page:
   loop (one reload per version), and a failed fetch (`file://`, offline, the CrazyGames
   iframe) is ignored. A stale HTML cannot carry the script, so the first load after a fix
   still needs one hard reload — after that it is impossible;
-* **the build stamp** on the credits screen (`Build` → `app.js?v=140 · quizcore.js?v=5 ·
-  i18n.js?v=17 · quiz.js?v=48`), read off the `<script>` tags themselves, so "is my tab on
+* **the build stamp** on the credits screen (`Build` → `app.js?v=… · quizcore.js?v=… ·
+  i18n.js?v=… · quiz.js?v=…`), read off the `<script>` tags themselves, so "is my tab on
   the current build?" is a question with a visible answer.
 
 ### Deploying
@@ -840,6 +854,7 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 | `tests/stats_test.js` | 62 checks on the record: an empty record, one answer, the streak, the groupings (mode / zone / the two flag halves kept apart), what "best" means across lengths, the 60-run cap, every corrupt-blob shape, reset (and that the settings key survives it), a `localStorage` that refuses to write, and that 300 answers stay under 40 kB |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
 | `tests/france_test.js` | 139 checks on the France quiz, over the **real** `data/fr/` files (the fetch stub fails loudly on a name it does not know, so a wrong data path cannot pass): the overlay builds 101 départements / 18 régions / 489 lakes / 58 rivers / 2,280 cities and every préfecture resolves to a city; a point in Paris is 75 and one near Rennes is 35, a point in the Atlantic is nothing; the scope screen is step 1 of 4 and France is not the world's modes; the **four option modes × five zones** each ask six distinct options with the answer among them; **place the département** (no options, a click is the answer, right/wrong scored once, a miss on the sea not an answer at all, the red and the green on the map after it, the card naming what was clicked); **Mayotte asks six options with five of them elsewhere**, Bretagne asks its four; the number modes offer numbers and names; the préfecture mode offers towns and a hard question stays under 400 km; the locate bands grow and Corse/hard is topped up to six; a France round end to end (the map handed over with `france`, the **label plan per mode** — no numbers while "which number" is asked, on after the answer, the verdict and the details panel, the score on France's own curve, a wrong answer not scoring); the three shape-mode flights (two fly to the département, two frame the zone); a locate round with a tap, the confirm, the km, the points and both marks; quitting giving the map back with the world layer untouched; and the credits naming IGN and geo.api.gouv.fr |
+| `tests/cache_test.js` | 47 checks on the cache-busters: every stamped asset exists and its `?v=` **equals its content's hash** (a forgotten bump fails here), nothing local is loaded unstamped, `index.html` itself never is, and the self-heal script is present, runs last, reads the same `app.js?v=` shape and can reload at most once per version |
 | `tests/crazy_test.js` | 81 checks on the CrazyGames adapter, with a fake SDK: the hostname test (including every near-miss that must NOT count), nothing at all off the platform, the queue and its order (`loadingStart` before `init()` resolves), `gameplayStart`/`gameplayStop` deduped across re-renders, `muteAudio` reaching the juice without touching the player's switches, the locale applied — but never over a chosen language — a rejected init and a throwing method both contained, and the wiring in `index.html` / `app.js` / `quiz.js` / the two stylesheets |
 
 Each of these runs in node with a fake DOM, no browser and no network:
