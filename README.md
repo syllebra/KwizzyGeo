@@ -1116,11 +1116,16 @@ Three properties, each a trap worth naming:
 <img src="docs/screens/fr-inset-numbers-desktop.jpg" width="620" alt="The overseas inset in the Atlantic, numbers on, the rest of France numbered on the map">
 </p>
 
-**Name → number is typed**, and the answers stay on the map in green and red:
+**Name → number**: the QCM at the three regular difficulties, a keypad at **Extreme** —
+and the answers stay on the map in green and red:
 
 <p align="center">
-<img src="docs/screens/fr-pad-phone.jpg" width="186" alt="The number pad on a phone: a display, the two Corsican shortcuts, and a dialler">
+<img src="docs/screens/fr-pad-phone.jpg" width="186" alt="Extreme: the dialler on a phone, with the two Corsican shortcuts above it">
 <img src="docs/screens/fr-marks-desktop.jpg" width="620" alt="A correct answer keeping its green on the map, the region's framing kept">
+</p>
+
+<p align="center">
+<img src="docs/screens/fr-diffs-phone.jpg" width="186" alt="Four difficulty cards on name to number: easy, normal, hard, extreme">
 </p>
 
 ### The overlay: `data/fr/` on top of the world
