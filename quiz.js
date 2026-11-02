@@ -60,8 +60,9 @@ var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag
                    fname: 'm_name_s', fpref: 'm_pref_s', floc: 'm_locate_s' };
 var K_ZONE = { world: 'z_world', africa: 'z_africa', asia: 'z_asia', europe: 'z_europe',
                'north-america': 'z_na', 'south-america': 'z_sa', oceania: 'z_oceania' };
-var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard' };
-var K_DIFF_SUB = { easy: 'd_easy_s', medium: 'd_medium_s', hard: 'd_hard_s' };
+var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard', extreme: 'd_extreme' };
+var K_DIFF_SUB = { easy: 'd_easy_s', medium: 'd_medium_s', hard: 'd_hard_s',
+                   extreme: 'd_x_s' };
 /* In locate mode "the wrong answers are neighbours" would be meaningless - there are no
    answers to choose from. The difficulty there is how famous the city is, so the three
    subs are their own sentences. */
@@ -102,6 +103,116 @@ try {
     }
   }
 } catch (e) { /* private mode: keep the defaults */ }
+/* ---------- THE ANSWERS THAT STAY ON THE MAP ----------
+   He asked for the green/red of an answer to remain until the end of the game, and for the
+   WHOLE-FRANCE modes to keep the answers of the previous games, with a Reset at the start.
+
+   Two layers, and the difference is the ZONE:
+
+     a région round   the marks live for the round (they are "what I did in this game")
+     the whole of France   they are STORED per mode, so a 101-question course can be played
+                      over several sittings and "the départements I still miss" is a thing
+                      you can see. `kwizzygeo.fr.marks.v1`, a THIRD key again, so resetting
+                      one thing never wipes another.
+
+   The record is keyed by MODE: finding the shape (fdept), the number (fnum), the name
+   (fname) and the préfecture (fpref) are four different skills, and a green on one says
+   nothing about the others. Only the modes where a département is lit AND answered are
+   recorded - "place it" and "locate the city" keep nothing (his two exceptions). */
+var MARK_KEY = 'kwizzygeo.fr.marks.v1';
+var MARK_MODES = { fdept: 1, fnum: 1, fname: 1, fpref: 1 };
+var marks = {};            /* code -> 'ok' | 'bad', for the round in progress */
+
+/* THE KEY IS THE MODE **AND THE DIFFICULTY** (his call, 2026-11-02). A course found at
+   Easy is not a course found at Hard: the six wrong answers of a hard question are the
+   neighbours, so "I found 60 of them" is a different sentence in each band - and resuming
+   at Hard after a Normal course would either hand back a round of leftovers or silently
+   skip départements the player has never been asked at that difficulty. So the record is
+   per (mode, difficulty) and the two are never mixed.
+   The old shape was `m[mode][code]`; `marksStored` reads BOTH (a `m.fdept` is the Normal
+   course of that mode, which is where the pre-2026-11-02 record came from), so a player
+   who has already played does not lose what they found. */
+function markKey(c) { return String(c.mode) + '|' + String(c.difficulty || 'medium'); }
+function marksStored() {
+  try {
+    var raw = window.localStorage.getItem(MARK_KEY);
+    var o = raw ? JSON.parse(raw) : null;
+    if (!o || typeof o !== 'object' || !o.m) return {};
+    var out = {}, k, c, clean;
+    function isMark(x) { return x === 'ok' || x === 'bad'; }
+    for (k in o.m) {
+      if (!o.m.hasOwnProperty(k) || !o.m[k] || typeof o.m[k] !== 'object') continue;
+      clean = {};
+      for (c in o.m[k]) if (o.m[k].hasOwnProperty(c) && isMark(o.m[k][c])) clean[String(c)] = o.m[k][c];
+      if (!Object.keys(clean).length) continue;
+      /* THE KEY TELLS THE SHAPE. Both shapes are `{key: {code: 'ok'|'bad'}}`; what changed
+         on 2026-11-02 is the KEY - a bare mode id ('fdept') became mode|difficulty
+         ('fdept|medium'). So a key without the bar is an old record and is filed as the
+         NORMAL course of that mode. (Reading the nesting instead was wrong twice over: the
+         two shapes nest identically, so nothing was ever migrated and a course already
+         played silently disappeared from the screen.) */
+      out[k.indexOf('|') >= 0 ? k : (k + '|medium')] = clean;
+    }
+    return out;
+  } catch (e) { return {}; }
+}
+function marksSave(key, map) {
+  try {
+    var all = marksStored();
+    all[key] = map || {};
+    window.localStorage.setItem(MARK_KEY, JSON.stringify({ v: 2, m: all }));
+    return true;
+  } catch (e) { return false; }
+}
+/* is this config one that keeps its answers? */
+function marksKeep(c) {
+  return c.scope === 'france' && c.zone === 'fr' && !!MARK_MODES[c.mode];
+}
+/* how many answers this (mode, difficulty) already has (the Reset note and button) */
+function marksCount(c) {
+  var cc = c || cfg;
+  var m = marksStored()[markKey(cc)] || {};
+  var n = 0;
+  for (var k in m) if (m.hasOwnProperty(k)) n++;
+  return n;
+}
+/* the marks the map should paint for the round being started */
+function marksForRound() {
+  if (!marksKeep(cfg)) return {};
+  return marksStored()[markKey(cfg)] || {};
+}
+/* how many are FOUND (right), as opposed to answered */
+function marksDone(c) {
+  var m = marksStored()[markKey(c || cfg)] || {}, n = 0, k;
+  for (k in m) if (m.hasOwnProperty(k) && m[k] === 'ok') n++;
+  return n;
+}
+/* THE ONES TO SKIP on resume: the answers kept for this mode AND difficulty that are RIGHT.
+   A wrong one comes back (that is the point of keeping it red), a never-asked one comes
+   back, and a config that keeps nothing skips nothing. */
+function marksSkip(c) {
+  if (!marksKeep(c)) return null;
+  var m = marksStored()[markKey(c)] || {}, out = {}, k, any = false;
+  for (k in m) { if (m.hasOwnProperty(k) && m[k] === 'ok') { out[k] = 1; any = true; } }
+  return any ? out : null;
+}
+function marksSet(code, ok) {
+  if (!code || !MARK_MODES[cfg.mode]) return;
+  marks[String(code)] = ok ? 'ok' : 'bad';
+  if (marksKeep(cfg)) {
+    var key = markKey(cfg);
+    var m = marksStored()[key] || {};
+    m[String(code)] = ok ? 'ok' : 'bad';
+    marksSave(key, m);
+  }
+  if (M.frHistory) M.frHistory(marks);
+}
+function marksReset() {
+  if (marksKeep(cfg)) marksSave(markKey(cfg), {});
+  marks = {};
+  if (M.frHistory) M.frHistory(marks);
+}
+
 function storeCfg() {
   try { window.localStorage.setItem(STORE, JSON.stringify(cfg)); } catch (e) {}
 }
@@ -120,6 +231,7 @@ var soundEl = document.getElementById('qz-sound');   /* a SIBLING of #quiz, so a
 var statsOpen = false;       /* the record of everything played */
 var statsEl = document.getElementById('qz-stats');
 var statsArmed = false;      /* the Reset button has been pressed once */
+var marksArmed = false;      /* ...and the same two-step for the answers kept on the map */
 var session = null, q = null, answered = false, chosen = -1;
 /* LOCATE: the point the player has put on the map, {lon, lat}, and the answer once it
    is given. `guess` lives outside the question so a re-render (a language change, a
@@ -157,6 +269,18 @@ function diffSub(id) {
   return k ? T(k) : '';
 }
 function modeLabel(id) { return K_MODE[id] ? T(K_MODE[id]) : id; }
+/* THE TWO-WORD NAME a grid card carries. The long label stays the accessible name and the
+   title; this is what fits under a 24 px icon on a phone ("Trouver la préfecture" does
+   not). A mode with no short name falls back to its long one, so a new mode can never
+   render an empty card. */
+var K_MODE_SHORT = { country: 'ms_country', capital: 'ms_capital', flag: 'ms_flag',
+                     locate: 'ms_locate', fdept: 'ms_dept', fplace: 'ms_place',
+                     fnum: 'ms_num', fname: 'ms_name', fpref: 'ms_pref', floc: 'ms_loc' };
+function modeShort(id) {
+  var k = K_MODE_SHORT[id];
+  var v = k ? T(k) : '';
+  return (v && v !== k) ? v : modeLabel(id);
+}
 function modeSub(id) { return K_MODE_SUB[id] ? T(K_MODE_SUB[id]) : ''; }
 function variantLabel(id) { return K_VARIANT[id] ? T(K_VARIANT[id]) : id; }
 function variantSub(id) { return K_VARIANT_SUB[id] ? T(K_VARIANT_SUB[id]) : ''; }
@@ -202,13 +326,27 @@ function scopeSub(id) {
             the context the marker is placed in-> numbers only
    (After an answer both come on, exactly like the world quiz's labels(true).) */
 function frLabelPlan(mode) {
-  if (mode === 'fdept') return { codes: false, name: false };
-  if (mode === 'fnum') return { codes: false, name: true };
-  if (mode === 'fpref') return { codes: true, name: true };
-  /* "place it": the name is GIVEN and the shape is the answer, so the map may show
-     neither the name nor the numbers - the shape alone is the question. */
-  if (mode === 'fplace') return { codes: false, name: false };
-  return { codes: true, name: false };
+  /* THE DÉPARTEMENT IN QUESTION IS ALWAYS LIT UP, except in the two modes where it IS the
+     answer (his call, 2026-11-02): in "place it" the shape is what you must find, and in
+     "locate the city" nothing is lit because the city is the question. Everywhere else the
+     player is told WHICH one is being asked and has to produce the other fact about it -
+     which is the question, and it makes "name -> number" answerable at all (without the
+     shape, the prompt names a département you cannot see and neither can you check the
+     map for it).
+     `codes` and `name` are two INDEPENDENT facts about that shape, each shown only when the
+     question already gives it away:
+       fdept  neither (the name is the answer)
+       fnum   the name (it is the prompt); NOT the number, which is the answer
+       fname  the number (the prompt) plus every number on the map; not the name
+       fpref  both (the département is given, the préfecture is the answer)
+       floc   the numbers (the grid the marker is placed in), nothing lit
+       fplace nothing while answering (the shape is the answer) */
+  if (mode === 'fdept') return { codes: false, name: false, light: true };
+  if (mode === 'fnum') return { codes: false, name: true, light: true, wide: true };
+  if (mode === 'fname') return { codes: true, name: false, light: true, wide: true };
+  if (mode === 'fpref') return { codes: true, name: true, light: true };
+  if (mode === 'fplace') return { codes: false, name: false, light: false };
+  return { codes: true, name: false, light: false };
 }
 
 /* THE LOGO SLOT. The final mark drops in as media/logo.png; until that file exists the
@@ -442,6 +580,76 @@ function titleHTML() {
   return h + '</div></div>';
 }
 
+/* ---------- THE MODE ICONS, AND THE COMPACT MODE GRID ----------
+   A mode card used to be a full-width row: a glyph, a title, and a sentence of
+   explanation - six of them is a wall of text on a phone, and the sentences said the same
+   thing six times. His note (2026-11-02): "meaningful icons instead of long text for game
+   modes, and smaller buttons for mode picking (in grid)".
+
+   So: a GRID of small cards, each with an ICON THAT SHOWS THE QUESTION and a two-word
+   label, and ONE line underneath saying what the selected mode asks. The icon is a real
+   drawing (inline SVG, stroke = currentColor) rather than a Unicode glyph: "◉ / ⌖ / # / ⌗"
+   were four marks that all looked like punctuation, and a player had to read every card
+   to tell them apart. These are read without reading:
+
+     a folded map      find the country / the département  (a shape is lit: name it)
+     the same + a cursor   place it                        (click the shape)
+     a badge "01"      name -> number
+     a badge "Aa"      number -> name
+     a star            the capital / the préfecture
+     a map pin         put a marker on the map
+
+   `aria-label` keeps the full sentence, so the screen reader still hears exactly what the
+   card used to print, and `title` gives a mouse the same. */
+var MODE_SVG = {
+  /* A FOLDED MAP: the question is "read a shape off the map" (find the country, find the
+     département - the same sentence one scale apart, so the same drawing). Three panels,
+     two creases, drawn on a 24 grid with a 1.5 stroke: at 26 px it stays legible. */
+  country: '<path d="M3 6.4 9 4.4l6 2 6-2v13.2l-6 2-6-2-6 2z"/><path d="M9 4.4v13.2M15 6.4v13.2"/>',
+  fdept:   '<path d="M3 6.4 9 4.4l6 2 6-2v13.2l-6 2-6-2-6 2z"/><path d="M9 4.4v13.2M15 6.4v13.2"/>' +
+           '<path d="M6 8.6h4.6v4.4H6z" fill="currentColor" stroke="none"/>',
+  /* THE SAME MAP WITH A CURSOR ON IT: "put this one here". The arrow is big (7 x 8 on the
+     grid) and sits in the lower right, clear of the map's own outline. */
+  fplace:  '<path d="M2.6 6.4 7.4 4.6l4.6 1.7 3.6-1.5v6.4"/><path d="M7.4 4.6v7.6"/>' +
+           '<path d="M12.6 11.4 21 15l-3.6 1.3 2 4-2.2 1-2-4L12.6 20z"/>',
+  /* A PILL WITH A NUMBER IN IT */
+  fnum:    '<rect x="2.4" y="6.6" width="19.2" height="10.8" rx="5.4"/>' +
+           '<text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" ' +
+           'font-family="ui-monospace, Menlo, monospace" fill="currentColor" stroke="none">01</text>',
+  /* ...AND WITH LETTERS. Two forms of the same fact, so two forms of the same drawing. */
+  fname:   '<rect x="2.4" y="6.6" width="19.2" height="10.8" rx="5.4"/>' +
+           '<text x="12" y="15.2" text-anchor="middle" font-size="8.6" font-weight="700" ' +
+           'font-family="system-ui, sans-serif" fill="currentColor" stroke="none">Aa</text>',
+  /* A STAR: the capital of a country */
+  capital: '<path d="M12 3.2l2.7 5.5 6 .9-4.4 4.2 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.3 9.6l6-.9z"/>',
+  /* A FLAG ON ITS POLE */
+  flag:    '<path d="M6.2 21V3.4"/><path d="M6.2 4.6h11l-2.3 3.6 2.3 3.6h-11z"/>',
+  /* A PIN: a place you put on the map (locate, in both scopes) */
+  locate:  '<path d="M12 21.4c0 0 6.4-5.8 6.4-10.6a6.4 6.4 0 0 0-12.8 0C5.6 15.6 12 21.4 12 21.4z"/>' +
+           '<circle cx="12" cy="10.6" r="2.3"/>',
+  /* THE PIN WITH A STAR IN IT: the préfecture, one scale down from a capital */
+  fpref:   '<path d="M12 21.4c0 0 6.4-5.8 6.4-10.6a6.4 6.4 0 0 0-12.8 0C5.6 15.6 12 21.4 12 21.4z"/>' +
+           '<path d="M12 5.4l1.1 2.3 2.5.4-1.8 1.8.4 2.5-2.2-1.2-2.2 1.2.4-2.5-1.8-1.8 2.5-.4z" ' +
+           'fill="currentColor" stroke="none"/>'
+};
+function modeIcon(id, cls) {
+  var body = MODE_SVG[id] || MODE_SVG.country;
+  return '<svg class="qz-mico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" ' +
+         'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+         'stroke-linejoin="round" aria-hidden="true" focusable="false">' + body + '</svg>';
+}
+/* ONE CARD OF THE GRID: icon on top, two words under it, and the whole sentence in the
+   accessibility layer (and in `title`, for a mouse) */
+function modeCard(md, on, extra) {
+  var label = modeShort(md.id);
+  var full = modeLabel(md.id) + ' — ' + modeSub(md.id);
+  return '<button class="qz-mode' + (on ? ' on' : '') + '" data-mode="' + md.id + '"' +
+         ' aria-label="' + esc(full) + '" title="' + esc(full) + '"' + (extra || '') + '>' +
+         modeIcon(md.id) +
+         '<span class="qz-mode-t">' + esc(label) + '</span>' +
+         '<span class="qz-tick" aria-hidden="true"></span></button>';
+}
+
 /* ---------- screen 2: what to find ---------- */
 function modeHTML() {
   /* FOUR MODES, SO A 2x2 (five, in the France quiz). Three in a row and the fourth
@@ -455,15 +663,21 @@ function modeHTML() {
   /* the loader, while the overlay's 2 MB are still arriving: the mode cards are
      already usable, so it is a line and not a spinner over the screen */
   if (cfg.scope === 'france' && !frOk()) b += '<div class="qz-note">' + esc(T('loading_france')) + '</div>';
-  b += '<div class="qz-choices qz-choices-pairs">';
+  /* THE GRID: small cards, an icon each, and the selected mode's sentence underneath
+     (see qz_modes.js for why). Six cards fit three across a phone. */
+  b += '<div class="qz-modes">';
   for (var i = 0; i < MD.length; i++) {
     var md = MD[i];
     var waitCap = (md.id === 'capital' && !capsReady());
-    b += choiceHTML('mode', md.id, md.ico, modeLabel(md.id),
-                    waitCap ? T('loading_capitals_short') : modeSub(md.id),
-                    cfg.mode === md.id, waitCap ? ' aria-disabled="true"' : '');
+    b += modeCard(md, cfg.mode === md.id, waitCap ? ' aria-disabled="true"' : '');
   }
   b += '</div>';
+  /* ONE LINE, FOR THE PICK: the sentence the cards used to carry, said once for the mode
+     that is actually selected - the loading note wins while the capitals arrive, because
+     a mode that cannot start is the more urgent fact */
+  b += '<div class="qz-note qz-modedesc">' +
+       esc(cfg.mode === 'capital' && !capsReady() ? T('loading_capitals_short') : modeSub(cfg.mode)) +
+       '</div>';
   /* THE FLAG QUESTION HAS TWO HALVES: name the country from the flag, or pick the flag
      of a named country. The row only exists while the flag mode is picked, so the page
      never grows a setting that is meaningless for the other two modes. */
@@ -513,10 +727,13 @@ function zoneHTML() {
 
 /* ---------- screen 4: how hard, and how long ---------- */
 function diffHTML() {
-  var b = '<div class="qz-choices qz-choices-row">';
-  for (var d = 0; d < Q.DIFFS.length; d++) {
-    var df = Q.DIFFS[d];
-    b += choiceHTML('diff', df.id, '', diffLabel(df.id), diffSub(df.id), cfg.difficulty === df.id);
+  /* THE MODE'S OWN LIST: "name -> number" offers a fourth, Extreme, which is the keypad -
+     the other three keep their six options (see diffsOf in quizcore.js) */
+  var DF = Q.diffsOf(cfg.mode);
+  var b = '<div class="qz-choices qz-diffs">';
+  for (var d = 0; d < DF.length; d++) {
+    var df = DF[d];
+    b += choiceHTML('diff', df.id, '', diffLabel(df.id), diffSub(df.id), curDiff() === df.id);
   }
   b += '</div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('h_len')) + '</div><div class="chips qz-row">';
@@ -526,6 +743,33 @@ function diffHTML() {
          LENS[L].id + '">' + esc(LENS[L].id ? String(LENS[L].id) : T('all_tracks')) + '</button>';
   }
   b += '</div><div class="qz-note">' + esc(lenSub()) + '</div></div>';
+  /* THE ANSWERS OF THE PREVIOUS GAMES, and the way to start them over (his call,
+     2026-11-02: "les modes France entière doivent garder les réponses des jeux précédents
+     et proposer reset au démarrage"). Only where the marks are actually kept - the whole
+     of France, in the four modes that light a département. The button is a GHOST and it
+     says what it erases: it is not the stats reset, and a one-tap wipe of a course you
+     have been playing for a week is not a thing to put next to Play without saying so. */
+  var kept = marksCount(cfg);
+  if (marksKeep(cfg) && kept) {
+    /* ...AND WHAT IS LEFT. Found ones are not asked again and wrong ones come back, so the
+       number that matters is how many are still to find - it is also what the round length
+       is capped by (see poolOf), and saying it here is what stops "10 questions" looking
+       broken on a course with three left. */
+    var done = marksDone(cfg), total = Q.poolFor(M.frItems(), cfg.zone, cfg.mode).length;
+    var left = Math.max(0, total - done);
+    /* THE HEAD NAMES THE DIFFICULTY: the record is per (mode, difficulty) - a course found
+       at Easy is not the same course at Hard - so the block must say which one it is about,
+       or "60 found, 41 left" reads as a claim about every band at once. */
+    b += '<div class="qz-block qz-marks"><div class="qz-h">' + esc(T('marks_head')) +
+         ' \u00b7 ' + esc(diffLabel(cfg.difficulty)) + '</div>' +
+         '<div class="qz-note">' + esc(T('marks_kept', { n: kept })) + '</div>' +
+         (left ? '<div class="qz-note">' + esc(T('marks_left', { n: left, total: total })) + '</div>'
+               : '<div class="qz-note">' + esc(T('marks_all')) + '</div>') +
+         '<div class="qz-actions"><button class="qz-ghost" data-act="marks-reset">' +
+         esc(marksArmed ? T('marks_confirm') : T('marks_reset')) + '</button></div></div>';
+  } else {
+    marksArmed = false;
+  }
   var best = bestText();
   if (best) b += '<div class="qz-note qz-bestline">' + esc(best) + '</div>';
   return shellHTML({
@@ -605,8 +849,16 @@ function poolOf(c) {
   if (!flagsReady()) return [];
   if (isFrMode(cc.mode)) {
     if (!frOk()) return [];
-    return cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
-                              : Q.poolFor(M.frItems(), cc.zone, cc.mode);
+    var frPool = cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
+                                    : Q.poolFor(M.frItems(), cc.zone, cc.mode);
+    /* WHAT THE ROUND WILL ACTUALLY ASK: the ones already found are skipped (see
+       marksSkip), so "10 questions" of a course with 3 left is 3, and the note says so */
+    var sk = marksSkip(cc);
+    if (sk) {
+      var rest = frPool.filter(function (it) { return !sk[String(it.code == null ? it.id : it.code)]; });
+      if (rest.length) return rest;
+    }
+    return frPool;
   }
   if (cc.mode === 'locate') return Q.cityPool(M.cities(), cc.zone, cc.difficulty);
   return Q.poolFor(M.items(), cc.zone, cc.mode);
@@ -614,6 +866,14 @@ function poolOf(c) {
 /* the length a round would actually play: the same resolution newSession does, so a
    stored 10 carried over from a country round cannot light up a chip locate does not
    offer */
+/* THE DIFFICULTY THE ROUND WOULD RUN AT, resolved against the mode's own list (the same
+   rule newSession applies): pick "number -> name", then Extreme, then go back to "find the
+   département" and the screen must not keep showing Extreme as chosen. */
+function curDiff() {
+  var DF = Q.diffsOf(cfg.mode);
+  for (var i = 0; i < DF.length; i++) if (DF[i].id === cfg.difficulty) return cfg.difficulty;
+  return 'medium';
+}
 function chosenLen() {
   var L = Q.lensOf(cfg.mode);
   for (var i = 0; i < L.length; i++) if (cfg.len === L[i].id) return cfg.len;
@@ -805,6 +1065,91 @@ function revealHTML() {
     (details ? '<div class="qz-details">' + details + '</div>' : '') +
     '</div>';
 }
+/* ---------- THE NUMBER PAD (name -> number) ----------
+   He asked for the QCM to go in this mode: type the number instead of picking it. So the
+   question screen shows a DISPLAY (what has been typed so far) and a keypad, and there is
+   no answer grid.
+
+   Shape, on purpose: 3 x 4 like every phone dialler (1-9, then backspace, 0, validate), the
+   display in the same type a typed answer should have, and two SHORTCUT KEYS for the two
+   codes a numeric pad cannot make (2A and 2B) - small, above the pad, because they are the
+   exception and not a row of the dialler.
+
+   The physics the rest of the game already has: `answerTyped` ends on the same verdict
+   card, the same juice and haptics, the same "next". The keyboard types too (digits,
+   Backspace, Enter): the game's keyboard layer is part of its feel. */
+var typed = '';                    /* what the pad holds, for the question on screen */
+var TYPED_MAX = 3;
+
+function padHTML() {
+  var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
+  var h = '<div class="qz-padwrap">' +
+    '<div class="qz-typed' + (typed ? ' on' : '') + '" aria-live="polite">' +
+    (typed ? esc(typed) : '<span class="qz-typed-ph">\u2014</span>') + '</div>' +
+    '<div class="qz-pad2ab">' +
+    '<button class="chip" data-pad="2A">2A</button>' +
+    '<button class="chip" data-pad="2B">2B</button></div>' +
+    '<div class="qz-pad">';
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (k === 'del') {
+      h += '<button class="qz-key qz-key-sym" data-pad="del" aria-label="' + esc(T('pad_del')) +
+           '" title="' + esc(T('pad_del')) + '">\u232B</button>';
+    } else if (k === 'ok') {
+      h += '<button class="qz-key qz-key-ok" data-pad="ok" aria-label="' + esc(T('pad_ok')) +
+           '" title="' + esc(T('pad_ok')) + '"' + (typed ? '' : ' disabled') + '>\u2713</button>';
+    } else {
+      h += '<button class="qz-key" data-pad="' + k + '">' + k + '</button>';
+    }
+  }
+  return h + '</div></div>';
+}
+/* ONE KEY. The pad only says which key was pressed; the caller decides what it means. */
+function padPress(k) {
+  if (!q || q.mode !== 'fnum' || !q.extreme || answered) return false;
+  if (k === 'del') { typed = typed.slice(0, -1); render(); return false; }
+  if (k === 'ok') return !!answerTyped();
+  if (k === '2A' || k === '2B') {
+    /* the shortcut SETS the display and answers in one press: these two codes are the
+       whole reason the shortcut exists */
+    typed = k;
+    return !!answerTyped();
+  }
+  if (!/^[0-9]$/.test(k)) return false;
+  if (typed.length >= TYPED_MAX) return false;
+  /* a code never starts with 0: a leading 0 is a slip, so it is ignored rather than shown
+     (the same rule as a phone-number field) */
+  if (typed === '' && k === '0') return false;
+  typed += k;
+  /* TWO DIGITS IS NOT ALWAYS THE WHOLE CODE: "97" is the start of 971-976, and nothing
+     else is the start of anything. So the pad answers at two digits unless they are 97 -
+     the one piece of cleverness here, and it saves a tap on 99 of the 101 départements. */
+  if (typed.length === 2 && typed !== '97') return !!answerTyped();
+  if (typed.length === 3) return !!answerTyped();     /* no code has four digits */
+  render();
+  return false;
+}
+/* THE TYPED ANSWER: the rule is quizcore's (answerNum), the picture is the pad's */
+function answerTyped() {
+  if (!q || q.mode !== 'fnum' || !q.extreme || answered) return false;
+  var res = Q.answerNum(session, q, typed);
+  if (!res) { render(); return false; }           /* nothing typed: not an answer */
+  answered = true;
+  bumped = res.ok;
+  if (M.frLabels) M.frLabels(true, true);
+  marksSet(String(q.answer.code), res.ok);
+  if (M.frMark) M.frMark('', q.answer.code);
+  if (S()) S().answer(q, res.ok, q.answer);
+  render();
+  bumped = false;
+  var j = J();
+  if (j) {
+    j.haptic(res.ok ? 60 : [25, 40, 25]);
+    j.sfx(res.ok ? 'correct' : 'wrong');
+  }
+  return res.ok;
+}
+
 /* ---------- THE FRANCE QUIZ'S OWN PROMPTS AND VERDICT ----------
    Same card, same six buttons, same verdict block: only the words and the facts
    change. The prompts go through `named()` like the world's do, so a language that
@@ -851,6 +1196,14 @@ function frRevealHTML() {
     if (!q.ok && q.picked) {
       facts += ' <span class="qz-dim">\u00b7 ' +
                esc(T('place_picked', { code: q.picked, name: M.frName(q.picked) || '' })) + '</span>';
+    }
+  } else if (q.mode === 'fnum') {
+    /* a TYPED answer: the card says what was typed when it was wrong, and always ends on
+       the number it was */
+    facts = '<b>' + esc(String(a.code)) + ' \u00b7 ' + esc(nm) + '</b>' +
+            (reg ? ' <span class="qz-dim">\u00b7 ' + esc(reg) + '</span>' : '');
+    if (!q.ok && q.typed) {
+      facts += ' <span class="qz-dim">\u00b7 ' + esc(T('pad_typed', { code: q.typed })) + '</span>';
     }
   } else if (q.mode === 'fname') {
     facts = '<b>' + esc(nm) + '</b> <span class="qz-dim">\u00b7 ' + esc(String(a.code)) +
@@ -956,6 +1309,9 @@ function questionHTML() {
     /* no grid and no bar to press: the click IS the answer, and the verdict takes the
        place the grid would have had */
     h += '<div class="qz-bottom">' + (answered ? frRevealHTML() : placeBarHTML()) + '</div>';
+  } else if (q.mode === 'fnum' && q.extreme) {
+    /* EXTREME: a TYPED answer, the pad IS the answer grid (see pad) */
+    h += '<div class="qz-bottom">' + (answered ? frRevealHTML() : padHTML()) + '</div>';
   } else {
     h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
   }
@@ -1321,7 +1677,12 @@ function startSession() {
     return false;
   }
   guess = null;
-  session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0);
+  typed = '';
+  /* THE MARKS OF THE PREVIOUS GAMES, for the whole-France modes (empty in a région) */
+  marks = marksForRound();
+  if (M.frHistory) M.frHistory(marks);
+  session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0,
+                         { skip: marksSkip(cfg) });
   infoMsg = '';
   var j = J();
   if (j) j.sfx('start');            /* the one loud yes of a run, as in Kwizzy */
@@ -1425,24 +1786,35 @@ function nextQuestion() {
     var plan = frLabelPlan(q.mode);
     if (M.frLabels) M.frLabels(plan.codes, plan.name);
     guess = null;
+    typed = '';                    /* a new question starts with an empty pad */
     if (q.mode === 'floc') { locateArm(); render(); return; }
     if (M.aim) M.aim(false);
     if (M.clearMarks) M.clearMarks();
-    if (M.frMark) M.frMark(null, null);      /* no mark left over from the last question */
+    /* THE STRONG MARK IS NOT CLEARED HERE: the answer of the question just finished stays
+       green (or the wrong click red) until the next answer replaces it - "la surbrillance
+       gardée jusqu'à la fin du jeu". `frHistory` carries the same verdicts for the whole
+       game; the strong mark is the last one, drawn on top of them. */
     if (q.mode === 'fplace') { placeArm(); render(); return; }
-    if (q.mode === 'fdept' || q.mode === 'fpref') {
-      /* the two modes that light a département fly to it */
-      if (M.frShow) M.frShow(q.answer.code);
+    if (plan.light) {
+      /* EVERY mode but "place it" and "locate the city" lights the département in question.
+         WHERE the map goes depends on what the question asks:
+           fdept / fpref  fly to the shape - it IS the question's subject
+           fnum / fname   stay on the ZONE: the answer is a number or a name, so the
+                          neighbours are the clue, and a flight into one département filled
+                          the screen with it (measured: a Gironde question left no visible
+                          context at all) */
+      if (plan.wide) {
+        if (M.frGoZone) M.frGoZone(q.zone);
+        if (M.frLight) M.frLight(q.answer.code);
+      } else if (M.frShow) M.frShow(q.answer.code);
     } else if (M.frGoZone) {
-      /* the two modes that GIVE the shape away (name -> number, number -> name) frame
-         the ZONE instead: the picture to read is the map of départements, and flying
-         to one of them would point at the answer. */
-      M.frGoZone(q.zone);
+      if (q.mode === 'fname') M.frGoZone(q.zone);
     }
     render();
     return;
   }
   guess = null;
+  typed = '';
   if (isLoc(q.mode)) { locateArm(); render(); return; }
   if (M.aim) M.aim(false);
   if (M.clearMarks) M.clearMarks();
@@ -1490,7 +1862,10 @@ function placeArm() {
 }
 function onPlace(pt) {
   if (!pt || screen !== 'question' || !q || q.mode !== 'fplace' || answered) return;
-  var code = M.frDepAt ? M.frDepAt(pt.lon, pt.lat) : '';
+  /* THE INSET FIRST: it is drawn over the ocean in screen space, so a tap there is not a
+     geography at all - and "where is Mayotte" has no other answer on this screen */
+  var code = (M.frInsetHit && pt.px != null ? M.frInsetHit(pt.px, pt.py) : '') ||
+             (M.frDepAt ? M.frDepAt(pt.lon, pt.lat) : '');
   if (!code) { info(T('place_miss')); return; }      /* the sea: not an answer */
   answerPlace(code);
 }
@@ -1506,6 +1881,7 @@ function answerPlace(code) {
   if (M.aim) M.aim(false);
   if (M.frMark) M.frMark(res.ok ? '' : res.picked, right);
   if (M.frLabels) M.frLabels(true, true);
+  marksSet(right, res.ok);
   if (S()) S().answer(q, res.ok, q.answer);
   info('');
   render();
@@ -1575,6 +1951,15 @@ function choose(i) {
   /* ...and in France both of the overlay's labels come on: the verdict card prints the
      number and the name anyway, and the map should agree with it */
   if (isFrMode(q.mode) && M.frLabels) M.frLabels(true, true);
+  /* THE ANSWER STAYS ON THE MAP, green or red, until the end of the game (and, for the
+     whole-France modes, across games - see marksSet). The STRONG mark too: the shape the
+     question named turns green when it was right, and a wrong one shows the right shape in
+     green next to it - which is what "on peut garder une surbrillance verte/rouge" means
+     for the four option modes, not just for "place it". */
+  if (isFrMode(q.mode)) {
+    marksSet(q.answer.code, res.ok);
+    if (M.frMark && q.mode !== 'fplace') M.frMark('', q.answer.code);
+  }
   if (S()) S().answer(q, res.ok, q.answer);
   render();
   bumped = false;
@@ -1646,6 +2031,7 @@ function go(to) {
   session = null; q = null; answered = false; chosen = -1;
   screen = to;
   infoMsg = '';
+  marksArmed = false;
   render();
   screenSfx(was);
   return true;
@@ -1713,6 +2099,12 @@ function onQuizClick(e) {
       else if (act === 'stats-open') statsToggle(true);
       else if (act === 'stats-close') statsToggle(false);
       else if (act === 'stats-reset') statsReset();
+      /* THE "START OVER" OF THE KEPT ANSWERS: two steps, like the stats sheet's reset. A
+         one-tap wipe of a 101-question course is not a thing to offer by accident. */
+      else if (act === 'marks-reset') {
+        if (!marksArmed) { marksArmed = true; render(); }
+        else { marksArmed = false; marksReset(); render(); }
+      }
       return;
     }
     /* the three switches and the music choice: juice.js owns the state, this renders it */
@@ -1745,6 +2137,12 @@ function onQuizClick(e) {
     }
     el = attrUp(e.target, 'diff');
     if (el) { tapSfx(); cfg.difficulty = el.getAttribute('data-diff'); storeCfg(); info(''); render(); return; }
+    el = attrUp(e.target, 'pad');
+    if (el) {
+      tapSfx();
+      padPress(el.getAttribute('data-pad'));
+      return;
+    }
     el = attrUp(e.target, 'i');
     if (el) {
       /* an answer press: the tick, then the verdict clip 90 ms later (Kwizzy plays them
@@ -1833,6 +2231,15 @@ function stepForward() {
 window.addEventListener('keydown', function (e) {
   if (!quizEl || !quizEl.className) return;      /* the quiz is not on screen */
   if (screen === 'question') {
+    /* THE PAD OWNS THE DIGITS in a "name -> number" question: typing 5 there is the first
+       digit of the answer, not option 5 (there are no options) */
+    if (q && q.mode === 'fnum' && q.extreme && !answered) {
+      if (/^[0-9]$/.test(e.key)) { tapSfx(); padPress(e.key); e.preventDefault(); return; }
+      if (e.key === 'Backspace') { tapSfx(); padPress('del'); e.preventDefault(); return; }
+      if (e.key === 'Enter') { tapSfx(); padPress('ok'); e.preventDefault(); return; }
+      if (e.key === 'Escape') { quit(); return; }
+      return;
+    }
     if (e.key >= '1' && e.key <= '6') { tapSfx(); choose(parseInt(e.key, 10) - 1); e.preventDefault(); return; }
     if (e.key === 'Enter' || e.key === ' ') {
       /* a locate question has two states under Enter: confirm the marker, then go on */
@@ -1966,6 +2373,11 @@ window.Quizzy = {
      keyboard, and the Confirm button) go through this, and the state above reports the
      marker so a test can see what the player would be confirming */
   confirm: function () { return confirmGuess(); },
+  /* THE NUMBER PAD, for a test that has no finger: pad('5') types a digit, 'del' erases,
+     'ok' validates, '2A' takes the shortcut - the same entry point the keys and the
+     keyboard use */
+  pad: function (k) { return padPress(String(k)); },
+  typed: function () { return typed; },
   guess: function () { return guess ? { lon: guess.lon, lat: guess.lat } : null; },
   next: function () { return next(); },
   quit: function () { quit(); },

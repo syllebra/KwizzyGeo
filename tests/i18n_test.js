@@ -106,7 +106,14 @@ const KEYS = I.keys();
     p_codes: 1, p_source: 1, p_gdp: 1, p_est: 1, p_popmax: 1, p_km2: 1,
     /* "préfecture" is the FRENCH word, used as it is in English (like "département"):
        the France quiz's row label is the same string in exactly those two tables */
-    p_pref: 1
+    p_pref: 1,
+    /* "Capital" is the Spanish and Portuguese word too (and French "capitale" is one
+       letter away) - a grid card has room for the word itself, not for a translation of
+       a translation */
+    ms_capital: 1,
+    /* ...and the two French cards are the FRENCH words, used as they are in English
+       ("préfecture", "Départ." for département) - the same call as p_pref */
+    ms_pref: 1, ms_dept: 1
   };
   function core(v) {
     return String(v).replace(/\{\w+\}/g, '').replace(/[^\p{L}]+/gu, ' ').trim().toLowerCase();

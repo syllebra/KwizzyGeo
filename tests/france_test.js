@@ -242,6 +242,20 @@ async function afterLoad() {
   check('the régions are named in the zone screen', /Bretagne/.test(hz) && /Corse/.test(hz));
   check('...with their size', /class="qz-zn"/.test(hz));
   check('the zone screen is step 3 of 4', /Step 3 of 4/.test(hz));
+  Qz2.set({ mode: 'fnum' });
+  Qz2.go('diff');
+  check('the difficulty screen offers EXTREME as a fourth card on "name -> number"',
+        (Qz2.html().match(/data-diff="/g) || []).length === 4 &&
+        /data-diff="extreme"/.test(Qz2.html()) && /Extreme/.test(Qz2.html()),
+        (Qz2.html().match(/data-diff="[a-z]+"/g) || []).join(' '));
+  check('...with its own class, so four fit a row', /class="qz-choices qz-diffs"/.test(Qz2.html()));
+  Qz2.set({ mode: 'fdept' });
+  Qz2.go('diff');
+  check('...and only three on the modes that have no keypad',
+        (Qz2.html().match(/data-diff="/g) || []).length === 3 &&
+        !/data-diff="extreme"/.test(Qz2.html()),
+        (Qz2.html().match(/data-diff="[a-z]+"/g) || []).join(' '));
+  Qz2.set({ mode: 'fnum' });
   Qz2.go('diff');
   const hd = Qz2.html();
   check('the France round can be 10, 25 or all of it',
@@ -262,7 +276,7 @@ async function afterLoad() {
   const REG = { '11': '11', '53': '53', '94': '94', '06': '06' };
 
   /* 3a. six options, distinct, answer among them - for every mode and several zones */
-  ['fdept', 'fnum', 'fname', 'fpref'].forEach(function (mode) {
+  ['fdept', 'fname', 'fpref', 'fnum'].forEach(function (mode) {
     ['fr', 'fr-metro', 'fr-dom', 'r53', 'r06'].forEach(function (zone) {
       const s = Q().newSession(items, { mode: mode, zone: zone, difficulty: 'medium', len: 10 }, 11);
       let ok = true, why = '';
@@ -302,14 +316,31 @@ async function afterLoad() {
           seen.sort().join(',') === '22,29,35,56', seen.join(','));
   }
 
-  /* 3c. the number modes are the two halves of the same fact */
+  /* 3c. the number modes are the two halves of the same fact - and "name -> number" has
+     TWO shapes: a QCM at the three regular difficulties, a keypad at Extreme */
   {
-    const s = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: 'easy', len: 10 }, 3);
-    const q = Q().nextQuestion(s);
-    check('the name -> number question ASKS with the name',
-          Qz2.html().indexOf('Which number is') >= 0 || true);   /* the screen is checked below */
-    check('...and offers six NUMBERS', q.options.every(o => /^[0-9]{2,3}$|^2[AB]$/.test(o.code)),
-          q.options.map(o => o.code).join(' '));
+    ['easy', 'medium', 'hard'].forEach(function (d) {
+      const s = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: d, len: 10 }, 3);
+      const q = Q().nextQuestion(s);
+      check('name -> number at ' + d + ' is a QCM of six NUMBERS',
+            q.options.length === 6 && !q.extreme &&
+            q.options.every(o => /^[0-9]{2,3}$|^2[AB]$/.test(o.code)),
+            q.options.map(o => o.code).join(' '));
+      check('...with the answer among them',
+            q.options.some(o => o.code === q.answer.code));
+    });
+    const sx = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 }, 3);
+    const qx = Q().nextQuestion(sx);
+    check('Extreme is the keypad: no options at all',
+          qx.options.length === 0 && qx.extreme === true, qx.options.length + '/' + qx.extreme);
+    check('...and the typed answer is normalised ("1" is 01, "2a" is 2A)',
+          Q().normNum('1') === '01' && Q().normNum('2a') === '2A' && Q().normNum('971') === '971');
+    check('Extreme is offered by that mode only',
+          Q().diffsOf('fnum').map(d => d.id).join(',') === 'easy,medium,hard,extreme' &&
+          Q().diffsOf('fdept').map(d => d.id).join(',') === 'easy,medium,hard');
+    check('...and a stored Extreme falls back to Normal in a mode without it',
+          Q().newSession(items, { mode: 'fdept', zone: 'fr', difficulty: 'extreme', len: 10 }, 1)
+            .cfg.difficulty === 'medium');
     const s2 = Q().newSession(items, { mode: 'fname', zone: 'fr', difficulty: 'easy', len: 10 }, 3);
     const q2 = Q().nextQuestion(s2);
     check('the number -> name question offers six NAMES', q2.options.every(o => o.name && o.name.length > 1));
@@ -456,13 +487,126 @@ async function afterLoad() {
     Qz2.quit();
   }
 
+  /* ---------- 3g. THE OVERSEAS INSET ----------
+     The five DOM are thousands of km from the métropole and from each other, so they are
+     drawn small in a panel over the Atlantic - ON BY DEFAULT, obeying the same label plan
+     as the map, and tappable in "place the département" (which is the whole reason it
+     exists). */
+  {
+    const st0 = M().frStats();
+    check('the five overseas territories are built for the inset', st0.overseas === 5, st0.overseas);
+    check('...and the inset is ON by default', st0.inset === true, st0.inset);
+    /* the inset only ANSWERS while the France quiz holds the map (frOn): that is what
+       keeps it off the world quiz and off free exploration */
+    check('the overlay is off before the round', M().frOn() === false);
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', len: 5 });
+    Qz2.start();
+    check('...and a France round puts it on the map', M().frOn() === true);
+    check('(the page geometry is read in the France round)', true);
+    const box = M().frInsetBox();
+    check('the panel has one cell per territory', box.cells.length === 5,
+          box.cells.map(c => c.code).join(','));
+    check('...in the atlas order, west to east',
+          box.cells.map(c => c.code).join(',') === '971,972,973,974,976',
+          box.cells.map(c => c.code).join(','));
+    check('...inside the viewport', box.x >= 0 && box.y >= 0 &&
+          box.x + box.w <= 1440 && box.y + box.h <= 800,
+          JSON.stringify({ x: box.x, y: box.y, w: box.w, h: box.h }));
+    check('...and no two cells overlap', (() => {
+      for (let i = 0; i < box.cells.length; i++) {
+        for (let j = i + 1; j < box.cells.length; j++) {
+          const a = box.cells[i], c = box.cells[j];
+          if (a.x < c.x + c.w && c.x < a.x + a.w && a.y < c.y + c.h && c.y < a.y + a.h) return false;
+        }
+      }
+      return true;
+    })());
+    /* the hit test: the cell's middle is that territory, the panel's corner is nobody */
+    check('a tap in a cell is that territory',
+          box.cells.every(c => M().frInsetHit(c.x + c.w / 2, c.y + c.h / 2) === c.code),
+          box.cells.map(c => c.code + '->' + M().frInsetHit(c.x + c.w / 2, c.y + c.h / 2)).join(' '));
+    check('...and the panel\'s own margin is nobody', M().frInsetHit(box.x + 2, box.y + box.h - 2) === '');
+    check('...and the middle of the screen is nobody', M().frInsetHit(720, 400) === '');
+    /* THE CAPTIONS FOLLOW THE MAP'S `codes` FLAG AND NOTHING ELSE. In "name -> number" the
+       map may NAME the département (frNameOn) but must never show a NUMBER - and the inset
+       printed the lit cell's number on the strength of frNameOn alone, i.e. it showed the
+       answer. This is the check that would have caught it: |
+         fnum  -> captions off
+         fname -> captions on (the number is the prompt)
+         fdept -> captions off */
+    check('the inset shows no number in "name -> number"', (() => {
+      Qz2.quit();
+      Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', len: 5 });
+      Qz2.start();
+      var f = M().frInsetCaptions();
+      Qz2.quit();
+      return f.codes === false;
+    })(), JSON.stringify(M().frInsetCaptions()));
+    check('...but it does in "number -> name" (the number is the prompt)', (() => {
+      Qz2.set({ mode: 'fname', zone: 'fr' });
+      Qz2.start();
+      var f = M().frInsetCaptions();
+      Qz2.quit();
+      return f.codes === true;
+    })());
+    check('...and in "find the département" it shows nothing', (() => {
+      Qz2.set({ mode: 'fdept', zone: 'fr' });
+      Qz2.start();
+      var f = M().frInsetCaptions();
+      Qz2.quit();
+      return f.codes === false;
+    })());
+    Qz2.set({ mode: 'fdept', zone: 'fr' });
+    Qz2.start();
+    check('(the inset geometry is read in a France round)', M().frOn() === true);
+
+    /* the switch */
+    check('the inset can be turned off', M().frInset(false) === false);
+    check('...and a tap then hits nothing', M().frInsetHit(box.cells[0].x + 5, box.cells[0].y + 5) === '');
+    check('...and back on', M().frInset(true) === true);
+    /* the burger row, in the Overlay group */
+    /* the row is built at boot by app.js's buildMenu; in this harness the sheet's DOM is
+       a stub, so the check is on the SOURCE: the row exists, it is in the Overlay group,
+       and clicking it flips the switch */
+    const appSrc = fs.readFileSync(__dirname + '/../app.js', 'utf8');
+    check('the sheet carries an Overseas inset row',
+          /id: 'inset'/.test(appSrc) && /if \(id === 'inset'\)/.test(appSrc));
+    check('...which flips the same switch the API reads', M().frInset(false) === false &&
+          /id === 'inset' && frWanted\(\)/.test(appSrc));
+    M().frInset(true);
+    Qz2.quit();
+  }
+
   /* ---------- 4. a real France round, through the screens ---------- */
   Qz2.quit();
-  Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 });
+  /* EXTREME: the keypad shape of "name -> number" (the three regular difficulties keep the
+     six options - checked in the rules above and on the screen below) */
+  Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 });
   check('a France round STARTS', Qz2.start() === true);
   check('...on a question', Z().screen === 'question', Z().screen);
   check('...with the map handed to the France quiz', M().frOn() === true);
-  check('...and six options on screen', (Qz2.html().match(/data-i="\d"/g) || []).length === 6);
+  /* ...and at a REGULAR difficulty the same mode is the usual six number tiles */
+  {
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'hard', len: 5 });
+    Qz2.start();
+    const h = Qz2.html();
+    check('name -> number at Hard is a grid of six numbers, no pad',
+          (h.match(/data-i="\d"/g) || []).length === 6 && !/qz-padwrap/.test(h) &&
+          /class="v">[0-9]{2,3}</.test(h),
+          (h.match(/class="v">[^<]*/g) || []).join(' '));
+    Qz2.quit();
+    Qz2.set({ difficulty: 'extreme' });
+    Qz2.start();
+  }
+
+  /* NAME -> NUMBER AT EXTREME IS TYPED: a pad instead of the six options */
+  check('...with a NUMBER PAD, not an answer grid',
+        /class="qz-padwrap"/.test(Qz2.html()) && !/data-i="0"/.test(Qz2.html()));
+  check('...twelve keys (1-9, backspace, 0, validate) plus the two Corsican shortcuts',
+        (Qz2.html().match(/data-pad="/g) || []).length === 14,
+        (Qz2.html().match(/data-pad="[^"]*"/g) || []).join(' '));
+  check('...and the validate key starts disabled', /data-pad="ok"[^>]*disabled/.test(Qz2.html()));
   check('the question screen carries the France mode and the zone',
         /Name → number/.test(Qz2.html()) && /France/.test(Qz2.html()),
         (Qz2.html().match(/class="qz-qkind">[^<]*/) || [''])[0]);
@@ -473,27 +617,43 @@ async function afterLoad() {
   check('the map names the département and hides the numbers',
         JSON.stringify(M().frLabels()) === JSON.stringify({ codes: false, name: true }),
         JSON.stringify(M().frLabels()));
-  /* the rights and the wrongs: the answer scores, and the reveal names the number */
+  /* TYPING: a first digit shows, backspace takes it back, and the right code scores */
   const q1 = Z().question;
-  const right = q1.options.findIndex(o => o.code === q1.code);
-  check('the answer is one of the six', right >= 0, q1.code + ' vs ' + q1.options.map(o => o.code).join(','));
-  Qz2.choose(right);
-  check('the right answer scores', Z().score === 1, Z().score);
+  Qz2.pad('5');
+  check('a digit lands in the display', Qz2.typed() === '5', Qz2.typed());
+  Qz2.pad('del');
+  check('...and backspace takes it back', Qz2.typed() === '', Qz2.typed());
+  /* the ANSWER, typed the way a player would: a leading zero is not needed */
+  const short = String(parseInt(q1.code, 10));
+  short.split('').forEach(ch => Qz2.pad(ch));
+  if (Qz2.typed() !== q1.code) Qz2.pad('ok');
+  check('typing the code answers the question', Z().answered === true, Qz2.typed());
+  check('...and scores when it is the right one', Z().score === 1, Z().score + ' ' + q1.code);
   check('the reveal prints the number AND the name',
         Qz2.html().indexOf(q1.code) >= 0 && /qz-verdict good/.test(Qz2.html()));
   check('...and turns the numbers on, since the round has moved past that question',
         M().frLabels().codes === true);
+  /* and the MARKS: the answer stays on the map, green */
+  check('the answer stays on the map, in green', (() => {
+    const h = M().frHistory();
+    return h[String(q1.code)] === 'ok';
+  })(), JSON.stringify(M().frHistory()));
   Qz2.next();
-  /* a WRONG answer: an option index that is not the correct one (option 0 sometimes IS
-     the answer, and the first build of this test scored on it by accident) */
   {
     const q2 = Z().question;
-    const wrong = q2.options.findIndex((o, i) => i !== q2.correct);
-    Qz2.choose(wrong);
+    const wrong = q2.code === '01' ? '02' : '01';
+    wrong.split('').forEach(ch => Qz2.pad(ch));
+    if (!Z().answered) Qz2.pad('ok');
   }
-  check('a wrong answer does not score', Z().score === 1, Z().score);
+  check('a wrong typed code does not score', Z().score === 1, Z().score);
+  check('...and both answers are on the map now', (() => {
+    const h = M().frHistory();
+    const v = Object.keys(h);
+    return v.length === 2 && v.some(c => h[c] === 'ok') && v.some(c => h[c] === 'bad');
+  })(), JSON.stringify(M().frHistory()));
   check('the details card is the département\'s own panel',
         /qz-details/.test(Qz2.html()) && /préfecture/.test(Qz2.html()));
+  Qz2.quit();
 
   /* the SHAPE modes light the département up and fly to it; the two modes that GIVE the
      shape away (name -> number, number -> name) frame the ZONE instead, because flying
@@ -513,11 +673,22 @@ async function afterLoad() {
     Qz2.start();
     return M().frPick() === Z().question.code && M().frLabels().name === true;
   })(), M().frPick());
-  check('a "number -> name" round frames the ZONE and lights nothing', (() => {
+  /* EVERY mode but "place it" and "locate the city" LIGHTS the département in question
+     (his call, 2026-11-02). The label plan follows: number -> name shows every number on
+     the map and NOT the name (which is the answer). */
+  check('a "number -> name" round lights it and shows the numbers, not the name', (() => {
     Qz2.quit();
     Qz2.set({ mode: 'fname', zone: 'fr' });
     Qz2.start();
-    return M().frPick() === '' && M().frLabels().codes === true && !!M().flight();
+    return M().frPick() === Z().question.code && M().frLabels().codes === true &&
+           M().frLabels().name === false && !!M().flight();
+  })(), M().frPick() + '/' + JSON.stringify(M().frLabels()));
+  check('a "name -> number" round lights it and shows the NAME, never the number', (() => {
+    Qz2.quit();
+    Qz2.set({ mode: 'fnum', zone: 'fr' });
+    Qz2.start();
+    return M().frPick() === Z().question.code && M().frLabels().codes === false &&
+           M().frLabels().name === true;
   })(), M().frPick() + '/' + JSON.stringify(M().frLabels()));
 
   /* a locate question in France: the marker, the distance, the zone framing */
@@ -571,6 +742,244 @@ async function afterLoad() {
   check('...and the title is back', Z().screen === 'title');
   check('the map\'s own layer is untouched by any of this', M().layer() === '10m', M().layer());
 
+  /* ---------- 5b. THE ANSWERS KEPT FOR THE WHOLE OF FRANCE ----------
+     A 101-question course spans sittings, so the whole-France modes store their marks per
+     mode and offer a Reset at the start (his call). A région round keeps them only for
+     the round. */
+  {
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 10 });
+    Qz2.start();
+    const code = Z().question.code;
+    const right = Z().question.options.findIndex(o => o.code === code);
+    Qz2.choose(right);
+    check('a whole-France answer is stored under mode|difficulty', (() => {
+      const raw = global.window.localStorage.getItem('kwizzygeo.fr.marks.v1');
+      const o = JSON.parse(raw || '{}');
+      return o.m && o.m['fdept|medium'] && o.m['fdept|medium'][code] === 'ok';
+    })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
+    /* a new round of the SAME mode starts with those marks already on the map */
+    Qz2.quit();
+    Qz2.go('diff');
+    const hd = Qz2.html();
+    check('the start screen offers a Reset once there is something to reset',
+          /data-act="marks-reset"/.test(hd), (hd.match(/marks-reset[^>]*>[^<]*/) || [''])[0]);
+    Qz2.start();
+    check('...and a new round opens with the previous answers on the map',
+          (M().frHistory() || {})[code] === 'ok', JSON.stringify(M().frHistory()));
+    /* two-step reset */
+    Qz2.quit(); Qz2.go('diff');
+    /* the button the markup carries, as the delegated handler sees it: only the one
+       attribute it looks for answers (a stub that answers everything would be read as
+       data-act and fall through) */
+    const resetBtn = {
+      parentNode: null,
+      getAttribute: k => (k === 'data-act' ? 'marks-reset' : null)
+    };
+    L['quiz:click']({ target: resetBtn, preventDefault() {} });
+    check('the Reset asks first, and does not erase on one press',
+          /Really erase them\?/.test(Qz2.html()) &&
+          (JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}').m || {})['fdept|medium'],
+          (Qz2.html().match(/marks-reset">[^<]*/) || [''])[0]);
+    L['quiz:click']({ target: resetBtn, preventDefault() {} });
+    check('...and the second press erases the record', (() => {
+      const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+      return !(o.m && o.m['fdept|medium'] && o.m['fdept|medium'][code]);
+    })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
+    check('...and the button is gone', !/data-act="marks-reset"/.test(Qz2.html()));
+    /* a RÉGION round keeps nothing */
+    Qz2.set({ mode: 'fdept', zone: 'r53' });
+    Qz2.start();
+    const c2 = Z().question.code, r2 = Z().question.options.findIndex(o => o.code === c2);
+    Qz2.choose(r2);
+    check('a région round does not write the record', (() => {
+      const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+      return !(o.m && o.m['fdept|medium'] && o.m['fdept|medium'][c2]);
+    })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
+    check('...but the mark is on the map for the round', (M().frHistory() || {})[c2] === 'ok');
+    Qz2.quit();
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+  }
+
+  /* ---------- 5b2. A RESUMED COURSE ASKS WHAT IS LEFT ----------
+     His note: "dans le mode où on enregistre la progression, lors de reprise de jeu, seule
+     les questions non posées ou mal répondues doivent être choisies". */
+  {
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+    /* fill the record by hand so the test states the rule instead of depending on draws:
+       60 found, one wrong */
+    const all = M().frItems().map(i => i.code);
+    const okSet = all.slice(0, 60), badOne = all[60];
+    /* the key is MODE|DIFFICULTY (his call): a course found at Normal is not the Hard one */
+    const rec = { v: 2, m: { 'fdept|medium': {} } };
+    okSet.forEach(c => rec.m['fdept|medium'][c] = 'ok');
+    rec.m['fdept|medium'][badOne] = 'bad';
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify(rec));
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 10 });
+    Qz2.go('diff');
+    const hd = Qz2.html();
+    check('the start screen says how many are left',
+          /41 left to find, out of 101/.test(hd), (hd.match(/marks_left[^<]*|left to find[^<]*/) || [''])[0]);
+    Qz2.start();
+    const st = Z();
+    check('a resumed round asks only what is left and what was missed',
+          st.roundLen === 10 && !okSet.includes(st.question.code),
+          st.question.code + ' (found: ' + (okSet.includes(st.question.code) ? 'YES' : 'no') + ')');
+    check('...the round is capped by what is left, not by the chosen length', (() => {
+      Qz2.quit();
+      Qz2.set({ len: 0 });                        /* "All" */
+      Qz2.start();
+      const n = Z().roundLen;
+      Qz2.quit();
+      return n === 41;                            /* 101 - 60 found */
+    })(), Z().roundLen);
+    /* the asked answers are never one of the 60 found, and a wrong one DOES come back */
+    check('...the found ones are never asked again', (() => {
+      Qz2.set({ len: 0 }); Qz2.start();
+      const asked = [];
+      for (let i = 0; i < Z().roundLen; i++) {
+        asked.push(Z().question.code);
+        const r = Z().question.options.findIndex(o => o.code === Z().question.code);
+        Qz2.choose(r); Qz2.next();
+      }
+      const bad = asked.filter(c => okSet.includes(c));
+      return bad.length === 0 && asked.length === 41;
+    })());
+    check('...and the one answered wrong comes back', (() => {
+      /* a wrong mark is not a skip: the pool keeps it (the rule is in marksSkip - only
+         'ok' is skipped) */
+      const rec2 = { v: 2, m: { 'fdept|medium': {} } };
+      rec2.m['fdept|medium'][badOne] = 'bad';
+      global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify(rec2));
+      Qz2.quit();
+      Qz2.set({ len: 0, mode: 'fdept', zone: 'fr' });
+      Qz2.start();
+      const n = Z().roundLen;
+      Qz2.quit();
+      global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+      return n === 101;                 /* nothing skipped: one wrong mark skips nothing */
+    })(), badOne);
+    Qz2.quit();
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+  }
+
+  /* ---------- 5b3. THE PROGRESS IS PER MODE **AND PER DIFFICULTY** ----------
+     His note: "la progression doit être sauvegardée par mode ET par difficulté". A course
+     found at Easy is not the same course at Hard - the wrong answers are the neighbours -
+     so the two records are separate: a Hard round must not skip what an Easy round found,
+     nor show its green marks. */
+  {
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+    /* a Normal round: three answers written */
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 5 });
+    Qz2.start();
+    const normalCodes = [];
+    for (let i = 0; i < 3; i++) {
+      const c = Z().question.code;
+      normalCodes.push(c);
+      Qz2.choose(Z().question.options.findIndex(o => o.code === c));
+      Qz2.next();
+    }
+    Qz2.quit();
+    const rec = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+    check('the record is keyed by mode AND difficulty', !!(rec.m || {})['fdept|medium'],
+          Object.keys(rec.m || {}).join(' '));
+    check('...and nothing is filed under the bare mode any more',
+          !(rec.m || {}).fdept, Object.keys(rec.m || {}).join(' '));
+    /* a HARD round of the same mode: its own empty record, its own marks */
+    Qz2.set({ difficulty: 'hard' });
+    Qz2.go('diff');
+    check('Start over is NOT offered at Hard while only Normal has a record',
+          !/data-act="marks-reset"/.test(Qz2.html()),
+          (Qz2.html().match(/marks_head[^<]*|VOS RÉPONSES[^<]*/i) || [''])[0]);
+    Qz2.start();
+    check('...a Hard round opens with NO green marks from the Normal one',
+          Object.keys(M().frHistory() || {}).length === 0, JSON.stringify(M().frHistory()));
+    check('...and the first Hard question is not constrained by Normal\'s three',
+          typeof Z().question.code === 'string', Z().question.code);
+    /* answer one at Hard, then go back to Normal: the two records are intact and apart */
+    Qz2.choose(Z().question.options.findIndex(o => o.code === Z().question.code));
+    Qz2.quit();
+    const rec2 = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+    check('both difficulties keep their own course',
+          Object.keys((rec2.m || {})['fdept|medium'] || {}).length === 3 &&
+          Object.keys((rec2.m || {})['fdept|hard'] || {}).length === 1,
+          JSON.stringify(Object.keys(rec2.m || {})));
+    Qz2.set({ difficulty: 'medium' });
+    Qz2.go('diff');
+    check('...and the screen names the difficulty the record belongs to',
+          /Difficile|Normal/.test(Qz2.html()) && /data-act="marks-reset"/.test(Qz2.html()),
+          (Qz2.html().match(/VOS RÉPONSES[^<]*/i) || [''])[0]);
+    Qz2.start();
+    check('...and resuming Normal brings its three marks back',
+          Object.keys(M().frHistory() || {}).length === 3, JSON.stringify(M().frHistory()));
+    /* THE OLD RECORD STILL COUNTS. Before this pass the blob was { m: { fdept: {...} } } -
+       the same nesting, a key without the bar. It must read as the NORMAL course of that
+       mode: my first migration looked for nesting and found none (the two shapes nest
+       identically), so a course already played vanished from the screen. */
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify({
+      v: 1, m: { fdept: { '01': 'ok', '02': 'bad', '75': 'ok' } }
+    }));
+    Qz2.quit();
+    Qz2.set({ mode: 'fdept', difficulty: 'medium' });
+    Qz2.go('diff');
+    check('an old bare-mode record is read as the Normal course',
+          /data-act="marks-reset"/.test(Qz2.html()) && /3 d\u00e9partements/.test(Qz2.html()),
+          (Qz2.html().match(/VOS R\u00c9PONSES[\s\S]{0,140}/) || [''])[0]);
+    Qz2.set({ difficulty: 'hard' });
+    Qz2.go('diff');
+    check('...and nowhere else: Hard has no record of its own',
+          !/data-act="marks-reset"/.test(Qz2.html()));
+    Qz2.quit();
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+  }
+
+  /* ---------- 5c. THE PAD's shortcuts ---------- */
+  {
+    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 });
+    /* find a 2A/2B question: the two codes a number pad cannot make */
+    let found = null;
+    for (let i = 0; i < 60 && !found; i++) {
+      Qz2.quit(); Qz2.start();
+      const c = Z().question.code;
+      if (c === '2A' || c === '2B') found = c;
+    }
+    if (found) {
+      Qz2.pad(found);
+      check('the 2A/2B shortcut answers in one press', Z().answered === true && Z().score === 1,
+            found + ' ' + Z().score);
+    } else {
+      check('(no 2A/2B question in 60 draws - shortcut checked in quizcore)', Q().normNum('2a') === '2A');
+    }
+    /* the auto-answer rule: two digits answer unless the first is a 9 */
+    /* THE AUTO-ANSWER: two digits answer at once when they cannot be the start of a
+       three-digit code (a first digit other than 9). A code of 01..09 is the exception
+       worth knowing: a leading 0 is ignored by the pad, so those two-digit codes are typed
+       as ONE digit and validated - which is what "1" then ✓ means, and what a player does. */
+    Qz2.quit(); Qz2.start();
+    const code = Z().question.code;
+    if (code.length === 3) {
+      Qz2.pad('9');
+      check('the first digit of a 97x code does not answer on its own', !Z().answered);
+      Qz2.pad(code.charAt(1)); Qz2.pad(code.charAt(2));
+      check('...three digits answer at once', Z().answered === true && Z().score === 1,
+            code + ' ' + Z().answered);
+    } else if (code.charAt(0) !== '0') {
+      Qz2.pad(code.charAt(0)); Qz2.pad(code.charAt(1));
+      check('two digits answer at once (only "97" can be the start of a 97x code)',
+            Z().answered === true && Z().score === 1, code + ' ' + Z().answered);
+    } else {
+      Qz2.pad(String(parseInt(code, 10)));
+      check('a 0x code is typed as one digit and validated', !Z().answered);
+      Qz2.pad('ok');
+      check('...and the validate key answers it', Z().answered === true && Z().score === 1, code);
+    }
+    Qz2.quit();
+  }
+
   /* ---------- 6. THE RECORD knows about départements ----------
      The stats sheet groups by mode and zone (both keyed by the ids quizcore hands out) and
      lists "what costs you the most" per ITEM - a country's id for the world quiz, a
@@ -580,7 +989,7 @@ async function afterLoad() {
     const stats = global.window.KwizzyStats;
     stats.reset();
     Qz2.quit();
-    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'r53', difficulty: 'medium', len: 10 });
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'r53', difficulty: 'medium', len: 10 });
     Qz2.start();
     const q = Z().question;
     const right = q.options.findIndex(o => o.code === q.code);
@@ -591,7 +1000,7 @@ async function afterLoad() {
     const sum = stats.summary();
     const modes = sum.modes.map(r => r.key);
     const zones = sum.zones.map(r => r.key);
-    check('...the modes table has the France mode', modes.indexOf('fnum') >= 0, modes.join(' '));
+    check('...the modes table has the France mode', modes.indexOf('fdept') >= 0, modes.join(' '));
     check('...and the zones table has the région', zones.indexOf('r53') >= 0, zones.join(' '));
     const items = sum.missed.concat(sum.known);
     check('...the items are DÉPARTEMENTS, badged with their number',

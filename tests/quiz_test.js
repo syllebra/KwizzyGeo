@@ -996,11 +996,21 @@ async function afterLoad() {
         (hDiff.match(/data-len="\d+"/g) || []).join(','));
   const hMode = (Qz.go('mode'), Qz.html());
   check('the mode screen offers Locate the city', /data-mode="locate"/.test(hMode));
-  /* FOUR MODES LAY OUT 2x2. The row layout was written for three, so the fourth card hung
-     alone on a second line - visible in the first screenshot of the screen ever taken. */
-  check('...and the four modes are laid out in pairs, not in a row of three',
-        /qz-choices-pairs/.test(hMode) && !/qz-choices-row/.test(hMode),
-        (hMode.match(/class="qz-choices[^"]*"/) || [''])[0]);
+  /* THE MODE PICKER IS A COMPACT GRID OF ICONS (2026-11-02): six full-width rows was a
+     wall of text, so each mode is now a small card with a drawing and a two-word label,
+     and ONE sentence underneath for the mode that is selected. */
+  check('...the modes are a grid of small cards', /class="qz-modes"/.test(hMode) &&
+        (hMode.match(/class="qz-mode[ "]/g) || []).length === 4,
+        (hMode.match(/class="qz-modes?[^"]*"/g) || []).join(' '));
+  check('...each card carries a DRAWING, not a punctuation glyph',
+        (hMode.match(/<svg class="qz-mico/g) || []).length === 4,
+        (hMode.match(/qz-mico/g) || []).length);
+  check('...and the selected mode\'s sentence is said once, under the grid',
+        /class="qz-note qz-modedesc"/.test(hMode) && /Pick the capital city\./.test(hMode),
+        (hMode.match(/qz-modedesc">[^<]*/) || [''])[0]);
+  check('...while every card keeps the full sentence for a screen reader',
+        /aria-label="Find the country — /.test(hMode),
+        (hMode.match(/aria-label="[^"]*"/) || [''])[0]);
   Qz.go('zone'); Qz.go('diff');
   check('a locate round starts', Qz.start() === true, Z().info);
   check('...and the map is handed over', M().quizOn() === true);

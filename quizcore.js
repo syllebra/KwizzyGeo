@@ -164,6 +164,17 @@ var DIFFS = [
   { id: 'medium', label: 'Normal', sub: 'the wrong answers come from anywhere' },
   { id: 'hard',   label: 'Hard',   sub: 'the wrong answers are neighbours' }
 ];
+/* ---------- EXTREME: THE ONE DIFFICULTY THAT IS NOT A QCM ----------
+   His call (2026-11-02): "the number pad should be an ADDITIONAL extreme difficulty mode,
+   not the only way to play. Other are regular mcq". So "name -> number" keeps its six
+   options at easy / normal / hard - the numbers ARE the options, which is what `keyOf`
+   already does - and EXTREME takes the board away and asks for the number on a keypad.
+
+   It is only offered where it means something: no options to remove in the other modes, and
+   `diffsOf` is the single place that decides (the screen asks it, `newSession` validates
+   against it, so a stored 'extreme' cannot leak into a mode that has no such difficulty). */
+var EXTREME = { id: 'extreme', label: 'Extreme', sub: 'no options: type the number' };
+function diffsOf(mode) { return mode === 'fnum' ? DIFFS.concat([EXTREME]) : DIFFS; }
 
 var SUB_ZONE = {
   'Eastern Africa': 'Africa', 'Western Africa': 'Africa', 'Middle Africa': 'Africa',
@@ -427,6 +438,73 @@ function frCityPool(items, zone, difficulty) {
   return out;
 }
 
+/* ---------- NUMBER -> NAME: THE DISTANCE IS TWO DISTANCES ----------
+   In "which département is 57?" a wrong answer is confusing for ONE OF TWO REASONS: it is
+   next to the answer on the MAP (54, 55 and 67 ring the Moselle) or next to it in the
+   NUMBERING (56, 58 - a player who half-remembers "fifties" is caught by those). A band
+   built on kilometres alone offers 54, 55, 67 and never 58; a band built on the number
+   alone offers 56 and 58 and a département 700 km away. Neither is the question a player
+   actually fails.
+
+   So the two are SUMMED:
+
+       d = kilometres + NUM_KM * |rank distance in the numbering|
+
+   and the two decisions in that line are the whole design:
+
+   * THE NUMERIC DISTANCE IS A RANK, NOT A SUBTRACTION. The codes sorted as strings are the
+     numbering an atlas indexes by: 01..09, 10..19, 2A, 2B, 21..95, 971..976. So 2A's
+     neighbours are 2B AND 21 AND 19 (not "201 minus 92"), and 971's are 95 and 972.
+     Subtracting the numbers instead explodes exactly there: |201 - 92| = 109 would put
+     every Parisian département "near" Corsica. Measured, it does: with a raw subtraction
+     a hard question about 2A was answered with 92, 91, 89, 90 (900 km away).
+   * THE RANK TERM IS OFF ACROSS THE OVERSEAS BOUNDARY. The DOM block is appended to the
+     list, so 95 and 971 are "adjacent" - and nothing on earth confuses them: 6 760 km.
+     When one of the two is overseas and the other is metropolitan, the numeric term is
+     skipped and the band is the kilometre band, which is the honest one there.
+
+   `NUM_KM` (and `RANK_CAP`, below) is how many kilometres one step of the numbering is
+   worth. MEASURED on the shipped data with 600 hard questions (the band is the nearest
+   12 %, 13 candidates of 101):
+
+     NUM_KM     hard questions with a map neighbour   ...with a number neighbour   median option
+        0             93 %                                 11 %                        118 km
+       60             93 %                                 53 %                        125 km
+      100             93 %                                 62 %                        126 km   <- here
+      140             94 %                                 69 %                        132 km
+      linear 300      89 %                                 83 %                        318 km   (no map left)
+
+   At 100 one step of the numbering is worth 100 km on the ground - about one step of the
+   map - so the two neighbours of each kind meet in the same band, which is precisely the
+   confusion a player has. Below 40 the numbering never shows and the mode is "find the
+   département" with another prompt; above ~200 the map disappears from the band (a hard
+   question about Paris comes back with 70, 72, 69, 73 and none of 92, 93, 94). */
+var NUM_KM = 100;
+/* THE NUMERIC TERM SATURATES. Past three or four steps the numbering stops helping a
+   player confuse two départements: "I remember it was in the fifties" is worth the same
+   whether the option is 52 or 70, and a LINEAR term said 70 was 18 steps away and therefore
+   never a candidate - which is how a hard question about Paris came back with 70, 72, 69,
+   73 (all numbered in the seventies) and none of 92, 93, 94, the three that actually ring
+   it. With the cap, a number neighbour is worth at most 3 x 80 = 240 km, so the map keeps
+   its say. */
+var RANK_CAP = 3;
+/* the numbering's order, read off the codes as an atlas indexes them */
+function codeOrder(codes) {
+  var out = codes.slice().sort(), rank = {}, i;
+  for (i = 0; i < out.length; i++) rank[out[i]] = i;
+  return rank;
+}
+/* the distance an OPTION is from the answer, in the units the difficulty band sorts on */
+function bandDist(sess, answer, it, mode) {
+  var km = distanceKm(pointOf(answer, mode), pointOf(it, mode));
+  if ((mode !== 'fname' && mode !== 'fnum') || !sess.codeRank) return km;
+  /* one overseas and one metropolitan: the numbering says nothing about them */
+  if (!!it.dom !== !!answer.dom) return km;
+  var ra = sess.codeRank[String(answer.code)], rb = sess.codeRank[String(it.code)];
+  if (ra == null || rb == null) return km;
+  return km + NUM_KM * Math.min(Math.abs(rb - ra), RANK_CAP);
+}
+
 /* THE SCORE OF ONE ANSWER. Points fall off with the distance: a bullseye is the full
    1000, 100 km is 936, 500 km 717, 1 000 km 513, 2 000 km 264, 5 000 km 36. The curve
    is exponential because a mistake's cost is proportional to the scale you were
@@ -513,6 +591,40 @@ function cityQuestion(sess, r) {
     mode: sess.cfg.mode, zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
     variant: null, answer: answer, options: [], correct: -1
   };
+}
+
+/* ---------- NAME -> NUMBER, TYPED ON A KEYPAD ----------
+   He asked for the QCM to go: "au lieu d'un qcm, on peut mettre un clavier numérique pour
+   entrer le bon numéro". So the answer is a CODE THE PLAYER TYPES, and the rule is a
+   normalisation plus one comparison:
+
+     "1"    -> "01"      (nobody types the leading zero, and Ain is 01)
+     "01"   -> "01"
+     "2a"   -> "2A"      (the two Corsican codes are the only ones a number pad cannot make,
+     "2b"   -> "2B"       so the keypad keeps two shortcut keys for them)
+     "971"  -> "971"     (three digits, unchanged)
+
+   A question needs no options and no distractors - `numQuestion` is `deptQuestion` with the
+   keypad's own prompt - and `answerNum` is the whole verdict. */
+function normNum(txt) {
+  var t = String(txt == null ? '' : txt).trim().toUpperCase().replace(/[^0-9AB]/g, '');
+  if (!t) return '';
+  if (/^[0-9]$/.test(t)) return '0' + t;          /* 7 -> 07 */
+  return t;
+}
+function numQuestion(sess, r) {
+  return deptQuestion(sess, r);
+}
+/* the typed answer, once. `typed` is whatever the keypad holds. */
+function answerNum(sess, q, typed) {
+  if (!q || q._done) return null;
+  var t = normNum(typed);
+  if (!t) return null;                            /* nothing typed: not an answer */
+  q._done = true;
+  q.typed = t;
+  q.ok = t === String(q.answer.code);
+  if (q.ok) sess.score++;
+  return { ok: q.ok, typed: t, correct: String(q.answer.code) };
 }
 
 /* ---------- PLACE THE DÉPARTEMENT: one answer, no options ----------
@@ -608,7 +720,7 @@ function question(sess, r) {
     if (mode === 'flag' && norm(it.flag) === norm(answer.flag)) continue;
     if (mode === 'fpref' && norm(it.pref) === norm(answer.pref)) continue;
     seen[k] = 1;
-    cands.push({ it: it, d: distanceKm(aPoint, pointOf(it, mode)) });
+    cands.push({ it: it, d: bandDist(sess, answer, it, mode) });
   }
   if (cands.length < N_OPT - 1) return null;
   cands.sort(function (a, b) { return a.d - b.d; });
@@ -636,7 +748,7 @@ function question(sess, r) {
    is derived ONCE, so a session cannot change its own rules halfway - and the length is
    resolved against that pool, so "All" on a six-country zone is six questions and "25"
    on the same zone is six too, not twenty-five with repeats. */
-function newSession(items, cfg, seed) {
+function newSession(items, cfg, seed, opts) {
   /* THE MODE PICKS THE SCOPE, and the zone must belong to it: a config carried over
      from the world quiz ("Europe") into the France quiz cannot be honoured, so the
      France default replaces it - and the other way round. This is the same rule as the
@@ -646,13 +758,16 @@ function newSession(items, cfg, seed) {
   var c = {
     mode: (byId(modeList, cfg.mode) || modeList[0]).id,
     zone: null,
-    difficulty: (byId(DIFFS, cfg.difficulty) || DIFFS[1]).id,
+    difficulty: null,
     len: 10,
     lenWanted: 10,
     /* only meaningful in flag mode; null elsewhere so a session cannot carry a
        setting that does not apply to it */
     variant: null
   };
+  /* THE DIFFICULTY IS VALIDATED AGAINST THIS MODE'S LIST, after the mode is known: a
+     stored 'extreme' falls back to Normal in a mode that has no keypad. */
+  c.difficulty = (byId(diffsOf(c.mode), cfg.difficulty) || DIFFS[1]).id;
   if (fr) c.zone = isFrZone(cfg.zone) ? String(cfg.zone) : FR_ZONES[0].id;
   else c.zone = (byId(ZONES, cfg.zone) || ZONES[0]).id;
   if (c.mode === 'flag') c.variant = (byId(FLAG_ASK, cfg.variant) || FLAG_ASK[0]).id;
@@ -660,6 +775,22 @@ function newSession(items, cfg, seed) {
   var pool = (c.mode === 'locate') ? cityPool(items, c.zone, c.difficulty)
            : (c.mode === 'floc')   ? frCityPool(items, c.zone, c.difficulty)
            : poolFor(items, c.zone, c.mode);
+  /* THE ONES ALREADY FOUND ARE NOT ASKED AGAIN. `opts.skip` is a set of answers the player
+     has already got right (the France quiz's record, which outlives a round); the pool of
+     ANSWERS drops them, so a resumed course asks what is left. The OPTIONS are untouched -
+     a question about the last three départements still offers six, five of them known - and
+     when everything has been found the skip is ignored rather than handing back an empty
+     round: `opts.skip` is a preference, not a filter that can empty the game. */
+  var skipped = 0;
+  if (opts && opts.skip) {
+    var keep = [], si;
+    for (si = 0; si < pool.length; si++) {
+      if (opts.skip[String(pool[si].code == null ? pool[si].id : pool[si].code)]) skipped++;
+      else keep.push(pool[si]);
+    }
+    if (keep.length) pool = keep;
+    else skipped = 0;                    /* nothing left to find: ask them again */
+  }
   /* THE LENGTH IS RESOLVED AGAINST THIS MODE'S OWN LIST: a stored 10 (a country round)
      is not a length locate offers, and "All" is not one of its choices at all. An
      unknown or absent choice falls back to the list's first entry, so a config carried
@@ -681,18 +812,31 @@ function newSession(items, cfg, seed) {
   c.scoreKm = isFr(c.mode) ? SCORE_KM_FR : SCORE_KM;
   /* the options of a France question come from the whole territory (see question()) */
   var optPool = (fr && c.mode !== 'floc') ? poolFor(items, 'fr', c.mode) : null;
-  return {
-    cfg: c, pool: pool, optPool: optPool,
+  /* the numbering's order, built once per session and only where it is used */
+  var s2 = {
+    cfg: c, pool: pool, optPool: optPool, codeRank: null, skipped: skipped,
     used: {}, usedCountry: {}, byCountry: null, i: 0, score: 0, points: 0, km: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };
+  if (c.mode === 'fname' || c.mode === 'fnum') {
+    var codes = [], ci;
+    for (ci = 0; ci < (optPool || pool).length; ci++) {
+      if (optPool && optPool[ci] && optPool[ci].code) codes.push(String(optPool[ci].code));
+    }
+    s2.codeRank = codeOrder(codes);
+  }
+  return s2;
 }
 function nextQuestion(sess) {
   if (!sess || sess.i >= sess.cfg.len) return null;
   var m = sess.cfg.mode;
+  /* 'fnum' has TWO shapes: six numbers to pick (easy / normal / hard) and a keypad
+     (extreme). The question carries which one it is, so the screens need one flag. */
+  var typed = (m === 'fnum' && sess.cfg.difficulty === 'extreme');
   var q = (m === 'locate' || m === 'floc') ? cityQuestion(sess, sess.rnd)
-        : (m === 'fplace') ? deptQuestion(sess, sess.rnd)
+        : (m === 'fplace' || typed) ? deptQuestion(sess, sess.rnd)
         : question(sess, sess.rnd);
+  if (q) q.extreme = typed;
   if (!q) return null;
   sess.i++;
   sess.asked.push(q);
@@ -729,6 +873,7 @@ function answerPoint(sess, q, guess) {
 var QUIZCORE = {
   N_OPT: N_OPT, MODES: MODES, FR_MODES: FR_MODES, modesOf: modesOf, isFr: isFr,
   FR_ZONES: FR_ZONES, frZones: frZones, isFrZone: isFrZone, frInZone: frInZone,
+  DIFFS_EXTREME: EXTREME, diffsOf: diffsOf,
   FR_CITY_POP: FR_CITY_POP, frCityBand: frCityBand, frCityPool: frCityPool,
   ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
   LENS_LOCATE: LENS_LOCATE, lensOf: lensOf,
@@ -739,9 +884,12 @@ var QUIZCORE = {
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
   cityBand: cityBand, cityPool: cityPool, pointsFor: pointsFor,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,
-  answerPoint: answerPoint, answerDept: answerDept, _deptQuestion: deptQuestion,
+  answerPoint: answerPoint, answerDept: answerDept, answerNum: answerNum, normNum: normNum,
+  _deptQuestion: deptQuestion, _numQuestion: numQuestion,
   /* exposed for the tests, and for nothing else */
-  _rng: rng, _shuffle: shuffle, _question: question, _keyOf: keyOf
+  _rng: rng, _shuffle: shuffle, _question: question, _keyOf: keyOf, _bandDist: bandDist,
+  NUM_KM: NUM_KM, RANK_CAP: RANK_CAP, codeOrder: codeOrder,
+  _setNumKm: function (k) { if (k >= 0) NUM_KM = k; return NUM_KM; },
 };
 
 if (typeof window !== 'undefined') window.QuizCore = QUIZCORE;
