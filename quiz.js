@@ -550,7 +550,9 @@ function buildStamp() {
       if (src.indexOf(f + '?v=') >= 0) out.push(src.replace(/^.*\//, ''));
     }
   }
-  return out.join(' \u00b7 ') || '\u2014';
+  /* an environment with no <script> to read (a test's fake DOM, a bundler): say so
+     rather than print a dash that looks like a bug */
+  return out.join(' \u00b7 ') || 'no script tags';
 }
 function creditRow(name, what, href) {
   var n = href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(name) + '</a>'

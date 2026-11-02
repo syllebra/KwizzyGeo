@@ -287,6 +287,13 @@ async function afterLoad() {
   /* the credits page: its own screen, the data's provenance on it */
   Qz.go('about');
   const hab = Qz.html();
+  /* THE BUILD STAMP: "is my tab on the current build?" must have a visible answer, read
+     off the <script> tags so it cannot lie (a stale index.html loads old files) */
+  /* the fake DOM has no <script> tags, so the stamp says so - that IS the assertion: the
+     block is on the screen and it is filled from what the page loaded, never hard-coded */
+  check('the credits show which files this page loaded',
+        /no script tags/.test(hab) && !/\u2014/.test(hab),
+        (hab.match(/class="qz-note">[^<]*script[^<]*/) || [''])[0]);
   check('the credits screen names Natural Earth', /Natural Earth/.test(hab) && /naturalearthdata\.com/.test(hab));
   check('the credits screen credits the flags', /flag-icons/.test(hab));
   check('the credits screen says where the memory lives', /this browser/.test(hab));
