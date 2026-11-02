@@ -138,23 +138,20 @@ function marksStored() {
     var raw = window.localStorage.getItem(MARK_KEY);
     var o = raw ? JSON.parse(raw) : null;
     if (!o || typeof o !== 'object' || !o.m) return {};
-    var out = {}, k, m, c, v;
+    var out = {}, k, c, clean;
+    function isMark(x) { return x === 'ok' || x === 'bad'; }
     for (k in o.m) {
       if (!o.m.hasOwnProperty(k) || !o.m[k] || typeof o.m[k] !== 'object') continue;
-      m = {};
-      for (c in o.m[k]) {
-        if (!o.m[k].hasOwnProperty(c)) continue;
-        v = o.m[k][c];
-        /* a nested map is a MODE from an older build: it is the Normal course of it */
-        if (v && typeof v === 'object') {
-          var inner = {};
-          for (var c2 in v) if (v.hasOwnProperty(c2) && (v[c2] === 'ok' || v[c2] === 'bad')) inner[String(c2)] = v[c2];
-          if (Object.keys(inner).length) out[k + '|medium'] = inner;
-          continue;
-        }
-        if (v === 'ok' || v === 'bad') m[String(c)] = v;
-      }
-      if (Object.keys(m).length) out[k] = m;
+      clean = {};
+      for (c in o.m[k]) if (o.m[k].hasOwnProperty(c) && isMark(o.m[k][c])) clean[String(c)] = o.m[k][c];
+      if (!Object.keys(clean).length) continue;
+      /* THE KEY TELLS THE SHAPE. Both shapes are `{key: {code: 'ok'|'bad'}}`; what changed
+         on 2026-11-02 is the KEY - a bare mode id ('fdept') became mode|difficulty
+         ('fdept|medium'). So a key without the bar is an old record and is filed as the
+         NORMAL course of that mode. (Reading the nesting instead was wrong twice over: the
+         two shapes nest identically, so nothing was ever migrated and a course already
+         played silently disappeared from the screen.) */
+      out[k.indexOf('|') >= 0 ? k : (k + '|medium')] = clean;
     }
     return out;
   } catch (e) { return {}; }

@@ -916,6 +916,23 @@ async function afterLoad() {
     Qz2.start();
     check('...and resuming Normal brings its three marks back',
           Object.keys(M().frHistory() || {}).length === 3, JSON.stringify(M().frHistory()));
+    /* THE OLD RECORD STILL COUNTS. Before this pass the blob was { m: { fdept: {...} } } -
+       the same nesting, a key without the bar. It must read as the NORMAL course of that
+       mode: my first migration looked for nesting and found none (the two shapes nest
+       identically), so a course already played vanished from the screen. */
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', JSON.stringify({
+      v: 1, m: { fdept: { '01': 'ok', '02': 'bad', '75': 'ok' } }
+    }));
+    Qz2.quit();
+    Qz2.set({ mode: 'fdept', difficulty: 'medium' });
+    Qz2.go('diff');
+    check('an old bare-mode record is read as the Normal course',
+          /data-act="marks-reset"/.test(Qz2.html()) && /3 d\u00e9partements/.test(Qz2.html()),
+          (Qz2.html().match(/VOS R\u00c9PONSES[\s\S]{0,140}/) || [''])[0]);
+    Qz2.set({ difficulty: 'hard' });
+    Qz2.go('diff');
+    check('...and nowhere else: Hard has no record of its own',
+          !/data-act="marks-reset"/.test(Qz2.html()));
     Qz2.quit();
     global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
   }
