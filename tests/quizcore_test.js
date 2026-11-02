@@ -583,24 +583,35 @@ check('flag options are all different flags', flagQ.every(q => {
   })());
 
   /* the number modes: the ANSWER is a code, and the options are codes */
-  /* NAME -> NUMBER IS TYPED NOW (his call, 2026-11-02): no options, a code the player
-     enters on a keypad, and one normalisation between them */
-  check('name -> number has no options and takes a typed code', (() => {
+  /* NAME -> NUMBER HAS TWO SHAPES (his call, 2026-11-02): a QCM of six NUMBERS at the three
+     regular difficulties, and a keypad at EXTREME - which is the mode's fourth difficulty
+     and exists nowhere else */
+  check('name -> number at Normal is a QCM of six codes', (() => {
     const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 }, 8);
     const q = Q.nextQuestion(s);
-    return q.options.length === 0 && q.correct === -1 && !!q.answer.code;
+    return q.options.length === 6 && !q.extreme &&
+           q.options.every(o => /^[0-9]{2,3}$/.test(o.code)) &&
+           q.options[q.correct].code === q.answer.code;
   })());
+  check('...and at EXTREME it is a typed code, with no options', (() => {
+    const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 }, 8);
+    const q = Q.nextQuestion(s);
+    return q.options.length === 0 && q.correct === -1 && q.extreme === true && !!q.answer.code;
+  })());
+  check('Extreme is a difficulty of that mode alone',
+        Q.diffsOf('fnum').length === 4 && Q.diffsOf('fname').length === 3 &&
+        Q.diffsOf('country').length === 3);
   check('...and the normalisation is the rule: 1 is 01, 2a is 2A, 971 stays',
         Q.normNum('1') === '01' && Q.normNum('01') === '01' && Q.normNum('2a') === '2A' &&
         Q.normNum('971') === '971' && Q.normNum('') === '' && Q.normNum('x') === '');
   check('...a right code scores once', (() => {
-    const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 }, 8);
+    const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 }, 8);
     const q = Q.nextQuestion(s);
     const r = Q.answerNum(s, q, String(parseInt(q.answer.code, 10)));   /* no leading zero */
     return r && r.ok === true && s.score === 1 && Q.answerNum(s, q, q.answer.code) === null;
   })());
   check('...and a wrong one does not', (() => {
-    const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 }, 8);
+    const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 }, 8);
     const q = Q.nextQuestion(s);
     const wrong = q.answer.code === '01' ? '02' : '01';
     const r = Q.answerNum(s, q, wrong);
@@ -608,7 +619,7 @@ check('flag options are all different flags', flagQ.every(q => {
   })());
   check('...and an empty entry is not an answer at all',
         (() => {
-          const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 }, 8);
+          const s = Q.newSession(FR, { mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 }, 8);
           const q = Q.nextQuestion(s);
           return Q.answerNum(s, q, '') === null && q._done !== true;
         })());

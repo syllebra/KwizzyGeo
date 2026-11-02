@@ -2133,6 +2133,7 @@ T.bn = {
    département", "which number is X", "préfecture", "overseas". */
 var EXTRA = {
   en: {
+    d_extreme: 'Extreme', d_x_s: 'Type it on the keypad, no options.',
     marks_left: '{n} left to find, out of {total}.',
     marks_all: 'Every one found. Play again to go round them all.',
     pad_del: 'Backspace',
@@ -2166,7 +2167,7 @@ var EXTRA = {
     scope_france: 'France quiz', scope_france_s: 'Départements, préfectures, French cities.',
     scope_note: 'The France quiz plays on the same map, one scale deeper: the départements and their régions, with the lakes and rivers for bearings.',
     m_dept: 'Find the département', m_dept_s: 'A département is lit up: name it.',
-    m_num: 'Name → number', m_num_s: 'The name is given: type its number.',
+    m_num: 'Name → number', m_num_s: 'The name is given: pick its number.',
     m_name: 'Number → name', m_name_s: 'The number is given: pick its name.',
     m_pref: 'Find the préfecture', m_pref_s: 'Pick the chef-lieu of the département.',
     z_fr: 'All of France', z_fr_metro: 'Metropolitan France', z_fr_dom: 'Overseas',
@@ -2181,6 +2182,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} départements in {zone}: the round is {n} questions.'
   },
   fr: {
+    d_extreme: 'Extrême', d_x_s: 'Tapez-le au clavier, sans choix.',
     marks_left: 'Encore {n} à trouver, sur {total}.',
     marks_all: 'Tous trouvés. Rejouez pour tous les revoir.',
     pad_del: 'Effacer',
@@ -2214,7 +2216,7 @@ var EXTRA = {
     scope_france: 'Quiz France', scope_france_s: 'Départements, préfectures, villes françaises.',
     scope_note: 'Le quiz France se joue sur la même carte, une échelle plus bas : les départements et leurs régions, avec les lacs et les rivières pour se repérer.',
     m_dept: 'Trouver le département', m_dept_s: 'Un département est allumé : nommez-le.',
-    m_num: 'Nom → numéro', m_num_s: 'Le nom est donné : tapez son numéro.',
+    m_num: 'Nom → numéro', m_num_s: 'Le nom est donné : trouvez son numéro.',
     m_name: 'Numéro → nom', m_name_s: 'Le numéro est donné : trouvez son nom.',
     m_pref: 'Trouver la préfecture', m_pref_s: 'Trouvez le chef-lieu du département.',
     z_fr: 'Toute la France', z_fr_metro: 'France métropolitaine', z_fr_dom: 'Outre-mer',
@@ -2229,6 +2231,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} départements en {zone} : la partie fait {n} questions.'
   },
   de: {
+    d_extreme: 'Extrem', d_x_s: 'Tippe sie auf der Tastatur ein, ohne Auswahl.',
     marks_left: 'Noch {n} von {total} zu finden.',
     marks_all: 'Alle gefunden. Nochmal spielen, um alle zu wiederholen.',
     pad_del: 'Löschen',
@@ -2262,7 +2265,7 @@ var EXTRA = {
     scope_france: 'Frankreich-Quiz', scope_france_s: 'Départements, Präfekturen, französische Städte.',
     scope_note: 'Das Frankreich-Quiz spielt auf derselben Karte, eine Ebene tiefer: die Départements und ihre Regionen, mit Seen und Flüssen zur Orientierung.',
     m_dept: 'Département finden', m_dept_s: 'Ein Département ist hervorgehoben: benenne es.',
-    m_num: 'Name → Nummer', m_num_s: 'Der Name ist gegeben: tippe seine Nummer ein.',
+    m_num: 'Name → Nummer', m_num_s: 'Der Name ist gegeben: wähle seine Nummer.',
     m_name: 'Nummer → Name', m_name_s: 'Die Nummer ist gegeben: wähle ihren Namen.',
     m_pref: 'Präfektur finden', m_pref_s: 'Wähle den Hauptort des Départements.',
     z_fr: 'Ganz Frankreich', z_fr_metro: 'Festlandfrankreich', z_fr_dom: 'Übersee',
@@ -2277,6 +2280,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} Départements in {zone}: die Runde hat {n} Fragen.'
   },
   es: {
+    d_extreme: 'Extremo', d_x_s: 'Escríbelo en el teclado, sin opciones.',
     marks_left: 'Quedan {n} de {total} por encontrar.',
     marks_all: 'Todos encontrados. Juega otra vez para repasarlos.',
     pad_del: 'Borrar',
@@ -2310,7 +2314,7 @@ var EXTRA = {
     scope_france: 'Quiz de Francia', scope_france_s: 'Departamentos, prefecturas, ciudades francesas.',
     scope_note: 'El quiz de Francia se juega en el mismo mapa, una escala más abajo: los departamentos y sus regiones, con lagos y ríos para orientarse.',
     m_dept: 'Encuentra el departamento', m_dept_s: 'Un departamento está resaltado: nómbralo.',
-    m_num: 'Nombre → número', m_num_s: 'El nombre está dado: escribe su número.',
+    m_num: 'Nombre → número', m_num_s: 'El nombre está dado: elige su número.',
     m_name: 'Número → nombre', m_name_s: 'El número está dado: elige su nombre.',
     m_pref: 'Encuentra la prefectura', m_pref_s: 'Elige la capital del departamento.',
     z_fr: 'Toda Francia', z_fr_metro: 'Francia metropolitana', z_fr_dom: 'Ultramar',
@@ -2325,6 +2329,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} departamentos en {zone}: la ronda es de {n} preguntas.'
   },
   pt: {
+    d_extreme: 'Extremo', d_x_s: 'Escreve-o no teclado, sem opções.',
     marks_left: 'Faltam {n} de {total} por encontrar.',
     marks_all: 'Todos encontrados. Joga outra vez para os rever.',
     pad_del: 'Apagar',
@@ -2358,7 +2363,7 @@ var EXTRA = {
     scope_france: 'Questionário de França', scope_france_s: 'Departamentos, prefeituras, cidades francesas.',
     scope_note: 'O questionário de França joga-se no mesmo mapa, um nível mais perto: os departamentos e as suas regiões, com lagos e rios para se orientar.',
     m_dept: 'Encontrar o departamento', m_dept_s: 'Um departamento está iluminado: diz o nome.',
-    m_num: 'Nome → número', m_num_s: 'O nome é dado: escreve o número.',
+    m_num: 'Nome → número', m_num_s: 'O nome é dado: escolhe o número.',
     m_name: 'Número → nome', m_name_s: 'O número é dado: escolhe o nome.',
     m_pref: 'Encontrar a prefeitura', m_pref_s: 'Escolhe a capital do departamento.',
     z_fr: 'Toda a França', z_fr_metro: 'França metropolitana', z_fr_dom: 'Ultramar',
@@ -2373,6 +2378,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} departamentos em {zone}: a ronda tem {n} perguntas.'
   },
   nl: {
+    d_extreme: 'Extreem', d_x_s: 'Typ het op het toetsenbord, zonder keuzes.',
     marks_left: 'Nog {n} van {total} te vinden.',
     marks_all: 'Alles gevonden. Speel opnieuw om ze allemaal te herhalen.',
     pad_del: 'Wissen',
@@ -2406,7 +2412,7 @@ var EXTRA = {
     scope_france: 'Frankrijkquiz', scope_france_s: 'Departementen, prefecturen, Franse steden.',
     scope_note: 'De Frankrijkquiz speelt op dezelfde kaart, één schaal dieper: de departementen en hun regio\'s, met meren en rivieren om je te oriënteren.',
     m_dept: 'Vind het departement', m_dept_s: 'Een departement licht op: noem het.',
-    m_num: 'Naam → nummer', m_num_s: 'De naam is gegeven: typ het nummer.',
+    m_num: 'Naam → nummer', m_num_s: 'De naam is gegeven: kies het nummer.',
     m_name: 'Nummer → naam', m_name_s: 'Het nummer is gegeven: kies de naam.',
     m_pref: 'Vind de prefectuur', m_pref_s: 'Kies de hoofdplaats van het departement.',
     z_fr: 'Heel Frankrijk', z_fr_metro: 'Europees Frankrijk', z_fr_dom: 'Overzee',
@@ -2421,6 +2427,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} departementen in {zone}: de ronde telt {n} vragen.'
   },
   sv: {
+    d_extreme: 'Extrem', d_x_s: 'Skriv numret på tangentbordet, inga val.',
     marks_left: '{n} av {total} kvar att hitta.',
     marks_all: 'Alla hittade. Spela igen för att repetera dem.',
     pad_del: 'Radera',
@@ -2454,7 +2461,7 @@ var EXTRA = {
     scope_france: 'Frankrikequiz', scope_france_s: 'Departement, prefekturer, franska städer.',
     scope_note: 'Frankrikequizet spelas på samma karta, en skala närmare: departementen och deras regioner, med sjöar och floder att orientera sig efter.',
     m_dept: 'Hitta departementet', m_dept_s: 'Ett departement lyser: namnge det.',
-    m_num: 'Namn → nummer', m_num_s: 'Namnet är givet: skriv numret.',
+    m_num: 'Namn → nummer', m_num_s: 'Namnet är givet: välj numret.',
     m_name: 'Nummer → namn', m_name_s: 'Numret är givet: välj namnet.',
     m_pref: 'Hitta prefekturen', m_pref_s: 'Välj departementets huvudort.',
     z_fr: 'Hela Frankrike', z_fr_metro: 'Fastlandsfrankrike', z_fr_dom: 'Utomeuropeiska',
@@ -2469,6 +2476,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} departement i {zone}: rundan blir {n} frågor.'
   },
   ru: {
+    d_extreme: 'Экстрим', d_x_s: 'Введите номер на клавиатуре, без вариантов.',
     marks_left: 'Осталось найти {n} из {total}.',
     marks_all: 'Все найдены. Сыграйте снова, чтобы повторить.',
     pad_del: 'Стереть',
@@ -2502,7 +2510,7 @@ var EXTRA = {
     scope_france: 'Квиз о Франции', scope_france_s: 'Департаменты, префектуры, французские города.',
     scope_note: 'Квиз о Франции играет на той же карте, на один масштаб ближе: департаменты и их регионы, с озёрами и реками для ориентира.',
     m_dept: 'Найти департамент', m_dept_s: 'Департамент подсвечен: назовите его.',
-    m_num: 'Название → номер', m_num_s: 'Название дано: введите номер.',
+    m_num: 'Название → номер', m_num_s: 'Название дано: выберите номер.',
     m_name: 'Номер → название', m_name_s: 'Номер дан: выберите название.',
     m_pref: 'Найти префектуру', m_pref_s: 'Выберите административный центр департамента.',
     z_fr: 'Вся Франция', z_fr_metro: 'Материковая Франция', z_fr_dom: 'Заморские земли',
@@ -2517,6 +2525,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} департаментов в {zone}: в раунде {n} вопросов.'
   },
   uk: {
+    d_extreme: 'Екстрим', d_x_s: 'Введіть номер на клавіатурі, без варіантів.',
     marks_left: 'Залишилося знайти {n} з {total}.',
     marks_all: 'Усі знайдені. Зіграйте ще раз, щоб повторити.',
     pad_del: 'Стерти',
@@ -2550,7 +2559,7 @@ var EXTRA = {
     scope_france: 'Квіз про Францію', scope_france_s: 'Департаменти, префектури, французькі міста.',
     scope_note: 'Квіз про Францію грає на тій самій карті, на один масштаб ближче: департаменти та їхні регіони, з озерами й річками для орієнтира.',
     m_dept: 'Знайти департамент', m_dept_s: 'Департамент підсвічено: назвіть його.',
-    m_num: 'Назва → номер', m_num_s: 'Назву дано: введіть номер.',
+    m_num: 'Назва → номер', m_num_s: 'Назву дано: виберіть номер.',
     m_name: 'Номер → назва', m_name_s: 'Номер дано: виберіть назву.',
     m_pref: 'Знайти префектуру', m_pref_s: 'Виберіть адміністративний центр департаменту.',
     z_fr: 'Уся Франція', z_fr_metro: 'Материкова Франція', z_fr_dom: 'Заморські землі',
@@ -2565,6 +2574,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} департаментів у {zone}: раунд має {n} питань.'
   },
   el: {
+    d_extreme: 'Ακραίο', d_x_s: 'Πληκτρολόγησέ τον, χωρίς επιλογές.',
     marks_left: 'Μένουν {n} από {total} να βρεθούν.',
     marks_all: 'Βρέθηκαν όλα. Παίξτε ξανά για επανάληψη.',
     pad_del: 'Διαγραφή',
@@ -2598,7 +2608,7 @@ var EXTRA = {
     scope_france: 'Κουίζ Γαλλίας', scope_france_s: 'Διαμερίσματα, νομαρχίες, γαλλικές πόλεις.',
     scope_note: 'Το κουίζ Γαλλίας παίζεται στον ίδιο χάρτη, μία κλίμακα πιο κοντά: τα διαμερίσματα και οι περιφέρειές τους, με λίμνες και ποτάμια για προσανατολισμό.',
     m_dept: 'Βρες το διαμέρισμα', m_dept_s: 'Ένα διαμέρισμα φωτίζεται: ονόμασέ το.',
-    m_num: 'Όνομα → αριθμός', m_num_s: 'Το όνομα δίνεται: πληκτρολόγησε τον αριθμό.',
+    m_num: 'Όνομα → αριθμός', m_num_s: 'Το όνομα δίνεται: διάλεξε τον αριθμό.',
     m_name: 'Αριθμός → όνομα', m_name_s: 'Ο αριθμός δίνεται: διάλεξε το όνομα.',
     m_pref: 'Βρες τη νομαρχία', m_pref_s: 'Διάλεξε την πρωτεύουσα του διαμερίσματος.',
     z_fr: 'Όλη η Γαλλία', z_fr_metro: 'Μητροπολιτική Γαλλία', z_fr_dom: 'Υπερπόντια',
@@ -2613,6 +2623,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} διαμερίσματα στη {zone}: ο γύρος έχει {n} ερωτήσεις.'
   },
   zh: {
+    d_extreme: '极限', d_x_s: '用键盘输入，没有选项。',
     marks_left: '还有 {n} 个要找，共 {total} 个。',
     marks_all: '全部都找到了。再玩一局复习一遍。',
     pad_del: '退格',
@@ -2646,7 +2657,7 @@ var EXTRA = {
     scope_france: '法国测验', scope_france_s: '省、省会、法国城市。',
     scope_note: '法国测验在同一张地图上进行，只是尺度更近：省及其大区，还有湖泊与河流帮助定位。',
     m_dept: '找出这个省', m_dept_s: '有一个省高亮了：说出它的名字。',
-    m_num: '名称 → 编号', m_num_s: '给出名称：输入它的编号。',
+    m_num: '名称 → 编号', m_num_s: '给出名称：选出它的编号。',
     m_name: '编号 → 名称', m_name_s: '给出编号：选出它的名称。',
     m_pref: '找出省会', m_pref_s: '选出这个省的省会。',
     z_fr: '全法国', z_fr_metro: '法国本土', z_fr_dom: '海外省',
@@ -2661,6 +2672,7 @@ var EXTRA = {
     l_note_clip_fr: '{zone} 只有 {n} 个省：这一轮就是 {n} 道题。'
   },
   ja: {
+    d_extreme: '極限', d_x_s: '選択肢なし、番号を入力。',
     marks_left: '{total} のうち残り {n}。',
     marks_all: 'すべて見つけました。もう一度遊ぶと復習できます。',
     pad_del: '一文字消す',
@@ -2694,7 +2706,7 @@ var EXTRA = {
     scope_france: 'フランスクイズ', scope_france_s: '県、県庁所在地、フランスの都市。',
     scope_note: 'フランスクイズは同じ地図を、さらに寄って遊びます。県と地域圏、そして湖と川が目印になります。',
     m_dept: '県を当てる', m_dept_s: '光っている県の名前を答えてください。',
-    m_num: '名前 → 番号', m_num_s: '名前が示されます。番号を入力してください。',
+    m_num: '名前 → 番号', m_num_s: '名前が示されます。番号を選んでください。',
     m_name: '番号 → 名前', m_name_s: '番号が示されます。名前を選んでください。',
     m_pref: '県庁所在地を当てる', m_pref_s: 'その県の県庁所在地を選んでください。',
     z_fr: 'フランス全土', z_fr_metro: 'フランス本土', z_fr_dom: '海外県',
@@ -2709,6 +2721,7 @@ var EXTRA = {
     l_note_clip_fr: '{zone} の県は {n} つ：この回は {n} 問です。'
   },
   ko: {
+    d_extreme: '극한', d_x_s: '선택지 없이 번호를 입력하세요.',
     marks_left: '{total}개 중 {n}개 남음.',
     marks_all: '모두 찾았습니다. 다시 하면 복습할 수 있습니다.',
     pad_del: '지우기',
@@ -2742,7 +2755,7 @@ var EXTRA = {
     scope_france: '프랑스 퀴즈', scope_france_s: '데파르트망, 주도, 프랑스 도시.',
     scope_note: '프랑스 퀴즈는 같은 지도에서 한 단계 더 가까이 진행됩니다. 데파르트망과 레지옹, 그리고 호수와 강이 길잡이가 됩니다.',
     m_dept: '데파르트망 찾기', m_dept_s: '빛나는 데파르트망의 이름을 말하세요.',
-    m_num: '이름 → 번호', m_num_s: '이름이 주어집니다. 번호를 입력하세요.',
+    m_num: '이름 → 번호', m_num_s: '이름이 주어집니다. 번호를 고르세요.',
     m_name: '번호 → 이름', m_name_s: '번호가 주어집니다. 이름을 고르세요.',
     m_pref: '주도 찾기', m_pref_s: '그 데파르트망의 주도를 고르세요.',
     z_fr: '프랑스 전체', z_fr_metro: '프랑스 본토', z_fr_dom: '해외',
@@ -2757,6 +2770,7 @@ var EXTRA = {
     l_note_clip_fr: '{zone}에는 데파르트망이 {n}개: 이번 판은 {n}문제입니다.'
   },
   ar: {
+    d_extreme: 'أقصى', d_x_s: 'اكتب الرقم بلوحة المفاتيح، بلا خيارات.',
     marks_left: 'بقي {n} من {total} للعثور عليها.',
     marks_all: 'تم العثور على الكل. العب مجددًا للمراجعة.',
     pad_del: 'حذف',
@@ -2790,7 +2804,7 @@ var EXTRA = {
     scope_france: 'اختبار فرنسا', scope_france_s: 'المقاطعات وعواصمها والمدن الفرنسية.',
     scope_note: 'يُجرى اختبار فرنسا على الخريطة نفسها، على مقياس أقرب: المقاطعات ومناطقها، مع البحيرات والأنهار للاستدلال.',
     m_dept: 'اعرف المقاطعة', m_dept_s: 'مقاطعة مضيئة: سمِّها.',
-    m_num: 'الاسم ← الرقم', m_num_s: 'الاسم معطى: اكتب رقمه.',
+    m_num: 'الاسم ← الرقم', m_num_s: 'الاسم معطى: اختر رقمه.',
     m_name: 'الرقم ← الاسم', m_name_s: 'الرقم معطى: اختر اسمه.',
     m_pref: 'اعرف عاصمة المقاطعة', m_pref_s: 'اختر مركز المقاطعة.',
     z_fr: 'كل فرنسا', z_fr_metro: 'فرنسا القارية', z_fr_dom: 'ما وراء البحار',
@@ -2805,6 +2819,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} مقاطعات في {zone}: الجولة {n} أسئلة.'
   },
   fa: {
+    d_extreme: 'حداکثر', d_x_s: 'شماره را با صفحه‌کلید بنویس، بدون گزینه.',
     marks_left: '{n} از {total} باقی مانده.',
     marks_all: 'همه پیدا شد. برای مرور دوباره بازی کن.',
     pad_del: 'پاک کردن',
@@ -2838,7 +2853,7 @@ var EXTRA = {
     scope_france: 'آزمون فرانسه', scope_france_s: 'شهرستان‌ها، مراکز شهرستان، شهرهای فرانسه.',
     scope_note: 'آزمون فرانسه روی همان نقشه و یک پله نزدیک‌تر بازی می‌شود: شهرستان‌ها و منطقه‌هایشان، همراه با دریاچه‌ها و رودها برای مسیریابی.',
     m_dept: 'شهرستان را پیدا کن', m_dept_s: 'یک شهرستان روشن شده: نامش را بگو.',
-    m_num: 'نام ← شماره', m_num_s: 'نام داده شده: شماره‌اش را وارد کن.',
+    m_num: 'نام ← شماره', m_num_s: 'نام داده شده: شماره‌اش را انتخاب کن.',
     m_name: 'شماره ← نام', m_name_s: 'شماره داده شده: نامش را انتخاب کن.',
     m_pref: 'مرکز شهرستان را پیدا کن', m_pref_s: 'مرکز شهرستان را انتخاب کن.',
     z_fr: 'تمام فرانسه', z_fr_metro: 'فرانسهٔ اصلی', z_fr_dom: 'ماوراء بحار',
@@ -2853,6 +2868,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} شهرستان در {zone}: این دور {n} پرسش دارد.'
   },
   he: {
+    d_extreme: 'קיצוני', d_x_s: 'הקלד את המספר, בלי אפשרויות.',
     marks_left: 'נותרו {n} מתוך {total} למצוא.',
     marks_all: 'כולם נמצאו. שחקו שוב כדי לחזור עליהם.',
     pad_del: 'מחיקה',
@@ -2886,7 +2902,7 @@ var EXTRA = {
     scope_france: 'חידון צרפת', scope_france_s: 'מחוזות, בירות מחוז, ערים בצרפת.',
     scope_note: 'חידון צרפת משוחק על אותה מפה, בקנה מידה קרוב יותר: המחוזות והאזורים שלהם, עם אגמים ונהרות להתמצאות.',
     m_dept: 'מצא את המחוז', m_dept_s: 'מחוז אחד מואר: תן את שמו.',
-    m_num: 'שם ← מספר', m_num_s: 'השם נתון: הקלד את המספר.',
+    m_num: 'שם ← מספר', m_num_s: 'השם נתון: בחר את המספר.',
     m_name: 'מספר ← שם', m_name_s: 'המספר נתון: בחר את השם.',
     m_pref: 'מצא את בירת המחוז', m_pref_s: 'בחר את בירת המחוז.',
     z_fr: 'כל צרפת', z_fr_metro: 'צרפת היבשתית', z_fr_dom: 'מעבר לים',
@@ -2901,6 +2917,7 @@ var EXTRA = {
     l_note_clip_fr: '{n} מחוזות ב{zone}: הסבב הוא {n} שאלות.'
   },
   hi: {
+    d_extreme: 'अत्यधिक', d_x_s: 'बिना विकल्प, संख्या टाइप करें।',
     marks_left: '{total} में से {n} बाकी हैं।',
     marks_all: 'सभी मिल गए। दोहराने के लिए फिर खेलें।',
     pad_del: 'मिटाएँ',
@@ -2934,7 +2951,7 @@ var EXTRA = {
     scope_france: 'फ़्रांस क्विज़', scope_france_s: 'विभाग, प्रीफ़ेक्चर, फ़्रांसीसी शहर।',
     scope_note: 'फ़्रांस क्विज़ उसी नक्शे पर एक पैमाना और पास आकर खेला जाता है: विभाग और उनके क्षेत्र, साथ में झीलें और नदियाँ दिशा जानने के लिए।',
     m_dept: 'विभाग पहचानें', m_dept_s: 'एक विभाग जल रहा है: उसका नाम बताएँ।',
-    m_num: 'नाम → संख्या', m_num_s: 'नाम दिया है: उसकी संख्या लिखें।',
+    m_num: 'नाम → संख्या', m_num_s: 'नाम दिया है: उसकी संख्या चुनें।',
     m_name: 'संख्या → नाम', m_name_s: 'संख्या दी है: उसका नाम चुनें।',
     m_pref: 'प्रीफ़ेक्चर पहचानें', m_pref_s: 'विभाग का मुख्यालय चुनें।',
     z_fr: 'पूरा फ़्रांस', z_fr_metro: 'मुख्य भूमि फ़्रांस', z_fr_dom: 'विदेशी क्षेत्र',
@@ -2949,6 +2966,7 @@ var EXTRA = {
     l_note_clip_fr: '{zone} में {n} विभाग: यह दौर {n} प्रश्नों का है।'
   },
   bn: {
+    d_extreme: 'চরম', d_x_s: 'বিকল্প ছাড়া নম্বরটি টাইপ করুন।',
     marks_left: '{total}-এর মধ্যে {n}টি বাকি।',
     marks_all: 'সব পাওয়া গেছে। আবার খেলে পুনরাবৃত্তি করুন।',
     pad_del: 'মুছুন',
@@ -2982,7 +3000,7 @@ var EXTRA = {
     scope_france: 'ফ্রান্স কুইজ', scope_france_s: 'বিভাগ, প্রিফেকচার, ফরাসি শহর।',
     scope_note: 'ফ্রান্স কুইজ একই মানচিত্রে, আরও কাছের মাপে খেলা হয়: বিভাগ ও তাদের অঞ্চল, সঙ্গে হ্রদ ও নদী দিশা পাওয়ার জন্য।',
     m_dept: 'বিভাগটি চিনুন', m_dept_s: 'একটি বিভাগ আলোকিত: তার নাম বলুন।',
-    m_num: 'নাম → নম্বর', m_num_s: 'নাম দেওয়া আছে: তার নম্বর লিখুন।',
+    m_num: 'নাম → নম্বর', m_num_s: 'নাম দেওয়া আছে: তার নম্বর বাছুন।',
     m_name: 'নম্বর → নাম', m_name_s: 'নম্বর দেওয়া আছে: তার নাম বাছুন।',
     m_pref: 'প্রিফেকচারটি চিনুন', m_pref_s: 'বিভাগের সদর শহর বাছুন।',
     z_fr: 'সমগ্র ফ্রান্স', z_fr_metro: 'মূল ভূখণ্ডের ফ্রান্স', z_fr_dom: 'সমুদ্রপারের',

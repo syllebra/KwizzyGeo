@@ -902,6 +902,14 @@ body.qz-playing #menu { display: none; }
 .qz-choices { display: grid; gap: 10px; }
 .qz-choices-row { grid-template-columns: 1fr; }
 @media (min-width: 720px) { .qz-choices-row { grid-template-columns: repeat(3, 1fr); } }
+/* FOUR DIFFICULTIES on "name -> number" (the fourth is Extreme, the keypad): a row of four
+   is 2x2 on a narrow screen and four across from 900 px, instead of a fourth card hanging
+   alone under a row of three (the same trap the modes had). */
+.qz-diffs { grid-template-columns: 1fr; }
+@media (min-width: 560px) { .qz-diffs { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 900px) { .qz-diffs { grid-template-columns: repeat(4, 1fr); } }
+/* the Extreme card is the odd one out and says so: a pale accent edge, no fill */
+.qz-diffs .qz-choice[data-diff="extreme"] .qz-choice-t { color: #8ed0ff; }
 /* TWO BY TWO: for a list of four (the modes). A 3+1 row leaves the fourth card hanging,
    which is what the mode screen did from the day Locate was added. */
 .qz-choices-pairs { grid-template-columns: 1fr; }

@@ -242,6 +242,20 @@ async function afterLoad() {
   check('the régions are named in the zone screen', /Bretagne/.test(hz) && /Corse/.test(hz));
   check('...with their size', /class="qz-zn"/.test(hz));
   check('the zone screen is step 3 of 4', /Step 3 of 4/.test(hz));
+  Qz2.set({ mode: 'fnum' });
+  Qz2.go('diff');
+  check('the difficulty screen offers EXTREME as a fourth card on "name -> number"',
+        (Qz2.html().match(/data-diff="/g) || []).length === 4 &&
+        /data-diff="extreme"/.test(Qz2.html()) && /Extreme/.test(Qz2.html()),
+        (Qz2.html().match(/data-diff="[a-z]+"/g) || []).join(' '));
+  check('...with its own class, so four fit a row', /class="qz-choices qz-diffs"/.test(Qz2.html()));
+  Qz2.set({ mode: 'fdept' });
+  Qz2.go('diff');
+  check('...and only three on the modes that have no keypad',
+        (Qz2.html().match(/data-diff="/g) || []).length === 3 &&
+        !/data-diff="extreme"/.test(Qz2.html()),
+        (Qz2.html().match(/data-diff="[a-z]+"/g) || []).join(' '));
+  Qz2.set({ mode: 'fnum' });
   Qz2.go('diff');
   const hd = Qz2.html();
   check('the France round can be 10, 25 or all of it',
@@ -262,9 +276,7 @@ async function afterLoad() {
   const REG = { '11': '11', '53': '53', '94': '94', '06': '06' };
 
   /* 3a. six options, distinct, answer among them - for every mode and several zones */
-  /* fnum is NOT one of them any more: it is a TYPED answer (his call), with no options at
-     all - see the pad block below */
-  ['fdept', 'fname', 'fpref'].forEach(function (mode) {
+  ['fdept', 'fname', 'fpref', 'fnum'].forEach(function (mode) {
     ['fr', 'fr-metro', 'fr-dom', 'r53', 'r06'].forEach(function (zone) {
       const s = Q().newSession(items, { mode: mode, zone: zone, difficulty: 'medium', len: 10 }, 11);
       let ok = true, why = '';
@@ -304,14 +316,31 @@ async function afterLoad() {
           seen.sort().join(',') === '22,29,35,56', seen.join(','));
   }
 
-  /* 3c. the number modes are the two halves of the same fact */
+  /* 3c. the number modes are the two halves of the same fact - and "name -> number" has
+     TWO shapes: a QCM at the three regular difficulties, a keypad at Extreme */
   {
-    const s = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: 'easy', len: 10 }, 3);
-    const q = Q().nextQuestion(s);
-    check('name -> number has NO options any more: the answer is typed', q.options.length === 0,
-          q.options.length);
+    ['easy', 'medium', 'hard'].forEach(function (d) {
+      const s = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: d, len: 10 }, 3);
+      const q = Q().nextQuestion(s);
+      check('name -> number at ' + d + ' is a QCM of six NUMBERS',
+            q.options.length === 6 && !q.extreme &&
+            q.options.every(o => /^[0-9]{2,3}$|^2[AB]$/.test(o.code)),
+            q.options.map(o => o.code).join(' '));
+      check('...with the answer among them',
+            q.options.some(o => o.code === q.answer.code));
+    });
+    const sx = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 }, 3);
+    const qx = Q().nextQuestion(sx);
+    check('Extreme is the keypad: no options at all',
+          qx.options.length === 0 && qx.extreme === true, qx.options.length + '/' + qx.extreme);
     check('...and the typed answer is normalised ("1" is 01, "2a" is 2A)',
           Q().normNum('1') === '01' && Q().normNum('2a') === '2A' && Q().normNum('971') === '971');
+    check('Extreme is offered by that mode only',
+          Q().diffsOf('fnum').map(d => d.id).join(',') === 'easy,medium,hard,extreme' &&
+          Q().diffsOf('fdept').map(d => d.id).join(',') === 'easy,medium,hard');
+    check('...and a stored Extreme falls back to Normal in a mode without it',
+          Q().newSession(items, { mode: 'fdept', zone: 'fr', difficulty: 'extreme', len: 10 }, 1)
+            .cfg.difficulty === 'medium');
     const s2 = Q().newSession(items, { mode: 'fname', zone: 'fr', difficulty: 'easy', len: 10 }, 3);
     const q2 = Q().nextQuestion(s2);
     check('the number -> name question offers six NAMES', q2.options.every(o => o.name && o.name.length > 1));
@@ -550,11 +579,28 @@ async function afterLoad() {
 
   /* ---------- 4. a real France round, through the screens ---------- */
   Qz2.quit();
-  Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 });
+  /* EXTREME: the keypad shape of "name -> number" (the three regular difficulties keep the
+     six options - checked in the rules above and on the screen below) */
+  Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 });
   check('a France round STARTS', Qz2.start() === true);
   check('...on a question', Z().screen === 'question', Z().screen);
   check('...with the map handed to the France quiz', M().frOn() === true);
-  /* NAME -> NUMBER IS TYPED (his call): a pad instead of the six options */
+  /* ...and at a REGULAR difficulty the same mode is the usual six number tiles */
+  {
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'hard', len: 5 });
+    Qz2.start();
+    const h = Qz2.html();
+    check('name -> number at Hard is a grid of six numbers, no pad',
+          (h.match(/data-i="\d"/g) || []).length === 6 && !/qz-padwrap/.test(h) &&
+          /class="v">[0-9]{2,3}</.test(h),
+          (h.match(/class="v">[^<]*/g) || []).join(' '));
+    Qz2.quit();
+    Qz2.set({ difficulty: 'extreme' });
+    Qz2.start();
+  }
+
+  /* NAME -> NUMBER AT EXTREME IS TYPED: a pad instead of the six options */
   check('...with a NUMBER PAD, not an answer grid',
         /class="qz-padwrap"/.test(Qz2.html()) && !/data-i="0"/.test(Qz2.html()));
   check('...twelve keys (1-9, backspace, 0, validate) plus the two Corsican shortcuts',
@@ -820,7 +866,7 @@ async function afterLoad() {
 
   /* ---------- 5c. THE PAD's shortcuts ---------- */
   {
-    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 });
+    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'extreme', len: 10 });
     /* find a 2A/2B question: the two codes a number pad cannot make */
     let found = null;
     for (let i = 0; i < 60 && !found; i++) {

@@ -164,6 +164,17 @@ var DIFFS = [
   { id: 'medium', label: 'Normal', sub: 'the wrong answers come from anywhere' },
   { id: 'hard',   label: 'Hard',   sub: 'the wrong answers are neighbours' }
 ];
+/* ---------- EXTREME: THE ONE DIFFICULTY THAT IS NOT A QCM ----------
+   His call (2026-11-02): "the number pad should be an ADDITIONAL extreme difficulty mode,
+   not the only way to play. Other are regular mcq". So "name -> number" keeps its six
+   options at easy / normal / hard - the numbers ARE the options, which is what `keyOf`
+   already does - and EXTREME takes the board away and asks for the number on a keypad.
+
+   It is only offered where it means something: no options to remove in the other modes, and
+   `diffsOf` is the single place that decides (the screen asks it, `newSession` validates
+   against it, so a stored 'extreme' cannot leak into a mode that has no such difficulty). */
+var EXTREME = { id: 'extreme', label: 'Extreme', sub: 'no options: type the number' };
+function diffsOf(mode) { return mode === 'fnum' ? DIFFS.concat([EXTREME]) : DIFFS; }
 
 var SUB_ZONE = {
   'Eastern Africa': 'Africa', 'Western Africa': 'Africa', 'Middle Africa': 'Africa',
@@ -486,7 +497,7 @@ function codeOrder(codes) {
 /* the distance an OPTION is from the answer, in the units the difficulty band sorts on */
 function bandDist(sess, answer, it, mode) {
   var km = distanceKm(pointOf(answer, mode), pointOf(it, mode));
-  if (mode !== 'fname' || !sess.codeRank) return km;
+  if ((mode !== 'fname' && mode !== 'fnum') || !sess.codeRank) return km;
   /* one overseas and one metropolitan: the numbering says nothing about them */
   if (!!it.dom !== !!answer.dom) return km;
   var ra = sess.codeRank[String(answer.code)], rb = sess.codeRank[String(it.code)];
@@ -747,13 +758,16 @@ function newSession(items, cfg, seed, opts) {
   var c = {
     mode: (byId(modeList, cfg.mode) || modeList[0]).id,
     zone: null,
-    difficulty: (byId(DIFFS, cfg.difficulty) || DIFFS[1]).id,
+    difficulty: null,
     len: 10,
     lenWanted: 10,
     /* only meaningful in flag mode; null elsewhere so a session cannot carry a
        setting that does not apply to it */
     variant: null
   };
+  /* THE DIFFICULTY IS VALIDATED AGAINST THIS MODE'S LIST, after the mode is known: a
+     stored 'extreme' falls back to Normal in a mode that has no keypad. */
+  c.difficulty = (byId(diffsOf(c.mode), cfg.difficulty) || DIFFS[1]).id;
   if (fr) c.zone = isFrZone(cfg.zone) ? String(cfg.zone) : FR_ZONES[0].id;
   else c.zone = (byId(ZONES, cfg.zone) || ZONES[0]).id;
   if (c.mode === 'flag') c.variant = (byId(FLAG_ASK, cfg.variant) || FLAG_ASK[0]).id;
@@ -804,7 +818,7 @@ function newSession(items, cfg, seed, opts) {
     used: {}, usedCountry: {}, byCountry: null, i: 0, score: 0, points: 0, km: 0, asked: [],
     rnd: rng(seed == null ? (Date.now() & 0x7fffffff) : seed)
   };
-  if (c.mode === 'fname') {
+  if (c.mode === 'fname' || c.mode === 'fnum') {
     var codes = [], ci;
     for (ci = 0; ci < (optPool || pool).length; ci++) {
       if (optPool && optPool[ci] && optPool[ci].code) codes.push(String(optPool[ci].code));
@@ -816,9 +830,13 @@ function newSession(items, cfg, seed, opts) {
 function nextQuestion(sess) {
   if (!sess || sess.i >= sess.cfg.len) return null;
   var m = sess.cfg.mode;
+  /* 'fnum' has TWO shapes: six numbers to pick (easy / normal / hard) and a keypad
+     (extreme). The question carries which one it is, so the screens need one flag. */
+  var typed = (m === 'fnum' && sess.cfg.difficulty === 'extreme');
   var q = (m === 'locate' || m === 'floc') ? cityQuestion(sess, sess.rnd)
-        : (m === 'fplace' || m === 'fnum') ? deptQuestion(sess, sess.rnd)
+        : (m === 'fplace' || typed) ? deptQuestion(sess, sess.rnd)
         : question(sess, sess.rnd);
+  if (q) q.extreme = typed;
   if (!q) return null;
   sess.i++;
   sess.asked.push(q);
@@ -855,6 +873,7 @@ function answerPoint(sess, q, guess) {
 var QUIZCORE = {
   N_OPT: N_OPT, MODES: MODES, FR_MODES: FR_MODES, modesOf: modesOf, isFr: isFr,
   FR_ZONES: FR_ZONES, frZones: frZones, isFrZone: isFrZone, frInZone: frInZone,
+  DIFFS_EXTREME: EXTREME, diffsOf: diffsOf,
   FR_CITY_POP: FR_CITY_POP, frCityBand: frCityBand, frCityPool: frCityPool,
   ZONES: ZONES, DIFFS: DIFFS, FLAG_ASK: FLAG_ASK, LENS: LENS,
   LENS_LOCATE: LENS_LOCATE, lensOf: lensOf,

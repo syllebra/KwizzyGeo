@@ -60,8 +60,9 @@ var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag
                    fname: 'm_name_s', fpref: 'm_pref_s', floc: 'm_locate_s' };
 var K_ZONE = { world: 'z_world', africa: 'z_africa', asia: 'z_asia', europe: 'z_europe',
                'north-america': 'z_na', 'south-america': 'z_sa', oceania: 'z_oceania' };
-var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard' };
-var K_DIFF_SUB = { easy: 'd_easy_s', medium: 'd_medium_s', hard: 'd_hard_s' };
+var K_DIFF = { easy: 'd_easy', medium: 'd_medium', hard: 'd_hard', extreme: 'd_extreme' };
+var K_DIFF_SUB = { easy: 'd_easy_s', medium: 'd_medium_s', hard: 'd_hard_s',
+                   extreme: 'd_x_s' };
 /* In locate mode "the wrong answers are neighbours" would be meaningless - there are no
    answers to choose from. The difficulty there is how famous the city is, so the three
    subs are their own sentences. */
@@ -709,10 +710,13 @@ function zoneHTML() {
 
 /* ---------- screen 4: how hard, and how long ---------- */
 function diffHTML() {
-  var b = '<div class="qz-choices qz-choices-row">';
-  for (var d = 0; d < Q.DIFFS.length; d++) {
-    var df = Q.DIFFS[d];
-    b += choiceHTML('diff', df.id, '', diffLabel(df.id), diffSub(df.id), cfg.difficulty === df.id);
+  /* THE MODE'S OWN LIST: "name -> number" offers a fourth, Extreme, which is the keypad -
+     the other three keep their six options (see diffsOf in quizcore.js) */
+  var DF = Q.diffsOf(cfg.mode);
+  var b = '<div class="qz-choices qz-diffs">';
+  for (var d = 0; d < DF.length; d++) {
+    var df = DF[d];
+    b += choiceHTML('diff', df.id, '', diffLabel(df.id), diffSub(df.id), curDiff() === df.id);
   }
   b += '</div>';
   b += '<div class="qz-block"><div class="qz-h">' + esc(T('h_len')) + '</div><div class="chips qz-row">';
@@ -841,6 +845,14 @@ function poolOf(c) {
 /* the length a round would actually play: the same resolution newSession does, so a
    stored 10 carried over from a country round cannot light up a chip locate does not
    offer */
+/* THE DIFFICULTY THE ROUND WOULD RUN AT, resolved against the mode's own list (the same
+   rule newSession applies): pick "number -> name", then Extreme, then go back to "find the
+   département" and the screen must not keep showing Extreme as chosen. */
+function curDiff() {
+  var DF = Q.diffsOf(cfg.mode);
+  for (var i = 0; i < DF.length; i++) if (DF[i].id === cfg.difficulty) return cfg.difficulty;
+  return 'medium';
+}
 function chosenLen() {
   var L = Q.lensOf(cfg.mode);
   for (var i = 0; i < L.length; i++) if (cfg.len === L[i].id) return cfg.len;
@@ -1073,7 +1085,7 @@ function padHTML() {
 }
 /* ONE KEY. The pad only says which key was pressed; the caller decides what it means. */
 function padPress(k) {
-  if (!q || q.mode !== 'fnum' || answered) return false;
+  if (!q || q.mode !== 'fnum' || !q.extreme || answered) return false;
   if (k === 'del') { typed = typed.slice(0, -1); render(); return false; }
   if (k === 'ok') return !!answerTyped();
   if (k === '2A' || k === '2B') {
@@ -1098,7 +1110,7 @@ function padPress(k) {
 }
 /* THE TYPED ANSWER: the rule is quizcore's (answerNum), the picture is the pad's */
 function answerTyped() {
-  if (!q || q.mode !== 'fnum' || answered) return false;
+  if (!q || q.mode !== 'fnum' || !q.extreme || answered) return false;
   var res = Q.answerNum(session, q, typed);
   if (!res) { render(); return false; }           /* nothing typed: not an answer */
   answered = true;
@@ -1276,8 +1288,8 @@ function questionHTML() {
     /* no grid and no bar to press: the click IS the answer, and the verdict takes the
        place the grid would have had */
     h += '<div class="qz-bottom">' + (answered ? frRevealHTML() : placeBarHTML()) + '</div>';
-  } else if (q.mode === 'fnum') {
-    /* a TYPED answer: the pad IS the answer grid (see pad.js) */
+  } else if (q.mode === 'fnum' && q.extreme) {
+    /* EXTREME: a TYPED answer, the pad IS the answer grid (see pad) */
     h += '<div class="qz-bottom">' + (answered ? frRevealHTML() : padHTML()) + '</div>';
   } else {
     h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
@@ -2200,7 +2212,7 @@ window.addEventListener('keydown', function (e) {
   if (screen === 'question') {
     /* THE PAD OWNS THE DIGITS in a "name -> number" question: typing 5 there is the first
        digit of the answer, not option 5 (there are no options) */
-    if (q && q.mode === 'fnum' && !answered) {
+    if (q && q.mode === 'fnum' && q.extreme && !answered) {
       if (/^[0-9]$/.test(e.key)) { tapSfx(); padPress(e.key); e.preventDefault(); return; }
       if (e.key === 'Backspace') { tapSfx(); padPress('del'); e.preventDefault(); return; }
       if (e.key === 'Enter') { tapSfx(); padPress('ok'); e.preventDefault(); return; }
