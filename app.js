@@ -3290,6 +3290,12 @@ var frNameOn = false;        /* the lit département's own name */
    Both are feature INDICES in FR.deps, or -1. They are set by frMark() once, after the
    answer, and cleared by the next question. */
 var frWrong = -1, frGreen = false;
+/* THE ANSWERS THAT STAY ON THE MAP. He asked for the green/red of an answer to remain
+   "jusqu'à la fin du jeu" - so every answered département keeps a SOFTER version of its
+   verdict, and the question on screen keeps the strong one. `frHistory` is code ->
+   'ok' | 'bad'; quiz.js is the owner (it knows the round, the mode and the record in
+   localStorage), this file only paints it. */
+var frHistory = {};
 var frStamp = -1;            /* reprojectSeq the cached Path2Ds were built for */
 /* THE OVERSEAS INSET. The five DOM are 7 000 km from the métropole and from each other,
    so a question about one of them is unanswerable from the map alone - the shape is a
@@ -3723,6 +3729,11 @@ function drawFrance() {
     if (!onScreen(FR.regs[i])) continue;
     ctx.stroke(frPathOf(FR.regs[i]));
   }
+  /* 3a. THE ANSWERS ALREADY GIVEN, in the same language but quieter: a soft fill with a
+     thin edge, no glow. They must be legible at a glance ("this one I got, this one I
+     missed") and must NOT compete with the question on screen - which is why they are
+     painted under it and at a third of the alpha. */
+  frPaintHistory();
   /* 3b. THE WRONG CLICK, in red - under the right one, so a green pointer is never
      covered by the red shape it is pointing at */
   if (frWrong >= 0 && FR.deps[frWrong] && FR.deps[frWrong]._p) {
@@ -3763,6 +3774,28 @@ function drawFrance() {
     ctx.restore();
   }
   drawFrLabels();
+}
+/* THE SOFTER LAYER: every answered département of this game, green or red, painted under
+   the current question. Skipped for the two the current question is about (they get the
+   strong treatment) so nothing is drawn twice. */
+function frPaintHistory() {
+  var code, cur = '', curW = '';
+  if (frPicked >= 0 && FR.deps[frPicked]) cur = String(FR.deps[frPicked].props.code);
+  if (frWrong >= 0 && FR.deps[frWrong]) curW = String(FR.deps[frWrong].props.code);
+  for (code in frHistory) {
+    if (!frHistory.hasOwnProperty(code)) continue;
+    if (code === cur || code === curW) continue;
+    var i = FR.depBy[code];
+    if (i == null || !FR.deps[i] || !FR.deps[i]._p) continue;
+    var ok = frHistory[code] === 'ok';
+    ctx.save();
+    ctx.fillStyle = ok ? 'rgba(40, 148, 92, .26)' : 'rgba(196, 62, 62, .26)';
+    ctx.fill(FR.deps[i]._p);
+    ctx.strokeStyle = ok ? 'rgba(94, 227, 154, .55)' : 'rgba(255, 138, 138, .55)';
+    ctx.lineWidth = 1;
+    ctx.stroke(FR.deps[i]._p);
+    ctx.restore();
+  }
 }
 /* A MARK THAT SURVIVES A SMALL SHAPE. Paris is 3 px across at the zoom an
    Île-de-France question plays at: a red FILL there is a red pixel nobody sees, and the
@@ -3943,17 +3976,26 @@ function drawFrLabels() {
     var px = sx(o[0]), py = sy(o[1]);
     if (px < -30 || py < -20 || px > W + 30 || py > H + 20) continue;
     var bw = (f.bbox[2] - f.bbox[0]) * view.k, bh = (f.bbox[3] - f.bbox[1]) * view.k;
-    if ((i === frPicked || i === frWrong) && frNameOn) {
-      ctx.font = '700 14px system-ui, -apple-system, sans-serif';
-      var txt = String(pr.code) + ' \u00b7 ' + String(pr.nom || '');
-      ctx.lineWidth = 3.6; ctx.strokeStyle = COL.capitalHalo;
-      ctx.strokeText(txt, px, py);
-      /* the two marks of "place it" say their own name in their own colour: "the one you
-         clicked" and "the one it was" must not look like the same kind of label */
-      ctx.fillStyle = i === frWrong ? COL.frWrongLabel
-                                   : (frGreen ? COL.frRightLabel : COL.frNameLabel);
-      ctx.fillText(txt, px, py);
-      continue;
+    /* THE LIT ONE'S OWN LABEL: the number, the name, or both - each one only if the
+       question allows it (`frCodesOn` / `frNameOn`). It used to print "code · name"
+       whenever `frNameOn`, which put the ANSWER on screen in "name -> number" and printed
+       nothing at all in that mode once the shape was not lit. */
+    if ((i === frPicked || i === frWrong) && (frNameOn || frCodesOn)) {
+      var bits = [];
+      if (frCodesOn) bits.push(String(pr.code));
+      if (frNameOn) bits.push(String(pr.nom || ''));
+      var txt = bits.join(' \u00b7 ');
+      if (txt) {
+        ctx.font = '700 14px system-ui, -apple-system, sans-serif';
+        ctx.lineWidth = 3.6; ctx.strokeStyle = COL.capitalHalo;
+        ctx.strokeText(txt, px, py);
+        /* the two marks of "place it" say their own name in their own colour: "the one
+           you clicked" and "the one it was" must not look like the same kind of label */
+        ctx.fillStyle = i === frWrong ? COL.frWrongLabel
+                                     : (frGreen ? COL.frRightLabel : COL.frNameLabel);
+        ctx.fillText(txt, px, py);
+        continue;
+      }
     }
     if (!frCodesOn) continue;
     if (bw < 15 || bh < 12) continue;
@@ -4798,7 +4840,7 @@ window.MapApp = {
        world's countries (see drawFrance), so `france` only says "paint it" - the layer
        stays 50m and nothing about the world side changes. */
     if (opts && opts.france) {
-      frOn = true; frPicked = -1; frCodesOn = false; frNameOn = false; frWrong = -1; frGreen = false;
+      frOn = true; frPicked = -1; frCodesOn = false; frNameOn = false; frWrong = -1; frGreen = false; frHistory = {};
       picked = -1; hover = -1;
     }
     quizOn = true;
@@ -4814,7 +4856,7 @@ window.MapApp = {
     quizLabels = false;
     /* the overlay goes back with the map: the world viewer and the world quiz never
        see a French border */
-    frOn = false; frPicked = -1; frCodesOn = false; frNameOn = false; frWrong = -1; frGreen = false;
+    frOn = false; frPicked = -1; frCodesOn = false; frNameOn = false; frWrong = -1; frGreen = false; frHistory = {};
     /* the locate mode's arm and its two marks go with the hand-over: they belong to a
        question, and a question is over when the map is given back */
     aimOn = false; aimFn = null; marks = null; quizNames = false;
@@ -4919,6 +4961,15 @@ window.MapApp = {
     return true;
   },
   frFit: function (code) { return frFit(code); },
+  /* light a département up WITHOUT flying: the number questions keep the zone's framing
+     (the neighbours are the clue) and still show which shape is being asked about */
+  frLight: function (code) {
+    var i = FR.depBy[String(code)];
+    if (i == null) return false;
+    frPicked = i;
+    picked = -1; hover = -1;
+    return true;
+  },
   frZoneTarget: function (zone, minWindowDeg) { return frZoneTarget(zone, minWindowDeg); },
   frGoZone: function (zone, minWindowDeg) {
     var t = frZoneTarget(zone, minWindowDeg);
@@ -4960,6 +5011,18 @@ window.MapApp = {
     var g = frInsetGeom();
     return { x: g.x, y: g.y, w: g.w, h: g.h,
              cells: g.cells.map(function (c) { return { code: c.code, x: c.x, y: c.y, w: c.w, h: c.h }; }) };
+  },
+  /* THE ANSWERS ALREADY GIVEN, as {code: 'ok'|'bad'} (quiz.js owns the round and the
+     stored record; this only paints). No argument: read back. */
+  frHistory: function (map) {
+    if (map === undefined) {
+      var out = {}, k;
+      for (k in frHistory) if (frHistory.hasOwnProperty(k)) out[k] = frHistory[k];
+      return out;
+    }
+    frHistory = {};
+    if (map) for (k in map) if (map.hasOwnProperty(k)) frHistory[String(k)] = map[k];
+    return frHistory;
   },
   frMarkState: function () {
     return { wrong: frWrong >= 0 ? String(FR.deps[frWrong].props.code) : '',

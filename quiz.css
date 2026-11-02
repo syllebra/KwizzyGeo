@@ -915,16 +915,18 @@ body.qz-playing #menu { display: none; }
    without a media query per shape - the cell is the same size in both, which is what makes
    the grid read as a grid. */
 .qz-modes {
-  display: grid; gap: 8px; justify-content: center;
+  display: grid; gap: 9px; justify-content: center;
   /* A CELL HAS A CEILING, not just a floor: `1fr` let four cards stretch to 200 px each on
-     a desktop, which is a lot of glass for two words. 88-112 px keeps the grid reading as
-     a grid at every width, three across a 390 px phone. */
-  grid-template-columns: repeat(auto-fit, minmax(88px, 112px));
+     a desktop, which is a lot of glass for two words.
+     BIGGER SINCE 2026-11-02 (his note): 120-148 px and a 116 px tall card, so the drawing
+     and the two-word label have room - two across a small phone, three across a 390 px one,
+     four on a tablet. */
+  grid-template-columns: repeat(auto-fit, minmax(120px, 148px));
 }
 .qz-mode {
   position: relative; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 5px; min-height: 74px; padding: 11px 8px 9px;
+  gap: 7px; min-height: 116px; padding: 14px 10px 12px;
   border-radius: 13px;
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
@@ -942,20 +944,68 @@ body.qz-playing #menu { display: none; }
 }
 /* the icon is the card's subject, so it is the one thing that changes colour */
 .qz-mico {
-  width: 26px; height: 26px; display: block;
+  width: 36px; height: 36px; display: block;
   color: rgba(142, 208, 255, .92);
 }
 .qz-mode.on .qz-mico { color: #ffffff; filter: drop-shadow(0 0 6px rgba(142, 208, 255, .55)); }
 .qz-mode-t {
-  font: 600 11.5px/14px system-ui, sans-serif; letter-spacing: .01em;
+  font: 600 13px/16px system-ui, sans-serif; letter-spacing: .01em;
   text-align: center; color: inherit;
   /* a long word in a narrow column must break, not overflow the card */
   overflow-wrap: anywhere;
 }
 /* the tick sits in the corner: centred it would push the label off a 84 px card */
-.qz-mode .qz-tick { right: 6px; top: 6px; transform: none; width: 14px; height: 14px; }
+.qz-mode .qz-tick { right: 7px; top: 7px; transform: none; width: 15px; height: 15px; }
 .qz-mode .qz-tick::after { font-size: 9px; }
 .qz-modedesc { margin-top: 2px; }
+
+/* ---------- THE NUMBER PAD (name -> number) ----------
+   A dialler, because that is the shape a hand expects: 3 x 4, the validate key in the usual
+   corner, and the typed digits in a display above it. Sized in px, not `fr`, so the keys
+   are a thumb's size on a phone and do not become coasters on a desktop. */
+.qz-padwrap {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: min(300px, 100%); margin: 0 auto;
+}
+.qz-typed {
+  min-width: 132px; padding: 8px 16px; border-radius: 12px; text-align: center;
+  font: 700 26px/30px ui-monospace, Menlo, monospace; letter-spacing: .12em;
+  color: #eaf3fb;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  font-variant-numeric: tabular-nums;
+}
+.qz-typed:not(.on) { color: rgba(160, 188, 212, .55); }
+.qz-typed-ph { letter-spacing: 0; }
+.qz-pad2ab { display: flex; gap: 8px; }
+.qz-pad2ab .chip { min-width: 54px; justify-content: center; }
+.qz-pad {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; width: 100%;
+}
+.qz-key {
+  cursor: pointer; padding: 0; min-height: 46px; border-radius: 11px;
+  font: 600 19px/1 ui-monospace, Menlo, monospace; color: #eaf3fb;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: background .1s linear, border-color .1s linear;
+}
+.qz-key:hover { background: rgba(22, 44, 66, .78); }
+.qz-key:active { background: rgba(142, 208, 255, .18); }
+.qz-key-sym { font-size: 17px; color: rgba(206, 226, 244, .92); }
+.qz-key-ok {
+  color: #8ed0ff; border-color: rgba(142, 208, 255, .55); font-size: 20px;
+}
+.qz-key-ok[disabled] { opacity: .40; cursor: default; border-color: var(--glass-border); color: rgba(206, 226, 244, .70); }
+/* the phone: the pad sits above the safe area, and the prompt above it is tighter */
+@media (max-width: 560px) {
+  .qz-key { min-height: 44px; }
+  .qz-typed { font-size: 23px; line-height: 27px; padding: 6px 14px; }
+}
+/* ---------- the answers kept on the map ---------- */
+.qz-marks .qz-actions { margin-top: 10px; }
 /* A SHORT PAGE SITS IN THE MIDDLE. Six small cards at the top of a 900 px screen left two
    thirds of the page empty; auto margins on the first and last child of the column put the
    block in the optical centre, and collapse to nothing the moment the page is full (the

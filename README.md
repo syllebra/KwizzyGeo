@@ -158,7 +158,7 @@ docs/     screens/                                                   <- the pict
 | `quizcore.js` | **the game's rules**: modes, zones, difficulty, the six options — pure functions, no DOM (unit-tested by `tests/quizcore_test.js`) |
 | `quiz.js` | **the game's screens**: the three pages, the keyboard, and the hand-over of the map |
 | `stats.js` | **the record**: every answer and every round, in localStorage, with the best-by-ratio rule (unit-tested by `tests/stats_test.js`) |
-| `i18n.js` | **the quiz's UI strings in the map's 18 languages** — one table, 226 keys per language (the France quiz's 49 live in a second table, merged into it), placeholders and RTL included (unit-tested by `tests/i18n_test.js`) |
+| `i18n.js` | **the quiz's UI strings in the map's 18 languages** — one table, 233 keys per language (the France quiz's 56 live in a second table, merged into it), placeholders and RTL included (unit-tested by `tests/i18n_test.js`) |
 | `juice.js` | **the feel**, ported from the Kwizzy app: sound effects, haptics, particle bursts, the music engine and the sound drawer (unit-tested by `tests/juice_test.js`) |
 | `media/sfx/*.wav` | the six clips, 547 kB, from Kwizzy (synthesised, no samples, no licence) |
 | `media/music/*.mp3` | the five 25 s ambient loops, 3 MB, from Kwizzy (their own) |
@@ -849,15 +849,15 @@ browser (and GitHub Pages' CDN) keeps serving the old file.
 
 | script | what it pins |
 |---|---|
-| `tests/quizcore_test.js` | 125 checks on a synthetic lattice (and a small city set for locate): the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) — plus **locate's rules**: the three fame bands are disjoint, a national capital is Easy whatever its size, nothing under 40 000 is ever asked, the points curve only falls and is the documented one, a locate question has no options, a guess on the city is a bullseye at full marks and cannot be scored twice, a far guess is measured in km and still scores, locate's lengths are its own so a stored "All" cannot start a thousands-question round, **the country-first draw** (a round asks different countries while unasked ones remain, a bloated country no longer takes most of the questions, every small country still appears) — plus **the France quiz's rules** on a synthetic France: five modes and `modesOf`, the zones (aggregates + régions) and the pools behind them, **a one-département zone still asking six options** while its ROUND is one question, the number modes offering six codes / six names, the préfecture mode offering towns and its hard band staying near, the score scale carried by the session (`scoreKm`), and the cross-scope fallbacks (a world id makes a world session, an unknown id the scope's first) |
+| `tests/quizcore_test.js` | 129 checks on a synthetic lattice (and a small city set for locate): the three round lengths (10 / 25 / All, and a length clipped to a narrow pool), zones, the pool per mode, six distinct options, the answer always among them, **easy is farther than normal and hard is nearer** (a hard bound, not an average), the used-set, the score, one answer per question, a tiny pool, and the two flag variants (only in flag mode, unknown → name, six distinct flags per question) — plus **locate's rules**: the three fame bands are disjoint, a national capital is Easy whatever its size, nothing under 40 000 is ever asked, the points curve only falls and is the documented one, a locate question has no options, a guess on the city is a bullseye at full marks and cannot be scored twice, a far guess is measured in km and still scores, locate's lengths are its own so a stored "All" cannot start a thousands-question round, **the country-first draw** (a round asks different countries while unasked ones remain, a bloated country no longer takes most of the questions, every small country still appears) — plus **the France quiz's rules** on a synthetic France: five modes and `modesOf`, the zones (aggregates + régions) and the pools behind them, **a one-département zone still asking six options** while its ROUND is one question, the number modes offering six codes / six names, the préfecture mode offering towns and its hard band staying near, the score scale carried by the session (`scoreKm`), and the cross-scope fallbacks (a world id makes a world session, an unknown id the scope's first) |
 | `tests/quiz_test.js` | 308 checks headless over the **real data**: a French round (prompt, progress, the six options in French from the layer, the verdict, the panel), Arabic (`dir="rtl"` on every container, the words), the drawers in French, and back to English, the length chips and "All" resolving to the zone's pool, the small-country zoom floor stated in degrees (nothing tighter than ~5.2°, Germany still exact, Russia still huge), the stats sheet including its two-step reset, the title and the four steps of the walk (one screen each, the Back disc — hidden on the title, named in the language in play — the credits), 195 items with names/capitals/flags, every zone can make a question, every sampled country has a fit that fills the viewport without overflowing it, France is measured on its core rings, a ten-question session end to end (wrong answer, scoring, score screen, best score), capital and **both flag variants** (six flags, no repeated flag, the wrong names never on screen, the map flying there), the details card after an answer in every mode, **which questions may print the country's name on the map** (off in find-the-country and flag-to-country, on in capital and country-to-flag, on everywhere once answered), **the sheet has no layer row, and its three sound switches drive the real engine** (flipping one flips the setting, and the switch follows; the haptics row greys out where the device cannot vibrate), the keyboard, and the map handed back on quit — plus **the locate mode end to end** (its own 5/10/25 lengths and no All, the flat projection and the hand-back, country names on and city names off, the aim on with no country picked, a tap placing the marker, a drag NOT counting as aiming, the distance and the points on the verdict, both marks and the aim off after it, the round ending in points and the record taking it, and quitting giving the projection back, the distance handed to the map for the line, and the fame bands stated on the real data: Reykjavík Easy, Duisburg not, the 7.0 tail never asked, `?locz=` tunable), **Fast Play's draw** (200 draws: all four modes and all seven zones come up, medium everywhere and easy in locate, every draw playable, the config stored), **the question's kicker** (the mode / the flag variant, the zone and the difficulty, above the prompt, in all four modes, naming no answer), **where Fast Play sits on each host** (second and ghost off the platform, first and 58 px filled on it), and **the flag answers' three sizes** read out of `quiz.css` by balanced-block matching (56 base, 58 phone, 46 on a short frame, and a row taller than a text answer's) |
 | `tests/drift_test.js` | 74 checks on the menu's living background, the three discs and the two palettes: still at boot, moving east at ~0.4°/s and zoomed to 2× the fit when asked, stopped dead by `cinema(false)`, by `prefers-reduced-motion` and by a finger on the map; the fullscreen button's off/on names, its follow-the-browser behaviour, and Chromium's `isFullscreen: undefined` NOT being read as "off"; and that the Back disc is chrome at `10 + 36 + 10` px, with a question's own controls starting clear of the fullscreen one; the land **painted** grey in exploration and slate blue in the game; and **links out** — the country panel's Wikipedia and Google Maps rows present off the platform and absent on it, while the panel itself and the spot menu's *Copy coordinates* survive |
 | `tests/juice_test.js` | 83 checks with `Audio`, `matchMedia` and `navigator.vibrate` faked: the six clips are shipped, **audible** (peak 0.10-0.99) and not crushed, one `<audio>` per clip reused and replayed from 0, Sound off is silent, a `NotAllowedError` does not kill a clip but a `NotSupportedError` does, the settings key's forgiving defaults (corrupt JSON, a bad vol, an unknown track, a throwing `localStorage`), the haptic retry (refused twice then granted; never granted → 4 tries then quiet; absent → silent), reduceMotion kills particles and haptics but not sound, the burst makes n self-removing sparks, and `boot()` is safe with no Web Audio at all |
 | `tests/playlist_test.js` | 65 checks — Kwizzy's own playlist suite, moved with its module: the random order, the three repeats, the single-track loop |
-| `tests/i18n_test.js` | 235 checks (226 keys): the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
+| `tests/i18n_test.js` | 235 checks (233 keys): the 18 codes are the map's own (read out of app.js), every key in every language, no key the English table lacks, no empty string, **placeholders match English in all 18**, no string left in English outside a short checked whitelist, the long strings of each language are in its own script, RTL is right, and `quiz.js` writes no English into its markup and asks only for keys that exist |
 | `tests/stats_test.js` | 62 checks on the record: an empty record, one answer, the streak, the groupings (mode / zone / the two flag halves kept apart), what "best" means across lengths, the 60-run cap, every corrupt-blob shape, reset (and that the settings key survives it), a `localStorage` that refuses to write, and that 300 answers stay under 40 kB |
 | `tests/gesture_test.js` | now expects the sixth menu row (Play the quiz) and the fourth group |
-| `tests/france_test.js` | 156 checks on the France quiz, over the **real** `data/fr/` files (the fetch stub fails loudly on a name it does not know, so a wrong data path cannot pass): the overlay builds 101 départements / 18 régions / 489 lakes / 58 rivers / 2,280 cities and every préfecture resolves to a city; a point in Paris is 75 and one near Rennes is 35, a point in the Atlantic is nothing; the scope screen is step 1 of 4 and France is not the world's modes; the **four option modes × five zones** each ask six distinct options with the answer among them; **place the département** (no options, a click is the answer, right/wrong scored once, a miss on the sea not an answer at all, the red and the green on the map after it, the card naming what was clicked); **Mayotte asks six options with five of them elsewhere**, Bretagne asks its four; the number modes offer numbers and names; the préfecture mode offers towns and a hard question stays under 400 km; the locate bands grow and Corse/hard is topped up to six; a France round end to end (the map handed over with `france`, the **label plan per mode** — no numbers while "which number" is asked, on after the answer, the verdict and the details panel, the score on France's own curve, a wrong answer not scoring); the three shape-mode flights (two fly to the département, two frame the zone); a locate round with a tap, the confirm, the km, the points and both marks; quitting giving the map back with the world layer untouched; and the **overseas inset** (five territories built, atlas order, inside the viewport, no overlapping cells, a tap in a cell is that territory and the panel's margin is nobody, switchable) and the credits naming IGN and geo.api.gouv.fr |
+| `tests/france_test.js` | 168 checks on the France quiz, over the **real** `data/fr/` files (the fetch stub fails loudly on a name it does not know, so a wrong data path cannot pass): the overlay builds 101 départements / 18 régions / 489 lakes / 58 rivers / 2,280 cities and every préfecture resolves to a city; a point in Paris is 75 and one near Rennes is 35, a point in the Atlantic is nothing; the scope screen is step 1 of 4 and France is not the world's modes; the **four option modes × five zones** each ask six distinct options with the answer among them; **place the département** (no options, a click is the answer, right/wrong scored once, a miss on the sea not an answer at all, the red and the green on the map after it, the card naming what was clicked); **Mayotte asks six options with five of them elsewhere**, Bretagne asks its four; the number modes offer numbers and names; the préfecture mode offers towns and a hard question stays under 400 km; the locate bands grow and Corse/hard is topped up to six; a France round end to end (the map handed over with `france`, the **label plan per mode** — no numbers while "which number" is asked, on after the answer, the verdict and the details panel, the score on France's own curve, a wrong answer not scoring); the three shape-mode flights (two fly to the département, two frame the zone); a locate round with a tap, the confirm, the km, the points and both marks; quitting giving the map back with the world layer untouched; and the **overseas inset** (five territories built, atlas order, inside the viewport, no overlapping cells, a tap in a cell is that territory and the panel's margin is nobody, switchable); **the number pad** (no options, twelve keys plus the two Corsican shortcuts, a digit shows and backspace takes it back, typing the code scores, two digits answer at once unless they are 97, three digits always answer, a 0x code is one digit plus validate); **the marks that stay** (a whole-France answer stored per mode, a new round opening with them, the two-step Start over erasing them and the button disappearing, a région round keeping its marks for the round only); and the credits naming IGN and geo.api.gouv.fr |
 | `tests/cache_test.js` | 47 checks on the cache-busters: every stamped asset exists and its `?v=` **equals its content's hash** (a forgotten bump fails here), nothing local is loaded unstamped, `index.html` itself never is, and the self-heal script is present, runs last, reads the same `app.js?v=` shape and can reload at most once per version |
 | `tests/crazy_test.js` | 81 checks on the CrazyGames adapter, with a fake SDK: the hostname test (including every near-miss that must NOT count), nothing at all off the platform, the queue and its order (`loadingStart` before `init()` resolves), `gameplayStart`/`gameplayStop` deduped across re-renders, `muteAudio` reaching the juice without touching the player's switches, the locale applied — but never over a chosen language — a rejected init and a throwing method both contained, and the wiring in `index.html` / `app.js` / `quiz.js` / the two stylesheets |
 
@@ -927,7 +927,7 @@ exactly what the card used to print. The two-word names are their own i18n keys
 |---|---|---|---|
 | `fdept` | *Which département is lit up?* | names | nothing |
 | `fplace` | *Where is Essonne?* | **none — a click** | nothing |
-| `fnum` | *Which number is Aube?* | **numbers** (`01`, `2A`, `971`) | the lit name |
+| `fnum` | *Which number is Aube?* | **a keypad — the number is typed** | the lit one's **name** |
 | `fname` | *Which département is number 57?* | names | the numbers |
 | `fpref` | *Which préfecture of Alpes-Maritimes?* | the towns | both |
 | `floc` | *Where is Plérin?* | — a marker — | the numbers |
@@ -943,11 +943,91 @@ département smaller than 34 px on screen (Paris is 3 px at the Île-de-France z
 gets a ring of its colour, because a 3-px red fill is a verdict nobody can see.
 
 **The two number modes are the point of the quiz**, and they are two modes and not one
-because neither half follows from the other: a player who knows 75 is Paris may still
-have no idea what 2A is. They are also the only modes in the app where the OPTION is a
-code rather than a name — `keyOf(it, mode)` returns `it.code` for `fnum`, `it.pref` for
-`fpref`, `it.name` otherwise, so "six distinct answers" and "the answer is among them"
-keep their usual meaning.
+because neither half follows from the other: a player who knows 75 is Paris may still have
+no idea what 2A is. `keyOf(it, mode)` returns `it.code` for `fnum`, `it.pref` for `fpref`,
+`it.name` otherwise — which keeps "six distinct answers" and "the answer is among them"
+meaningful in the option modes.
+
+### Name → number is TYPED, not a QCM
+
+His call (2026-11-02): *"au lieu d'un qcm, on peut mettre un clavier numérique pour entrer le
+bon numéro"*. The question screen shows a **dialler** — 1-9, backspace, 0, validate, 3 × 4
+like a phone — and a display above it; `quizcore.answerNum` is the whole verdict. The rules:
+
+* **normalisation**: `1` → `01` (nobody types the leading zero, and Ain is 01), `2a` → `2A`,
+  `971` stays. No code starts with `0`, so a leading 0 is ignored by the pad.
+* **2A and 2B have their own two keys**: a numeric pad cannot make them, so the shortcuts sit
+  above the dialler and answer in one press.
+* **the pad answers at two digits unless they are `97`** — the one prefix a three-digit code
+  has. That saves a tap on 99 of the 101 départements (asserted in `tests/france_test.js`).
+* the keyboard types too (digits, Backspace, Enter): in this mode the digits belong to the
+  pad, not to an option list that no longer exists.
+
+### What is lit, and where the map goes
+
+His call: **the département in question is always lit**, except in the two modes where it *is*
+the answer (place it, locate the city). What the map may then say is still one fact at a time,
+and where it flies follows from the question:
+
+| mode | lit | label on the lit shape | numbers on the map | goes to |
+|---|---|---|---|---|
+| `fdept` | yes | nothing (the name is the answer) | no | flies to the shape |
+| `fnum` | yes | its **name** (given) | no (the number is the answer) | stays on the zone |
+| `fname` | yes | nothing (the name is the answer) | yes (given) | stays on the zone |
+| `fpref` | yes | code · name | yes | flies to the shape |
+| `fplace` | **no** while answering | — | no | the zone |
+| `floc` | no | — | yes (the grid) | the zone |
+
+The two number modes stay wide on purpose: the answer is a number or a name, so the
+**neighbours are the clue** — a flight into one département filled the screen with it
+(measured: a Gironde question left no visible context at all).
+
+### The answers stay on the map
+
+*"On peut garder une surbrillance verte pour une bonne réponse et rouge pour une mauvaise
+jusqu'à la fin du jeu."* After every answer the shape keeps a mark — **green when it was
+right, red for the one you clicked when it was wrong**, with the right one pointed at in
+green, the verdict's own two colours dimmed to a third (`frPaintHistory`) so the question on
+screen always reads first.
+
+For the **whole-France modes** those marks survive the round: stored per mode in
+`kwizzygeo.fr.marks.v1` (a third key, so resetting one thing never wipes another), so a
+101-question course can be played over several sittings. Keyed by mode, because finding the
+shape, the number, the name and the préfecture are four different skills. The **start screen
+then offers "Start over"** — two presses, like the stats sheet's reset — with the count of
+départements that keep a colour. A *région* round keeps them for the round only, and the two
+modes where nothing is lit (`fplace`, `floc`) keep nothing at all.
+
+### The difficulty of number → name is TWO distances
+
+A wrong answer to *which département is 57?* is confusing for one of two reasons: it is next
+to the answer **on the map** (54, 55, 67 ring the Moselle) or next to it **in the numbering**
+(56, 58 — a player who half-remembers "fifties"). Kilometres alone never offer 58; the number
+alone offers 58 and a département 700 km away. So the band sorts on
+
+    d = kilometres + NUM_KM × min(|rank distance in the numbering|, RANK_CAP)
+
+and both constants were **measured** (600 hard questions on the shipped data):
+
+| NUM_KM | hard questions with a map neighbour | …with a number neighbour | median option |
+|---|---|---|---|
+| 0 | 93 % | 11 % | 118 km |
+| 60 | 93 % | 53 % | 125 km |
+| **100** | **93 %** | **62 %** | **126 km** |
+| 140 | 94 % | 69 % | 132 km |
+| linear 300 | 89 % | 83 % | 318 km (the map is gone) |
+
+Three details that are the difference between the mode working and not:
+
+* **the numeric distance is a RANK, not a subtraction.** The codes sorted as strings are the
+  order an atlas indexes by: 01…09, 10…19, 2A, 2B, 21…95, 971…976. So 2A's neighbours are 2B
+  **and 21 and 19**. With a raw subtraction `|201 − 92|` = 109 made every Parisian
+  département "near" Corsica, and a hard question about 2A came back with 92, 91, 89, 90.
+* **the numeric term stops at three steps** (`RANK_CAP`). Without the cap, 70 was "18 steps
+  from 75" and never a candidate: a hard question about Paris offered 70, 72, 69, 73 — all
+  numbered in the seventies — and none of 92, 93, 94, the three that actually ring it.
+* **across the overseas boundary the numeric term is skipped**: 95 and 971 are adjacent in
+  the list and 6 760 km apart, which is nothing anyone confuses.
 
 The **rules** live in `quizcore.js` (`FR_MODES`, `FR_ZONES`, `frZones`, `frInZone`,
 `frCityBand`, `frCityPool`); `quiz.js` only names things (`K_MODE` gains the five ids).
@@ -1011,6 +1091,13 @@ Three properties, each a trap worth naming:
 <img src="docs/screens/fr-inset-numbers-desktop.jpg" width="620" alt="The overseas inset in the Atlantic, numbers on, the rest of France numbered on the map">
 </p>
 
+**Name → number is typed**, and the answers stay on the map in green and red:
+
+<p align="center">
+<img src="docs/screens/fr-pad-phone.jpg" width="186" alt="The number pad on a phone: a display, the two Corsican shortcuts, and a dialler">
+<img src="docs/screens/fr-marks-desktop.jpg" width="620" alt="A correct answer keeping its green on the map, the region's framing kept">
+</p>
+
 ### The overlay: `data/fr/` on top of the world
 
 `app.js` loads the four files on demand (`MapApp.frLoad()`, started when the scope card
@@ -1040,14 +1127,6 @@ read back with no argument): may the map show the **numbers** (`frCodesOn`), and
 **name the shape that is lit up** (`frNameOn`). `frLabelPlan(mode)` in `quiz.js` decides
 per question — see the table above — and after an answer both come on, because the
 verdict card prints them anyway.
-
-### What the modes fly to
-
-`fdept` and `fpref` light the département up and fly to it (`MapApp.frShow(code)`).
-`fnum` and `fname` **frame the ZONE instead** (`MapApp.frGoZone(zone)`): the shape is
-given away by the question, so the picture to read is the map of départements, and flying
-to one of them would point at the answer. `floc` frames the zone with the numbers on and
-nothing lit.
 
 ### The data build tells the truth or stops
 

@@ -262,7 +262,9 @@ async function afterLoad() {
   const REG = { '11': '11', '53': '53', '94': '94', '06': '06' };
 
   /* 3a. six options, distinct, answer among them - for every mode and several zones */
-  ['fdept', 'fnum', 'fname', 'fpref'].forEach(function (mode) {
+  /* fnum is NOT one of them any more: it is a TYPED answer (his call), with no options at
+     all - see the pad block below */
+  ['fdept', 'fname', 'fpref'].forEach(function (mode) {
     ['fr', 'fr-metro', 'fr-dom', 'r53', 'r06'].forEach(function (zone) {
       const s = Q().newSession(items, { mode: mode, zone: zone, difficulty: 'medium', len: 10 }, 11);
       let ok = true, why = '';
@@ -306,10 +308,10 @@ async function afterLoad() {
   {
     const s = Q().newSession(items, { mode: 'fnum', zone: 'fr', difficulty: 'easy', len: 10 }, 3);
     const q = Q().nextQuestion(s);
-    check('the name -> number question ASKS with the name',
-          Qz2.html().indexOf('Which number is') >= 0 || true);   /* the screen is checked below */
-    check('...and offers six NUMBERS', q.options.every(o => /^[0-9]{2,3}$|^2[AB]$/.test(o.code)),
-          q.options.map(o => o.code).join(' '));
+    check('name -> number has NO options any more: the answer is typed', q.options.length === 0,
+          q.options.length);
+    check('...and the typed answer is normalised ("1" is 01, "2a" is 2A)',
+          Q().normNum('1') === '01' && Q().normNum('2a') === '2A' && Q().normNum('971') === '971');
     const s2 = Q().newSession(items, { mode: 'fname', zone: 'fr', difficulty: 'easy', len: 10 }, 3);
     const q2 = Q().nextQuestion(s2);
     check('the number -> name question offers six NAMES', q2.options.every(o => o.name && o.name.length > 1));
@@ -519,7 +521,13 @@ async function afterLoad() {
   check('a France round STARTS', Qz2.start() === true);
   check('...on a question', Z().screen === 'question', Z().screen);
   check('...with the map handed to the France quiz', M().frOn() === true);
-  check('...and six options on screen', (Qz2.html().match(/data-i="\d"/g) || []).length === 6);
+  /* NAME -> NUMBER IS TYPED (his call): a pad instead of the six options */
+  check('...with a NUMBER PAD, not an answer grid',
+        /class="qz-padwrap"/.test(Qz2.html()) && !/data-i="0"/.test(Qz2.html()));
+  check('...twelve keys (1-9, backspace, 0, validate) plus the two Corsican shortcuts',
+        (Qz2.html().match(/data-pad="/g) || []).length === 14,
+        (Qz2.html().match(/data-pad="[^"]*"/g) || []).join(' '));
+  check('...and the validate key starts disabled', /data-pad="ok"[^>]*disabled/.test(Qz2.html()));
   check('the question screen carries the France mode and the zone',
         /Name → number/.test(Qz2.html()) && /France/.test(Qz2.html()),
         (Qz2.html().match(/class="qz-qkind">[^<]*/) || [''])[0]);
@@ -530,27 +538,43 @@ async function afterLoad() {
   check('the map names the département and hides the numbers',
         JSON.stringify(M().frLabels()) === JSON.stringify({ codes: false, name: true }),
         JSON.stringify(M().frLabels()));
-  /* the rights and the wrongs: the answer scores, and the reveal names the number */
+  /* TYPING: a first digit shows, backspace takes it back, and the right code scores */
   const q1 = Z().question;
-  const right = q1.options.findIndex(o => o.code === q1.code);
-  check('the answer is one of the six', right >= 0, q1.code + ' vs ' + q1.options.map(o => o.code).join(','));
-  Qz2.choose(right);
-  check('the right answer scores', Z().score === 1, Z().score);
+  Qz2.pad('5');
+  check('a digit lands in the display', Qz2.typed() === '5', Qz2.typed());
+  Qz2.pad('del');
+  check('...and backspace takes it back', Qz2.typed() === '', Qz2.typed());
+  /* the ANSWER, typed the way a player would: a leading zero is not needed */
+  const short = String(parseInt(q1.code, 10));
+  short.split('').forEach(ch => Qz2.pad(ch));
+  if (Qz2.typed() !== q1.code) Qz2.pad('ok');
+  check('typing the code answers the question', Z().answered === true, Qz2.typed());
+  check('...and scores when it is the right one', Z().score === 1, Z().score + ' ' + q1.code);
   check('the reveal prints the number AND the name',
         Qz2.html().indexOf(q1.code) >= 0 && /qz-verdict good/.test(Qz2.html()));
   check('...and turns the numbers on, since the round has moved past that question',
         M().frLabels().codes === true);
+  /* and the MARKS: the answer stays on the map, green */
+  check('the answer stays on the map, in green', (() => {
+    const h = M().frHistory();
+    return h[String(q1.code)] === 'ok';
+  })(), JSON.stringify(M().frHistory()));
   Qz2.next();
-  /* a WRONG answer: an option index that is not the correct one (option 0 sometimes IS
-     the answer, and the first build of this test scored on it by accident) */
   {
     const q2 = Z().question;
-    const wrong = q2.options.findIndex((o, i) => i !== q2.correct);
-    Qz2.choose(wrong);
+    const wrong = q2.code === '01' ? '02' : '01';
+    wrong.split('').forEach(ch => Qz2.pad(ch));
+    if (!Z().answered) Qz2.pad('ok');
   }
-  check('a wrong answer does not score', Z().score === 1, Z().score);
+  check('a wrong typed code does not score', Z().score === 1, Z().score);
+  check('...and both answers are on the map now', (() => {
+    const h = M().frHistory();
+    const v = Object.keys(h);
+    return v.length === 2 && v.some(c => h[c] === 'ok') && v.some(c => h[c] === 'bad');
+  })(), JSON.stringify(M().frHistory()));
   check('the details card is the département\'s own panel',
         /qz-details/.test(Qz2.html()) && /préfecture/.test(Qz2.html()));
+  Qz2.quit();
 
   /* the SHAPE modes light the département up and fly to it; the two modes that GIVE the
      shape away (name -> number, number -> name) frame the ZONE instead, because flying
@@ -570,11 +594,22 @@ async function afterLoad() {
     Qz2.start();
     return M().frPick() === Z().question.code && M().frLabels().name === true;
   })(), M().frPick());
-  check('a "number -> name" round frames the ZONE and lights nothing', (() => {
+  /* EVERY mode but "place it" and "locate the city" LIGHTS the département in question
+     (his call, 2026-11-02). The label plan follows: number -> name shows every number on
+     the map and NOT the name (which is the answer). */
+  check('a "number -> name" round lights it and shows the numbers, not the name', (() => {
     Qz2.quit();
     Qz2.set({ mode: 'fname', zone: 'fr' });
     Qz2.start();
-    return M().frPick() === '' && M().frLabels().codes === true && !!M().flight();
+    return M().frPick() === Z().question.code && M().frLabels().codes === true &&
+           M().frLabels().name === false && !!M().flight();
+  })(), M().frPick() + '/' + JSON.stringify(M().frLabels()));
+  check('a "name -> number" round lights it and shows the NAME, never the number', (() => {
+    Qz2.quit();
+    Qz2.set({ mode: 'fnum', zone: 'fr' });
+    Qz2.start();
+    return M().frPick() === Z().question.code && M().frLabels().codes === false &&
+           M().frLabels().name === true;
   })(), M().frPick() + '/' + JSON.stringify(M().frLabels()));
 
   /* a locate question in France: the marker, the distance, the zone framing */
@@ -628,6 +663,109 @@ async function afterLoad() {
   check('...and the title is back', Z().screen === 'title');
   check('the map\'s own layer is untouched by any of this', M().layer() === '10m', M().layer());
 
+  /* ---------- 5b. THE ANSWERS KEPT FOR THE WHOLE OF FRANCE ----------
+     A 101-question course spans sittings, so the whole-France modes store their marks per
+     mode and offer a Reset at the start (his call). A région round keeps them only for
+     the round. */
+  {
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', difficulty: 'medium', len: 10 });
+    Qz2.start();
+    const code = Z().question.code;
+    const right = Z().question.options.findIndex(o => o.code === code);
+    Qz2.choose(right);
+    check('a whole-France answer is stored', (() => {
+      const raw = global.window.localStorage.getItem('kwizzygeo.fr.marks.v1');
+      const o = JSON.parse(raw || '{}');
+      return o.m && o.m.fdept && o.m.fdept[code] === 'ok';
+    })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
+    /* a new round of the SAME mode starts with those marks already on the map */
+    Qz2.quit();
+    Qz2.go('diff');
+    const hd = Qz2.html();
+    check('the start screen offers a Reset once there is something to reset',
+          /data-act="marks-reset"/.test(hd), (hd.match(/marks-reset[^>]*>[^<]*/) || [''])[0]);
+    Qz2.start();
+    check('...and a new round opens with the previous answers on the map',
+          (M().frHistory() || {})[code] === 'ok', JSON.stringify(M().frHistory()));
+    /* two-step reset */
+    Qz2.quit(); Qz2.go('diff');
+    /* the button the markup carries, as the delegated handler sees it: only the one
+       attribute it looks for answers (a stub that answers everything would be read as
+       data-act and fall through) */
+    const resetBtn = {
+      parentNode: null,
+      getAttribute: k => (k === 'data-act' ? 'marks-reset' : null)
+    };
+    L['quiz:click']({ target: resetBtn, preventDefault() {} });
+    check('the Reset asks first, and does not erase on one press',
+          /Really erase them\?/.test(Qz2.html()) &&
+          (JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}').m || {}).fdept,
+          (Qz2.html().match(/marks-reset">[^<]*/) || [''])[0]);
+    L['quiz:click']({ target: resetBtn, preventDefault() {} });
+    check('...and the second press erases the record', (() => {
+      const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+      return !(o.m && o.m.fdept && o.m.fdept[code]);
+    })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
+    check('...and the button is gone', !/data-act="marks-reset"/.test(Qz2.html()));
+    /* a RÉGION round keeps nothing */
+    Qz2.set({ mode: 'fdept', zone: 'r53' });
+    Qz2.start();
+    const c2 = Z().question.code, r2 = Z().question.options.findIndex(o => o.code === c2);
+    Qz2.choose(r2);
+    check('a région round does not write the record', (() => {
+      const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.fr.marks.v1') || '{}');
+      return !(o.m && o.m.fdept && o.m.fdept[c2]);
+    })(), global.window.localStorage.getItem('kwizzygeo.fr.marks.v1'));
+    check('...but the mark is on the map for the round', (M().frHistory() || {})[c2] === 'ok');
+    Qz2.quit();
+    global.window.localStorage.setItem('kwizzygeo.fr.marks.v1', '');
+  }
+
+  /* ---------- 5c. THE PAD's shortcuts ---------- */
+  {
+    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 });
+    /* find a 2A/2B question: the two codes a number pad cannot make */
+    let found = null;
+    for (let i = 0; i < 60 && !found; i++) {
+      Qz2.quit(); Qz2.start();
+      const c = Z().question.code;
+      if (c === '2A' || c === '2B') found = c;
+    }
+    if (found) {
+      Qz2.pad(found);
+      check('the 2A/2B shortcut answers in one press', Z().answered === true && Z().score === 1,
+            found + ' ' + Z().score);
+    } else {
+      check('(no 2A/2B question in 60 draws - shortcut checked in quizcore)', Q().normNum('2a') === '2A');
+    }
+    /* the auto-answer rule: two digits answer unless the first is a 9 */
+    /* THE AUTO-ANSWER: two digits answer at once when they cannot be the start of a
+       three-digit code (a first digit other than 9). A code of 01..09 is the exception
+       worth knowing: a leading 0 is ignored by the pad, so those two-digit codes are typed
+       as ONE digit and validated - which is what "1" then ✓ means, and what a player does. */
+    Qz2.quit(); Qz2.start();
+    const code = Z().question.code;
+    if (code.length === 3) {
+      Qz2.pad('9');
+      check('the first digit of a 97x code does not answer on its own', !Z().answered);
+      Qz2.pad(code.charAt(1)); Qz2.pad(code.charAt(2));
+      check('...three digits answer at once', Z().answered === true && Z().score === 1,
+            code + ' ' + Z().answered);
+    } else if (code.charAt(0) !== '0') {
+      Qz2.pad(code.charAt(0)); Qz2.pad(code.charAt(1));
+      check('two digits answer at once (only "97" can be the start of a 97x code)',
+            Z().answered === true && Z().score === 1, code + ' ' + Z().answered);
+    } else {
+      Qz2.pad(String(parseInt(code, 10)));
+      check('a 0x code is typed as one digit and validated', !Z().answered);
+      Qz2.pad('ok');
+      check('...and the validate key answers it', Z().answered === true && Z().score === 1, code);
+    }
+    Qz2.quit();
+  }
+
   /* ---------- 6. THE RECORD knows about départements ----------
      The stats sheet groups by mode and zone (both keyed by the ids quizcore hands out) and
      lists "what costs you the most" per ITEM - a country's id for the world quiz, a
@@ -637,7 +775,7 @@ async function afterLoad() {
     const stats = global.window.KwizzyStats;
     stats.reset();
     Qz2.quit();
-    Qz2.set({ scope: 'france', mode: 'fnum', zone: 'r53', difficulty: 'medium', len: 10 });
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'r53', difficulty: 'medium', len: 10 });
     Qz2.start();
     const q = Z().question;
     const right = q.options.findIndex(o => o.code === q.code);
@@ -648,7 +786,7 @@ async function afterLoad() {
     const sum = stats.summary();
     const modes = sum.modes.map(r => r.key);
     const zones = sum.zones.map(r => r.key);
-    check('...the modes table has the France mode', modes.indexOf('fnum') >= 0, modes.join(' '));
+    check('...the modes table has the France mode', modes.indexOf('fdept') >= 0, modes.join(' '));
     check('...and the zones table has the région', zones.indexOf('r53') >= 0, zones.join(' '));
     const items = sum.missed.concat(sum.known);
     check('...the items are DÉPARTEMENTS, badged with their number',
