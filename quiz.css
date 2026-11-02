@@ -82,28 +82,8 @@ body.qz-playing #menu { display: none; }
 }
 .qz-card .qz-h:first-child { margin-top: 0; }
 
-/* ---------- the three modes ---------- */
-.qz-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.qz-mode {
-  pointer-events: auto; cursor: pointer; text-align: left;
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 11px 12px 12px; min-height: 76px;
-  border-radius: 12px; border: 1px solid rgba(198, 224, 246, .14);
-  background: rgba(142, 208, 255, .08); color: rgba(234, 243, 251, .86);
-  font: inherit; touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  transition: background .12s linear, border-color .12s linear;
-}
-.qz-mode .ico { font-size: 17px; line-height: 20px; color: #8ed0ff; }
-.qz-mode .t { font: 600 14px/18px system-ui, sans-serif; color: #eaf3fb; }
-.qz-mode .s { font: 11px/14px system-ui, sans-serif; color: rgba(160, 188, 212, .95); }
-.qz-mode:hover { background: rgba(142, 208, 255, .14); }
-.qz-mode.on {
-  background: rgba(142, 208, 255, .12); border-color: rgba(142, 208, 255, .50);
-  box-shadow: 0 1px 0 rgba(198, 224, 246, .10) inset, 0 0 0 1px rgba(142, 208, 255, .12);
-}
-.qz-mode.on .ico { color: #8ed0ff; }
-.qz-mode.wait { opacity: .65; }
+/* (the old three-row mode list lived here; the mode grid is near the choice cards, see
+   `.qz-modes` below - it was dead CSS and collided with the new grid's own rules) */
 
 /* ---------- zone and difficulty chips (reusing .chip / .chip.on) ---------- */
 .qz-row { gap: 7px; }
@@ -419,10 +399,6 @@ body.qz-playing #menu { display: none; }
   .qz-card { margin-top: 62px; padding: 18px 15px 15px; border-radius: 15px; }
   .qz-brand h1 { font-size: 25px; line-height: 29px; }
   .qz-brand p { margin-bottom: 12px; }
-  .qz-modes { grid-template-columns: 1fr; gap: 6px; }
-  .qz-mode { min-height: 0; flex-direction: row; align-items: baseline; gap: 8px; padding: 10px 12px; }
-  .qz-mode .ico { font-size: 15px; }
-  .qz-mode .s { display: none; }
   .qz-h { margin-top: 13px; }
   .qz-ask { top: 54px; padding: 11px 13px 12px; }
   .qz-q { font-size: 16px; line-height: 21px; }
@@ -930,6 +906,66 @@ body.qz-playing #menu { display: none; }
    which is what the mode screen did from the day Locate was added. */
 .qz-choices-pairs { grid-template-columns: 1fr; }
 @media (min-width: 720px) { .qz-choices-pairs { grid-template-columns: repeat(2, 1fr); } }
+
+/* ---------- the mode grid: small cards, one icon each ----------
+   Six full-width rows (icon + title + a sentence) is a wall of text on a phone, and the
+   six sentences said the same thing. These are QUARTERS: an icon that shows the question,
+   a two-word label, and one sentence underneath for the selected mode (see qz_modes.js).
+   `auto-fit` + a 84 px floor gives three columns at 390 px and five or six on a desktop
+   without a media query per shape - the cell is the same size in both, which is what makes
+   the grid read as a grid. */
+.qz-modes {
+  display: grid; gap: 8px; justify-content: center;
+  /* A CELL HAS A CEILING, not just a floor: `1fr` let four cards stretch to 200 px each on
+     a desktop, which is a lot of glass for two words. 88-112 px keeps the grid reading as
+     a grid at every width, three across a 390 px phone. */
+  grid-template-columns: repeat(auto-fit, minmax(88px, 112px));
+}
+.qz-mode {
+  position: relative; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 5px; min-height: 74px; padding: 11px 8px 9px;
+  border-radius: 13px;
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  color: #cfe2f4; font: inherit;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: background .13s linear, border-color .13s linear, color .13s linear;
+}
+.qz-mode:hover { background: rgba(22, 44, 66, .72); color: #eaf3fb; }
+.qz-mode.on {
+  background: rgba(22, 44, 66, .80);
+  border-color: rgba(142, 208, 255, .60);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(142, 208, 255, .40), 0 12px 26px rgba(4, 14, 24, .30);
+}
+/* the icon is the card's subject, so it is the one thing that changes colour */
+.qz-mico {
+  width: 26px; height: 26px; display: block;
+  color: rgba(142, 208, 255, .92);
+}
+.qz-mode.on .qz-mico { color: #ffffff; filter: drop-shadow(0 0 6px rgba(142, 208, 255, .55)); }
+.qz-mode-t {
+  font: 600 11.5px/14px system-ui, sans-serif; letter-spacing: .01em;
+  text-align: center; color: inherit;
+  /* a long word in a narrow column must break, not overflow the card */
+  overflow-wrap: anywhere;
+}
+/* the tick sits in the corner: centred it would push the label off a 84 px card */
+.qz-mode .qz-tick { right: 6px; top: 6px; transform: none; width: 14px; height: 14px; }
+.qz-mode .qz-tick::after { font-size: 9px; }
+.qz-modedesc { margin-top: 2px; }
+/* A SHORT PAGE SITS IN THE MIDDLE. Six small cards at the top of a 900 px screen left two
+   thirds of the page empty; auto margins on the first and last child of the column put the
+   block in the optical centre, and collapse to nothing the moment the page is full (the
+   France grid plus its loader already is, on a phone). */
+.qz-pagebody > .qz-modes { margin-top: auto; }
+.qz-pagebody > .qz-modes ~ *:last-child { margin-bottom: auto; }
+/* ...and the line under the grid belongs to it, so it is centred with it instead of
+   hanging off the page's left edge under a centred row of cards */
+.qz-pagebody > .qz-modes + .qz-note { text-align: center; margin-left: 0; margin-right: 0; }
+
 .qz-choice {
   position: relative; cursor: pointer; text-align: left;
   display: flex; flex-direction: column; gap: 3px;

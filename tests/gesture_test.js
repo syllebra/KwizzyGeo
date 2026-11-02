@@ -190,7 +190,10 @@ setTimeout(function () {
      the sheet (not one row that opens another panel), and the Game group is the quiz
      alone - LEAVING THE GAME IS DECIDED ON THE MAIN MENU, beside Play, not in here. */
   const rows = items.getElementsByClassName('menuitem');
-  check('menu has rows', rows.length === 3, rows.length + ' rows (quiz, cities, north)');
+  /* 4 since 2026-11-02: the OVERSEAS INSET got a row in the Overlay group, because the
+     sheet is where every "how the map behaves" switch lives and it is the only way to
+     turn the inset off without editing the URL */
+  check('menu has rows', rows.length === 4, rows.length + ' rows (quiz, cities, north, inset)');
   check('rows are grouped', items.getElementsByClassName('mgroup').length === 4,
         items.getElementsByClassName('mgroup').length + ' groups (Game, Sound, Language, Overlay)');
   check('the projection rows are archived, not rendered',

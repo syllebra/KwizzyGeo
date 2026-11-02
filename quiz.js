@@ -157,6 +157,18 @@ function diffSub(id) {
   return k ? T(k) : '';
 }
 function modeLabel(id) { return K_MODE[id] ? T(K_MODE[id]) : id; }
+/* THE TWO-WORD NAME a grid card carries. The long label stays the accessible name and the
+   title; this is what fits under a 24 px icon on a phone ("Trouver la préfecture" does
+   not). A mode with no short name falls back to its long one, so a new mode can never
+   render an empty card. */
+var K_MODE_SHORT = { country: 'ms_country', capital: 'ms_capital', flag: 'ms_flag',
+                     locate: 'ms_locate', fdept: 'ms_dept', fplace: 'ms_place',
+                     fnum: 'ms_num', fname: 'ms_name', fpref: 'ms_pref', floc: 'ms_loc' };
+function modeShort(id) {
+  var k = K_MODE_SHORT[id];
+  var v = k ? T(k) : '';
+  return (v && v !== k) ? v : modeLabel(id);
+}
 function modeSub(id) { return K_MODE_SUB[id] ? T(K_MODE_SUB[id]) : ''; }
 function variantLabel(id) { return K_VARIANT[id] ? T(K_VARIANT[id]) : id; }
 function variantSub(id) { return K_VARIANT_SUB[id] ? T(K_VARIANT_SUB[id]) : ''; }
@@ -442,6 +454,76 @@ function titleHTML() {
   return h + '</div></div>';
 }
 
+/* ---------- THE MODE ICONS, AND THE COMPACT MODE GRID ----------
+   A mode card used to be a full-width row: a glyph, a title, and a sentence of
+   explanation - six of them is a wall of text on a phone, and the sentences said the same
+   thing six times. His note (2026-11-02): "meaningful icons instead of long text for game
+   modes, and smaller buttons for mode picking (in grid)".
+
+   So: a GRID of small cards, each with an ICON THAT SHOWS THE QUESTION and a two-word
+   label, and ONE line underneath saying what the selected mode asks. The icon is a real
+   drawing (inline SVG, stroke = currentColor) rather than a Unicode glyph: "◉ / ⌖ / # / ⌗"
+   were four marks that all looked like punctuation, and a player had to read every card
+   to tell them apart. These are read without reading:
+
+     a folded map      find the country / the département  (a shape is lit: name it)
+     the same + a cursor   place it                        (click the shape)
+     a badge "01"      name -> number
+     a badge "Aa"      number -> name
+     a star            the capital / the préfecture
+     a map pin         put a marker on the map
+
+   `aria-label` keeps the full sentence, so the screen reader still hears exactly what the
+   card used to print, and `title` gives a mouse the same. */
+var MODE_SVG = {
+  /* A FOLDED MAP: the question is "read a shape off the map" (find the country, find the
+     département - the same sentence one scale apart, so the same drawing). Three panels,
+     two creases, drawn on a 24 grid with a 1.5 stroke: at 26 px it stays legible. */
+  country: '<path d="M3 6.4 9 4.4l6 2 6-2v13.2l-6 2-6-2-6 2z"/><path d="M9 4.4v13.2M15 6.4v13.2"/>',
+  fdept:   '<path d="M3 6.4 9 4.4l6 2 6-2v13.2l-6 2-6-2-6 2z"/><path d="M9 4.4v13.2M15 6.4v13.2"/>' +
+           '<path d="M6 8.6h4.6v4.4H6z" fill="currentColor" stroke="none"/>',
+  /* THE SAME MAP WITH A CURSOR ON IT: "put this one here". The arrow is big (7 x 8 on the
+     grid) and sits in the lower right, clear of the map's own outline. */
+  fplace:  '<path d="M2.6 6.4 7.4 4.6l4.6 1.7 3.6-1.5v6.4"/><path d="M7.4 4.6v7.6"/>' +
+           '<path d="M12.6 11.4 21 15l-3.6 1.3 2 4-2.2 1-2-4L12.6 20z"/>',
+  /* A PILL WITH A NUMBER IN IT */
+  fnum:    '<rect x="2.4" y="6.6" width="19.2" height="10.8" rx="5.4"/>' +
+           '<text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" ' +
+           'font-family="ui-monospace, Menlo, monospace" fill="currentColor" stroke="none">01</text>',
+  /* ...AND WITH LETTERS. Two forms of the same fact, so two forms of the same drawing. */
+  fname:   '<rect x="2.4" y="6.6" width="19.2" height="10.8" rx="5.4"/>' +
+           '<text x="12" y="15.2" text-anchor="middle" font-size="8.6" font-weight="700" ' +
+           'font-family="system-ui, sans-serif" fill="currentColor" stroke="none">Aa</text>',
+  /* A STAR: the capital of a country */
+  capital: '<path d="M12 3.2l2.7 5.5 6 .9-4.4 4.2 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.3 9.6l6-.9z"/>',
+  /* A FLAG ON ITS POLE */
+  flag:    '<path d="M6.2 21V3.4"/><path d="M6.2 4.6h11l-2.3 3.6 2.3 3.6h-11z"/>',
+  /* A PIN: a place you put on the map (locate, in both scopes) */
+  locate:  '<path d="M12 21.4c0 0 6.4-5.8 6.4-10.6a6.4 6.4 0 0 0-12.8 0C5.6 15.6 12 21.4 12 21.4z"/>' +
+           '<circle cx="12" cy="10.6" r="2.3"/>',
+  /* THE PIN WITH A STAR IN IT: the préfecture, one scale down from a capital */
+  fpref:   '<path d="M12 21.4c0 0 6.4-5.8 6.4-10.6a6.4 6.4 0 0 0-12.8 0C5.6 15.6 12 21.4 12 21.4z"/>' +
+           '<path d="M12 5.4l1.1 2.3 2.5.4-1.8 1.8.4 2.5-2.2-1.2-2.2 1.2.4-2.5-1.8-1.8 2.5-.4z" ' +
+           'fill="currentColor" stroke="none"/>'
+};
+function modeIcon(id, cls) {
+  var body = MODE_SVG[id] || MODE_SVG.country;
+  return '<svg class="qz-mico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" ' +
+         'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+         'stroke-linejoin="round" aria-hidden="true" focusable="false">' + body + '</svg>';
+}
+/* ONE CARD OF THE GRID: icon on top, two words under it, and the whole sentence in the
+   accessibility layer (and in `title`, for a mouse) */
+function modeCard(md, on, extra) {
+  var label = modeShort(md.id);
+  var full = modeLabel(md.id) + ' — ' + modeSub(md.id);
+  return '<button class="qz-mode' + (on ? ' on' : '') + '" data-mode="' + md.id + '"' +
+         ' aria-label="' + esc(full) + '" title="' + esc(full) + '"' + (extra || '') + '>' +
+         modeIcon(md.id) +
+         '<span class="qz-mode-t">' + esc(label) + '</span>' +
+         '<span class="qz-tick" aria-hidden="true"></span></button>';
+}
+
 /* ---------- screen 2: what to find ---------- */
 function modeHTML() {
   /* FOUR MODES, SO A 2x2 (five, in the France quiz). Three in a row and the fourth
@@ -455,15 +537,21 @@ function modeHTML() {
   /* the loader, while the overlay's 2 MB are still arriving: the mode cards are
      already usable, so it is a line and not a spinner over the screen */
   if (cfg.scope === 'france' && !frOk()) b += '<div class="qz-note">' + esc(T('loading_france')) + '</div>';
-  b += '<div class="qz-choices qz-choices-pairs">';
+  /* THE GRID: small cards, an icon each, and the selected mode's sentence underneath
+     (see qz_modes.js for why). Six cards fit three across a phone. */
+  b += '<div class="qz-modes">';
   for (var i = 0; i < MD.length; i++) {
     var md = MD[i];
     var waitCap = (md.id === 'capital' && !capsReady());
-    b += choiceHTML('mode', md.id, md.ico, modeLabel(md.id),
-                    waitCap ? T('loading_capitals_short') : modeSub(md.id),
-                    cfg.mode === md.id, waitCap ? ' aria-disabled="true"' : '');
+    b += modeCard(md, cfg.mode === md.id, waitCap ? ' aria-disabled="true"' : '');
   }
   b += '</div>';
+  /* ONE LINE, FOR THE PICK: the sentence the cards used to carry, said once for the mode
+     that is actually selected - the loading note wins while the capitals arrive, because
+     a mode that cannot start is the more urgent fact */
+  b += '<div class="qz-note qz-modedesc">' +
+       esc(cfg.mode === 'capital' && !capsReady() ? T('loading_capitals_short') : modeSub(cfg.mode)) +
+       '</div>';
   /* THE FLAG QUESTION HAS TWO HALVES: name the country from the flag, or pick the flag
      of a named country. The row only exists while the flag mode is picked, so the page
      never grows a setting that is meaningless for the other two modes. */
@@ -1490,7 +1578,10 @@ function placeArm() {
 }
 function onPlace(pt) {
   if (!pt || screen !== 'question' || !q || q.mode !== 'fplace' || answered) return;
-  var code = M.frDepAt ? M.frDepAt(pt.lon, pt.lat) : '';
+  /* THE INSET FIRST: it is drawn over the ocean in screen space, so a tap there is not a
+     geography at all - and "where is Mayotte" has no other answer on this screen */
+  var code = (M.frInsetHit && pt.px != null ? M.frInsetHit(pt.px, pt.py) : '') ||
+             (M.frDepAt ? M.frDepAt(pt.lon, pt.lat) : '');
   if (!code) { info(T('place_miss')); return; }      /* the sea: not an answer */
   answerPlace(code);
 }

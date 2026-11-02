@@ -456,6 +456,63 @@ async function afterLoad() {
     Qz2.quit();
   }
 
+  /* ---------- 3g. THE OVERSEAS INSET ----------
+     The five DOM are thousands of km from the métropole and from each other, so they are
+     drawn small in a panel over the Atlantic - ON BY DEFAULT, obeying the same label plan
+     as the map, and tappable in "place the département" (which is the whole reason it
+     exists). */
+  {
+    const st0 = M().frStats();
+    check('the five overseas territories are built for the inset', st0.overseas === 5, st0.overseas);
+    check('...and the inset is ON by default', st0.inset === true, st0.inset);
+    /* the inset only ANSWERS while the France quiz holds the map (frOn): that is what
+       keeps it off the world quiz and off free exploration */
+    check('the overlay is off before the round', M().frOn() === false);
+    Qz2.set({ scope: 'france', mode: 'fdept', zone: 'fr', len: 5 });
+    Qz2.start();
+    check('...and a France round puts it on the map', M().frOn() === true);
+    check('(the page geometry is read in the France round)', true);
+    const box = M().frInsetBox();
+    check('the panel has one cell per territory', box.cells.length === 5,
+          box.cells.map(c => c.code).join(','));
+    check('...in the atlas order, west to east',
+          box.cells.map(c => c.code).join(',') === '971,972,973,974,976',
+          box.cells.map(c => c.code).join(','));
+    check('...inside the viewport', box.x >= 0 && box.y >= 0 &&
+          box.x + box.w <= 1440 && box.y + box.h <= 800,
+          JSON.stringify({ x: box.x, y: box.y, w: box.w, h: box.h }));
+    check('...and no two cells overlap', (() => {
+      for (let i = 0; i < box.cells.length; i++) {
+        for (let j = i + 1; j < box.cells.length; j++) {
+          const a = box.cells[i], c = box.cells[j];
+          if (a.x < c.x + c.w && c.x < a.x + a.w && a.y < c.y + c.h && c.y < a.y + a.h) return false;
+        }
+      }
+      return true;
+    })());
+    /* the hit test: the cell's middle is that territory, the panel's corner is nobody */
+    check('a tap in a cell is that territory',
+          box.cells.every(c => M().frInsetHit(c.x + c.w / 2, c.y + c.h / 2) === c.code),
+          box.cells.map(c => c.code + '->' + M().frInsetHit(c.x + c.w / 2, c.y + c.h / 2)).join(' '));
+    check('...and the panel\'s own margin is nobody', M().frInsetHit(box.x + 2, box.y + box.h - 2) === '');
+    check('...and the middle of the screen is nobody', M().frInsetHit(720, 400) === '');
+    /* the switch */
+    check('the inset can be turned off', M().frInset(false) === false);
+    check('...and a tap then hits nothing', M().frInsetHit(box.cells[0].x + 5, box.cells[0].y + 5) === '');
+    check('...and back on', M().frInset(true) === true);
+    /* the burger row, in the Overlay group */
+    /* the row is built at boot by app.js's buildMenu; in this harness the sheet's DOM is
+       a stub, so the check is on the SOURCE: the row exists, it is in the Overlay group,
+       and clicking it flips the switch */
+    const appSrc = fs.readFileSync(__dirname + '/../app.js', 'utf8');
+    check('the sheet carries an Overseas inset row',
+          /id: 'inset'/.test(appSrc) && /if \(id === 'inset'\)/.test(appSrc));
+    check('...which flips the same switch the API reads', M().frInset(false) === false &&
+          /id === 'inset' && frWanted\(\)/.test(appSrc));
+    M().frInset(true);
+    Qz2.quit();
+  }
+
   /* ---------- 4. a real France round, through the screens ---------- */
   Qz2.quit();
   Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', difficulty: 'medium', len: 10 });

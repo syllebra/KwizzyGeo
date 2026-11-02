@@ -359,7 +359,11 @@ function menuGroups() {
        second row for "off" */
     { title: 'Overlay', key: 'm_overlay',
       items: [{ id: 'cities', label: 'Cities', key: 'm_cities', ico: '\u25c9' },
-              { id: 'north', label: 'North up', key: 'm_north', ico: '\u2191' }], needs2d: true }
+              { id: 'north', label: 'North up', key: 'm_north', ico: '\u2191' },
+              /* the overseas inset: a FRANCE-only overlay, but a row here because the
+                 sheet is where every "how the map behaves" switch lives, and it is the
+                 only way to turn it off without editing the URL */
+              { id: 'inset', label: 'Overseas inset', key: 'm_inset', ico: '\u25f1' }], needs2d: true }
   ]);
 }
 var spotEl = document.getElementById('spot');
@@ -386,6 +390,7 @@ function menuLabel(m) {
   if (m === 'quiz') return 'Play the quiz';
   if (m === 'cities') return 'Cities';
   if (m === 'north') return 'North up';
+  if (m === 'inset') return 'Overseas inset';
   return m;
 }
 /* what the closed burger says: the projection in play, which is more informative
@@ -406,6 +411,7 @@ function itemLabel(it, el) {
   if (it.id === 'quiz') return 'Play the quiz';
   if (it.id === 'cities') return 'Cities';
   if (it.id === 'north') return 'North up';
+  if (it.id === 'inset') return 'Overseas inset';
   return it.label;
 }
 function buildMenu() {
@@ -505,6 +511,7 @@ function menuClick(el) {
   if (id.indexOf('layer:') === 0) { setLayer(id.slice(6)); return; }
   if (id === 'cities') { toggleCities(); refreshMenu(); return; }
   if (id === 'north') { toggleNorth(); refreshMenu(); return; }
+  if (id === 'inset') { frInsetOn = !frInsetOn; scheduleReproject(); refreshMenu(); return; }
   if (id.indexOf('lang:') === 0) { setLang(id.slice(5)); return; }
 }
 /* ONE SWITCH, from the sheet to the engine and back into the sheet. juice.js owns the
@@ -1721,6 +1728,8 @@ function draw() {
   /* the locate mode's two marks, over the labels - they are the answer being looked at
      - and under the bloom, so they glow with the rest of the picture */
   drawMarks();
+  /* THE OVERSEAS INSET, last of the map: it is chrome over the picture, not part of it */
+  drawFrInset();
   ctx.strokeStyle = COL.frame; ctx.lineWidth = 1; ctx.stroke(framePath);
   /* THE BLOOM, composited into this very canvas: one drawImage of a quarter-size copy,
      scaled up, blended with `screen`. It is what the CSS layer used to do (see the
@@ -2171,6 +2180,7 @@ function refreshMenu() {
              (id === 'layer:' + layerName) ||
              (id === 'cities' && citiesOn) ||
              (id === 'north' && northUp) ||
+             (id === 'inset' && frWanted()) ||
              (id === 'lang:' + LANG);
     if (on) el.classList.add('on'); else el.classList.remove('on');
   }
@@ -3281,6 +3291,14 @@ var frNameOn = false;        /* the lit département's own name */
    answer, and cleared by the next question. */
 var frWrong = -1, frGreen = false;
 var frStamp = -1;            /* reprojectSeq the cached Path2Ds were built for */
+/* THE OVERSEAS INSET. The five DOM are 7 000 km from the métropole and from each other,
+   so a question about one of them is unanswerable from the map alone - the shape is a
+   few pixels somewhere else entirely. So they are drawn ONCE, small, in an atlas-style
+   panel over the Atlantic: each territory normalised into its own cell (that is what an
+   atlas inset does - they are not to scale with each other either).
+   ON BY DEFAULT (`?inset=0` and the burger's Overlay row turn it off). */
+var frInsetOn = true;
+function frWanted() { return frInsetOn && !/[?&]inset=0/.test(urlSearch()); }
 var FR_MIN_WINDOW_DEG = 3.2; /* a fit never shows less than this (Paris is 0.15 deg) */
 var FR_REG_MIN_WINDOW_DEG = 5.5;
 
@@ -3498,6 +3516,50 @@ function frBuild(depGeo, regGeo, eauGeo, villes) {
       country: String(ct.dept || ''), deptName: ''
     });
   }
+  /* THE OVERSEAS SHAPES, normalised once: each territory's rings in a 0..1 box, north up,
+     longitude scaled by cos(mean latitude) so a shape is not stretched sideways. Built
+     from the same rings the map draws (rg.ll), so the inset can never disagree with the
+     map about a border. */
+  FR.overseas = [];
+  for (var oi = 0; oi < FR.items.length; oi++) {
+    var oit = FR.items[oi];
+    if (!oit.dom) continue;
+    var of = FR.deps[FR.depBy[oit.code]];
+    var oRings = [], oMinLon = Infinity, oMaxLon = -Infinity, oMinLat = Infinity, oMaxLat = -Infinity, or_, ov;
+    for (or_ = 0; or_ < of.rings.length; or_++) {
+      var oll = of.rings[or_].ll;
+      if (!oll || oll.length < 8) continue;              /* a 4-point sliver: nothing to see */
+      oRings.push(oll);
+      for (ov = 0; ov < oll.length; ov += 2) {
+        if (oll[ov] < oMinLon) oMinLon = oll[ov];
+        if (oll[ov] > oMaxLon) oMaxLon = oll[ov];
+        if (oll[ov + 1] < oMinLat) oMinLat = oll[ov + 1];
+        if (oll[ov + 1] > oMaxLat) oMaxLat = oll[ov + 1];
+      }
+    }
+    if (!oRings.length) continue;
+    var oCos = Math.cos((oMinLat + oMaxLat) / 2 * Math.PI / 180);
+    var oW = Math.max(1e-6, (oMaxLon - oMinLon) * oCos), oH = Math.max(1e-6, oMaxLat - oMinLat);
+    var oScale = 1 / Math.max(oW, oH);
+    var oBox = [oW * oScale, oH * oScale];
+    var oOut = [];
+    for (or_ = 0; or_ < oRings.length; or_++) {
+      var src = oRings[or_], dst = new Float64Array(src.length);
+      for (ov = 0; ov < src.length; ov += 2) {
+        dst[ov] = ((src[ov] - oMinLon) * oCos) * oScale;
+        dst[ov + 1] = (oMaxLat - src[ov + 1]) * oScale;
+      }
+      oOut.push(dst);
+    }
+    FR.overseas.push({ code: oit.code, name: oit.name, rings: oOut, w: oBox[0], h: oBox[1] });
+  }
+  /* the order the ATLAS uses, not the data's: the Antilles side by side, then Guyane,
+     then the Indian Ocean - reading west to east is what makes the panel scannable */
+  var oOrder = { '971': 0, '972': 1, '973': 2, '974': 3, '976': 4 };
+  FR.overseas.sort(function (a, b) {
+    return (oOrder[a.code] != null ? oOrder[a.code] : 9) - (oOrder[b.code] != null ? oOrder[b.code] : 9);
+  });
+
   /* the département's name on a city, for the reveal's "· Ille-et-Vilaine" */
   var names = {};
   for (var n2 = 0; n2 < FR.items.length; n2++) names[FR.items[n2].code] = FR.items[n2].name;
@@ -3726,6 +3788,139 @@ function frMarkDot(f, edge, fill) {
   ctx.strokeStyle = edge; ctx.lineWidth = 2.4;
   ctx.stroke();
   ctx.restore();
+}
+
+/* ---------- THE OVERSEAS INSET ----------
+   A glass panel in the Atlantic holding the five DOM, each in its own cell. Three things
+   it must get right, and each one is a trap:
+
+   1. IT OBEYS THE SAME LABEL PLAN AS THE MAP. `frCodesOn` is whether a number may be
+      shown at all ("which number is Aube?" must not have the numbers on screen, and the
+      inset is on screen), so the inset's captions follow it - and the shape of the
+      ANSWER is lit in it with the same colours the map uses (pale = lit, green = right,
+      red = what you clicked).
+   2. IT IS A PICTURE OF THE SAME GEOMETRY, built once from `rg.ll`, normalised per
+      territory - not to scale with each other, exactly like an atlas (Guyane is 84 000
+      km², Mayotte 374: at one scale four of the five would be specks).
+   3. IT IS TAPPABLE WHERE IT MATTERS. In "place the département" a tap inside a cell is
+      that département (frInsetHit), which is the whole reason the panel exists: without
+      it, "where is Mayotte" is a question with no answer on this screen.
+*/
+function frInsetGeom() {
+  /* the panel's box, from the viewport: wide enough to read a shape, never more than a
+     third of a phone's width, and pinned to the upper-left ocean where nothing else is */
+  var w = Math.round(Math.max(112, Math.min(198, W * 0.30)));
+  var pad = 8, gap = 6, cols = 2;
+  var cw = Math.floor((w - 2 * pad - gap * (cols - 1)) / cols);
+  var ch = Math.round(cw * 0.86);
+  var list = FR.overseas || [];
+  var rows = Math.ceil(list.length / cols);
+  var headH = 15;
+  var h = pad + headH + rows * ch + (rows - 1) * gap + pad;
+  var x = 20, y = Math.round(Math.max(64, Math.min(150, H * 0.16)));
+  var cells = [], i;
+  for (i = 0; i < list.length; i++) {
+    var row = Math.floor(i / cols), col = i % cols;
+    var cx = x + pad + col * (cw + gap);
+    var cy = y + pad + headH + row * (ch + gap);
+    /* A LAST ROW WITH ONE CELL IS CENTRED, not left-aligned: five territories in a
+       two-column grid leave a hole in the bottom-right corner, and a hole inside a
+       bordered panel reads as a bug rather than as an atlas. */
+    var inRow = Math.min(cols, list.length - row * cols);
+    if (inRow === 1) cx = x + Math.round((w - cw) / 2);
+    cells.push({ code: list[i].code, shape: list[i], x: cx, y: cy, w: cw, h: ch });
+  }
+  return { x: x, y: y, w: w, h: h, cells: cells, pad: pad, headH: headH };
+}
+/* a rounded rectangle path (ctx.roundRect is not in every engine, and the tests' fake
+   context does not have it either - arc IS) */
+function rrPath(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y); ctx.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - r); ctx.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+  ctx.lineTo(x + r, y + h); ctx.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + r); ctx.arc(x + r, y + r, r, Math.PI, 1.5 * Math.PI);
+  ctx.closePath();
+}
+/* one territory's path inside its cell, cached per frame like everything else here */
+function frInsetPath(cell) {
+  var key = frStamp + '|' + cell.code + '|' + cell.x + ',' + cell.y + ',' + cell.w + ',' + cell.h;
+  if (cell._k === key && cell._p) return cell._p;
+  var p = new Path2D(), sh = cell.shape;
+  /* 16 px of air inside a cell: at 10 the southern tip of Mayotte and the coast of
+     Guyane touched the panel's own border, which read as a clipped shape */
+  var sxk = Math.min(cell.w - 16, cell.h - 16);
+  var ox = cell.x + (cell.w - sh.w * sxk) / 2;
+  var oy = cell.y + (cell.h - sh.h * sxk) / 2;
+  for (var r = 0; r < sh.rings.length; r++) {
+    var pts = sh.rings[r], n = pts.length / 2;
+    if (n < 3) continue;
+    p.moveTo(ox + pts[0] * sxk, oy + pts[1] * sxk);
+    for (var v = 1; v < n; v++) p.lineTo(ox + pts[v * 2] * sxk, oy + pts[v * 2 + 1] * sxk);
+    p.closePath();
+  }
+  cell._k = key; cell._p = p;
+  return p;
+}
+function drawFrInset() {
+  if (!frOn || !frInsetOn || !frWanted() || !frReady()) return;
+  if (!FR.overseas || !FR.overseas.length) return;
+  var g = frInsetGeom();
+  frStamp = fStampNow();
+  /* the glass, the same recipe the panels in index.html use (smoked, thin pale border) */
+  ctx.save();
+  rrPath(g.x, g.y, g.w, g.h, 10);
+  ctx.fillStyle = 'rgba(10, 26, 42, .62)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(190, 220, 245, .22)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  /* the caption: "Outre-mer", and how to hide it, in the app's small-caps voice */
+  ctx.font = '700 9px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(198, 222, 244, .78)';
+  ctx.fillText(String(TT('z_fr_dom')).toUpperCase(), g.x + g.pad, g.y + g.pad + 5);
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+  var i, c;
+  for (i = 0; i < g.cells.length; i++) {
+    c = g.cells[i];
+    var isPick = (frPicked >= 0 && FR.deps[frPicked] && FR.deps[frPicked].props.code === c.code);
+    var isWrong = (frWrong >= 0 && FR.deps[frWrong] && FR.deps[frWrong].props.code === c.code);
+    var p = frInsetPath(c);
+    /* the fill: the same three states as the map, so a player reads one language */
+    if (isWrong) ctx.fillStyle = COL.frWrongFill;
+    else if (isPick && frGreen) ctx.fillStyle = COL.frRightFill;
+    else if (isPick) ctx.fillStyle = COL.pick;
+    else ctx.fillStyle = COL.frLand;
+    ctx.fill(p);
+    ctx.lineWidth = isPick || isWrong ? 1.6 : 0.8;
+    ctx.strokeStyle = isWrong ? COL.frWrongEdge
+                    : (isPick && frGreen) ? COL.frRightEdge
+                    : (isPick) ? 'rgba(255,255,255,.95)'
+                    : 'rgba(200, 228, 252, .40)';
+    ctx.stroke(p);
+    /* the number, when the map is allowed to show numbers */
+    if (frCodesOn || (isPick && frNameOn)) {
+      ctx.font = '700 9px ui-monospace, Menlo, monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = isWrong ? COL.frWrongLabel : (isPick ? '#ffffff' : 'rgba(226, 240, 252, .80)');
+      ctx.fillText(String(c.code), c.x + 3, c.y + c.h - 3);
+      ctx.textAlign = 'start';
+    }
+  }
+  ctx.restore();
+}
+/* WHICH TERRITORY IS UNDER THIS PIXEL? The cell, not the exact shape: a 40-px Mayotte
+   is three pixels of land, and asking a finger to hit it would be a different bug. */
+function frInsetHit(px, py) {
+  if (!frOn || !frInsetOn || !frWanted() || !frReady() || !FR.overseas || !FR.overseas.length) return '';
+  var g = frInsetGeom(), i;
+  for (i = 0; i < g.cells.length; i++) {
+    var c = g.cells[i];
+    if (px >= c.x && px <= c.x + c.w && py >= c.y && py <= c.y + c.h) return c.code;
+  }
+  return '';
 }
 
 /* THE NUMBERS, and the lit one's name. Two flags, because they answer different
@@ -4317,7 +4512,10 @@ var aimMoved = 0;
 function aimAt(px, py) {
   var g = geoAt(px, py);
   if (!g || !isFinite(g[0]) || !isFinite(g[1])) return null;
-  var p = { lon: g[0], lat: g[1] };
+  /* THE PIXEL TRAVELS WITH THE POINT. A geographic point is all a marker needs, but the
+     OVERSEAS INSET is drawn in screen space (it is not where its geography is), so a mode
+     that has to hit it needs to know where the finger landed. */
+  var p = { lon: g[0], lat: g[1], px: px, py: py };
   if (aimFn) aimFn(p);
   return p;
 }
@@ -4747,6 +4945,22 @@ window.MapApp = {
     return { wrong: frWrong >= 0 ? String(FR.deps[frWrong].props.code) : '',
              right: frPicked >= 0 && frGreen ? String(FR.deps[frPicked].props.code) : '' };
   },
+  /* THE OVERSEAS INSET: on by default (his call, 2026-11-02), read back with no argument,
+     and `?inset=0` turns it off for a screenshot or a comparison */
+  frInset: function (on) {
+    if (on === undefined) return frWanted();
+    frInsetOn = !!on;
+    if (typeof refreshMenu === 'function') refreshMenu();
+    return frWanted();
+  },
+  /* which territory's cell a pixel lands in, '' for none - the "place it" mode's tap */
+  frInsetHit: function (px, py) { return frInsetHit(px, py); },
+  /* the panel's geometry, so a test can aim at a cell without guessing */
+  frInsetBox: function () {
+    var g = frInsetGeom();
+    return { x: g.x, y: g.y, w: g.w, h: g.h,
+             cells: g.cells.map(function (c) { return { code: c.code, x: c.x, y: c.y, w: c.w, h: c.h }; }) };
+  },
   frMarkState: function () {
     return { wrong: frWrong >= 0 ? String(FR.deps[frWrong].props.code) : '',
              right: (frPicked >= 0 && frGreen) ? String(FR.deps[frPicked].props.code) : '',
@@ -4768,6 +4982,7 @@ window.MapApp = {
       lakes: FR.lakes ? FR.lakes.length : 0,
       rivers: FR.rivers ? FR.rivers.length : 0,
       cities: FR.cities.length, items: FR.items.length,
+      overseas: FR.overseas ? FR.overseas.length : 0, inset: frWanted(),
       picked: (frPicked >= 0 && FR.deps[frPicked]) ? String(FR.deps[frPicked].props.code) : '',
       labels: { codes: frCodesOn, name: frNameOn }
     };
