@@ -498,6 +498,39 @@ async function afterLoad() {
           box.cells.map(c => c.code + '->' + M().frInsetHit(c.x + c.w / 2, c.y + c.h / 2)).join(' '));
     check('...and the panel\'s own margin is nobody', M().frInsetHit(box.x + 2, box.y + box.h - 2) === '');
     check('...and the middle of the screen is nobody', M().frInsetHit(720, 400) === '');
+    /* THE CAPTIONS FOLLOW THE MAP'S `codes` FLAG AND NOTHING ELSE. In "name -> number" the
+       map may NAME the département (frNameOn) but must never show a NUMBER - and the inset
+       printed the lit cell's number on the strength of frNameOn alone, i.e. it showed the
+       answer. This is the check that would have caught it: |
+         fnum  -> captions off
+         fname -> captions on (the number is the prompt)
+         fdept -> captions off */
+    check('the inset shows no number in "name -> number"', (() => {
+      Qz2.quit();
+      Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr', len: 5 });
+      Qz2.start();
+      var f = M().frInsetCaptions();
+      Qz2.quit();
+      return f.codes === false;
+    })(), JSON.stringify(M().frInsetCaptions()));
+    check('...but it does in "number -> name" (the number is the prompt)', (() => {
+      Qz2.set({ mode: 'fname', zone: 'fr' });
+      Qz2.start();
+      var f = M().frInsetCaptions();
+      Qz2.quit();
+      return f.codes === true;
+    })());
+    check('...and in "find the département" it shows nothing', (() => {
+      Qz2.set({ mode: 'fdept', zone: 'fr' });
+      Qz2.start();
+      var f = M().frInsetCaptions();
+      Qz2.quit();
+      return f.codes === false;
+    })());
+    Qz2.set({ mode: 'fdept', zone: 'fr' });
+    Qz2.start();
+    check('(the inset geometry is read in a France round)', M().frOn() === true);
+
     /* the switch */
     check('the inset can be turned off', M().frInset(false) === false);
     check('...and a tap then hits nothing', M().frInsetHit(box.cells[0].x + 5, box.cells[0].y + 5) === '');

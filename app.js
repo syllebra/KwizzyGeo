@@ -3933,8 +3933,14 @@ function drawFrInset() {
                     : (isPick) ? 'rgba(255,255,255,.95)'
                     : 'rgba(200, 228, 252, .40)';
     ctx.stroke(p);
-    /* the number, when the map is allowed to show numbers */
-    if (frCodesOn || (isPick && frNameOn)) {
+    /* THE NUMBER, ONLY WHEN THE MAP MAY SHOW NUMBERS - and nothing else. The first build
+       said `frCodesOn || (isPick && frNameOn)`, and since "name -> number" is a mode where
+       frNameOn is true, the lit cell printed ITS OWN NUMBER: the inset was showing the
+       answer, which is the one thing the label plan exists to prevent. The insight that
+       fixed it: in this panel a cell can only ever say its NUMBER, so the only flag that
+       governs it is `frCodesOn` - `frNameOn` is a permission for the map's own label, not
+       for this caption. */
+    if (frCodesOn) {
       ctx.font = '700 9px ui-monospace, Menlo, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = isWrong ? COL.frWrongLabel : (isPick ? '#ffffff' : 'rgba(226, 240, 252, .80)');
@@ -5004,6 +5010,10 @@ window.MapApp = {
     if (typeof refreshMenu === 'function') refreshMenu();
     return frWanted();
   },
+  /* WHAT THE INSET'S CAPTIONS MAY SAY, as a fact a test can read: the panel only ever
+     prints a NUMBER, so it has exactly one flag - and it is the map's `codes`, never the
+     map's `name` (see the note in drawFrInset). */
+  frInsetCaptions: function () { return { codes: !!frCodesOn }; },
   /* which territory's cell a pixel lands in, '' for none - the "place it" mode's tap */
   frInsetHit: function (px, py) { return frInsetHit(px, py); },
   /* the panel's geometry, so a test can aim at a cell without guessing */
