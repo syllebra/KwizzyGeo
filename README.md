@@ -229,6 +229,10 @@ Two answers, both in the page:
 
 ### Deploying
 
+**Before uploading: `node tools/stamp.js`** — the `?v=` cache-busters in `index.html` are
+derived from each file's own hash and `tests/cache_test.js` fails on a stale one (see
+*The cache-busters are derived, not remembered* below).
+
 Upload the app files at the root and `data/` + `media/` beside them (`i18n.js` is one of
 them); `tests/`, `tools/`,
 the README and the licence are never fetched, so leave them out if the host serves
