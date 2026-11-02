@@ -1463,7 +1463,9 @@ function placeArm() {
   if (M.clearMarks) M.clearMarks();
   if (M.countryNames) M.countryNames(false);
   if (M.frMark) M.frMark(null, null);
-  if (M.frGoZone) M.frGoZone(q.zone);
+  /* a tighter window than the name -> number modes use: the question is which SHAPE it
+     is, and that is read between neighbours, not by finding a région inside France */
+  if (M.frGoZone) M.frGoZone(q.zone, 2.6);
   if (M.aim) M.aim(true, onPlace);
 }
 function onPlace(pt) {

@@ -3530,7 +3530,7 @@ function fitLLBox(bb, pad) {
 /* where a France zone opens. The métropole gets its own box, a région its own shape,
    and OUTRE-MER the world - Guadeloupe, Cayenne and La Réunion are 9 000 km apart, so
    there is no box that frames the overseas departments as one picture. */
-function frZoneTarget(zone) {
+function frZoneTarget(zone, minWindowDeg) {
   var z = String(zone == null ? '' : zone);
   if (z === 'fr-dom') return { lon: view.lon, lat: view.lat, k: fitK, fit: false };
   if (z === 'fr' || z === 'fr-metro') return fitLLBox(FR.bboxMetro, FLY_PAD) ||
@@ -3538,7 +3538,14 @@ function frZoneTarget(zone) {
   if (/^r[0-9]{2}$/.test(z)) {
     var qi = FR.regByCode[z.slice(1)];
     if (qi == null) return null;
-    var t = fitTargetForFeature(-1, frAnchorOf(FR.regs[qi]), FLY_PAD, FR.regs[qi], FR_REG_MIN_WINDOW_DEG);
+    /* THE WINDOW FLOOR IS THE CALLER'S, because the two questions have different needs:
+       a name -> number question wants to see enough of France to be read as a map (5.5
+       deg, guarded so a small région is not a street corner), while "place it" asks the
+       player to find ONE shape between its neighbours - a 5.5 deg window showed half of
+       France for an Île-de-France question, which is a map to search rather than a
+       région to look at (measured on the 1440 px frame). */
+    var w = minWindowDeg > 0 ? minWindowDeg : FR_REG_MIN_WINDOW_DEG;
+    var t = fitTargetForFeature(-1, frAnchorOf(FR.regs[qi]), FLY_PAD, FR.regs[qi], w);
     return t || null;
   }
   return null;
@@ -3707,11 +3714,14 @@ function frMarkDot(f, edge, fill) {
   var o = [0, 0];
   if (!C.projectRotLLVis(a[0], a[1], FRAME, C.CUR, o)) return;
   var bw = (f.bbox[2] - f.bbox[0]) * view.k, bh = (f.bbox[3] - f.bbox[1]) * view.k;
-  if (bw >= 34 && bh >= 34) return;             /* the fill is enough */
+  /* 18 px, not 34: at 34 the ring covered the neighbours' own numbers on a phone (the
+     petit couronne is a cluster of 20-px shapes, measured). Under 18 px the FILL is not
+     a picture of anything and the ring is the only way to see the verdict at all. */
+  if (bw >= 18 && bh >= 18) return;
   ctx.save();
   ctx.fillStyle = fill;
   ctx.beginPath();
-  ctx.arc(sx(o[0]), sy(o[1]), 14, 0, Math.PI * 2);
+  ctx.arc(sx(o[0]), sy(o[1]), 12, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = edge; ctx.lineWidth = 2.4;
   ctx.stroke();
@@ -4711,9 +4721,9 @@ window.MapApp = {
     return true;
   },
   frFit: function (code) { return frFit(code); },
-  frZoneTarget: function (zone) { return frZoneTarget(zone); },
-  frGoZone: function (zone) {
-    var t = frZoneTarget(zone);
+  frZoneTarget: function (zone, minWindowDeg) { return frZoneTarget(zone, minWindowDeg); },
+  frGoZone: function (zone, minWindowDeg) {
+    var t = frZoneTarget(zone, minWindowDeg);
     if (!t) return false;
     flyTo(t.lon, t.lat, t.k);
     return true;
