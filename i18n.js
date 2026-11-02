@@ -2133,6 +2133,8 @@ T.bn = {
    département", "which number is X", "préfecture", "overseas". */
 var EXTRA = {
   en: {
+    m_place: 'Place the département', m_place_s: 'A département is named: click it on the map.',
+    ask_place: 'Where is {dept}?', place_hint: 'Click the département on the map.', place_miss: 'That is not a département — the sea does not count.', place_picked: 'you clicked {code} · {name}',
     h_pick_zone_fr: 'Which part of France?',
     ab_fr_head: 'France quiz data',
     ab_fr_ign: 'ADMIN-EXPRESS and BDCARTO (lakes, rivers) · Licence Ouverte / Etalab',
@@ -2158,6 +2160,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} départements in {zone}: the round is {n} questions.'
   },
   fr: {
+    m_place: 'Placer le département', m_place_s: 'Un département est nommé : cliquez-le sur la carte.',
+    ask_place: 'Où se trouve {dept} ?', place_hint: 'Cliquez sur le département, sur la carte.', place_miss: 'Ce n\'est pas un département — la mer ne compte pas.', place_picked: 'vous avez cliqué {code} · {name}',
     h_pick_zone_fr: 'Quelle partie de la France ?',
     ab_fr_head: 'Données du quiz France',
     ab_fr_ign: 'ADMIN-EXPRESS et BDCARTO (lacs, rivières) · Licence Ouverte / Etalab',
@@ -2183,6 +2187,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} départements en {zone} : la partie fait {n} questions.'
   },
   de: {
+    m_place: 'Département einordnen', m_place_s: 'Ein Département wird genannt: klicke es auf der Karte an.',
+    ask_place: 'Wo liegt {dept}?', place_hint: 'Klicke das Département auf der Karte an.', place_miss: 'Das ist kein Département – das Meer zählt nicht.', place_picked: 'du hast {code} · {name} geklickt',
     h_pick_zone_fr: 'Welcher Teil Frankreichs?',
     ab_fr_head: 'Daten des Frankreich-Quiz',
     ab_fr_ign: 'ADMIN-EXPRESS und BDCARTO (Seen, Flüsse) · Licence Ouverte / Etalab',
@@ -2208,6 +2214,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} Départements in {zone}: die Runde hat {n} Fragen.'
   },
   es: {
+    m_place: 'Situar el departamento', m_place_s: 'Se nombra un departamento: haz clic en él en el mapa.',
+    ask_place: '¿Dónde está {dept}?', place_hint: 'Haz clic en el departamento en el mapa.', place_miss: 'Eso no es un departamento: el mar no cuenta.', place_picked: 'hiciste clic en {code} · {name}',
     h_pick_zone_fr: '¿Qué parte de Francia?',
     ab_fr_head: 'Datos del quiz de Francia',
     ab_fr_ign: 'ADMIN-EXPRESS y BDCARTO (lagos, ríos) · Licence Ouverte / Etalab',
@@ -2233,6 +2241,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departamentos en {zone}: la ronda es de {n} preguntas.'
   },
   pt: {
+    m_place: 'Colocar o departamento', m_place_s: 'Um departamento é nomeado: clica nele no mapa.',
+    ask_place: 'Onde fica {dept}?', place_hint: 'Clica no departamento no mapa.', place_miss: 'Isso não é um departamento — o mar não conta.', place_picked: 'clicaste em {code} · {name}',
     h_pick_zone_fr: 'Que parte de França?',
     ab_fr_head: 'Dados do questionário de França',
     ab_fr_ign: 'ADMIN-EXPRESS e BDCARTO (lagos, rios) · Licence Ouverte / Etalab',
@@ -2258,6 +2268,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departamentos em {zone}: a ronda tem {n} perguntas.'
   },
   nl: {
+    m_place: 'Departement plaatsen', m_place_s: 'Een departement wordt genoemd: klik het aan op de kaart.',
+    ask_place: 'Waar ligt {dept}?', place_hint: 'Klik het departement aan op de kaart.', place_miss: 'Dat is geen departement — de zee telt niet.', place_picked: 'je klikte {code} · {name}',
     h_pick_zone_fr: 'Welk deel van Frankrijk?',
     ab_fr_head: 'Gegevens van de Frankrijkquiz',
     ab_fr_ign: 'ADMIN-EXPRESS en BDCARTO (meren, rivieren) · Licence Ouverte / Etalab',
@@ -2283,6 +2295,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departementen in {zone}: de ronde telt {n} vragen.'
   },
   sv: {
+    m_place: 'Placera departementet', m_place_s: 'Ett departement namnges: klicka på det på kartan.',
+    ask_place: 'Var ligger {dept}?', place_hint: 'Klicka på departementet på kartan.', place_miss: 'Det är inget departement – havet räknas inte.', place_picked: 'du klickade {code} · {name}',
     h_pick_zone_fr: 'Vilken del av Frankrike?',
     ab_fr_head: 'Frankrikequizets data',
     ab_fr_ign: 'ADMIN-EXPRESS och BDCARTO (sjöar, floder) · Licence Ouverte / Etalab',
@@ -2308,6 +2322,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} departement i {zone}: rundan blir {n} frågor.'
   },
   ru: {
+    m_place: 'Указать департамент', m_place_s: 'Назван департамент: щёлкните его на карте.',
+    ask_place: 'Где находится {dept}?', place_hint: 'Щёлкните департамент на карте.', place_miss: 'Это не департамент — море не считается.', place_picked: 'вы выбрали {code} · {name}',
     h_pick_zone_fr: 'Какая часть Франции?',
     ab_fr_head: 'Данные квиза о Франции',
     ab_fr_ign: 'ADMIN-EXPRESS и BDCARTO (озёра, реки) · Licence Ouverte / Etalab',
@@ -2333,6 +2349,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} департаментов в {zone}: в раунде {n} вопросов.'
   },
   uk: {
+    m_place: 'Показати департамент', m_place_s: 'Названо департамент: клацніть його на карті.',
+    ask_place: 'Де розташований {dept}?', place_hint: 'Клацніть департамент на карті.', place_miss: 'Це не департамент — море не рахується.', place_picked: 'ви вибрали {code} · {name}',
     h_pick_zone_fr: 'Яка частина Франції?',
     ab_fr_head: 'Дані квізу про Францію',
     ab_fr_ign: 'ADMIN-EXPRESS і BDCARTO (озера, річки) · Licence Ouverte / Etalab',
@@ -2358,6 +2376,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} департаментів у {zone}: раунд має {n} питань.'
   },
   el: {
+    m_place: 'Τοποθέτησε το διαμέρισμα', m_place_s: 'Ένα διαμέρισμα ονομάζεται: κάνε κλικ πάνω του στον χάρτη.',
+    ask_place: 'Πού βρίσκεται το {dept};', place_hint: 'Κάνε κλικ στο διαμέρισμα στον χάρτη.', place_miss: 'Αυτό δεν είναι διαμέρισμα — η θάλασσα δεν μετράει.', place_picked: 'πάτησες {code} · {name}',
     h_pick_zone_fr: 'Ποιο μέρος της Γαλλίας;',
     ab_fr_head: 'Δεδομένα του κουίζ Γαλλίας',
     ab_fr_ign: 'ADMIN-EXPRESS και BDCARTO (λίμνες, ποτάμια) · Licence Ouverte / Etalab',
@@ -2383,6 +2403,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} διαμερίσματα στη {zone}: ο γύρος έχει {n} ερωτήσεις.'
   },
   zh: {
+    m_place: '在地图上指出省', m_place_s: '给出一个省的名字：在地图上点它。',
+    ask_place: '{dept} 在哪里？', place_hint: '在地图上点出这个省。', place_miss: '这不是一个省——海洋不算。', place_picked: '你点了 {code} · {name}',
     h_pick_zone_fr: '法国的哪个部分？',
     ab_fr_head: '法国测验数据',
     ab_fr_ign: 'ADMIN-EXPRESS 与 BDCARTO（湖泊、河流） · Licence Ouverte / Etalab',
@@ -2408,6 +2430,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone} 只有 {n} 个省：这一轮就是 {n} 道题。'
   },
   ja: {
+    m_place: '県を地図で指す', m_place_s: '県の名前が出ます。地図上でその県をクリックしてください。',
+    ask_place: '{dept} はどこ？', place_hint: '地図上で県をクリックしてください。', place_miss: 'それは県ではありません。海は数えません。', place_picked: 'あなたが選んだのは {code} · {name}',
     h_pick_zone_fr: 'フランスのどの地域？',
     ab_fr_head: 'フランスクイズのデータ',
     ab_fr_ign: 'ADMIN-EXPRESS と BDCARTO（湖・川） · Licence Ouverte / Etalab',
@@ -2433,6 +2457,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone} の県は {n} つ：この回は {n} 問です。'
   },
   ko: {
+    m_place: '데파르트망 짚기', m_place_s: '데파르트망 이름이 나옵니다. 지도에서 그것을 클릭하세요.',
+    ask_place: '{dept}는 어디?', place_hint: '지도에서 데파르트망을 클릭하세요.', place_miss: '그것은 데파르트망이 아닙니다. 바다는 세지 않습니다.', place_picked: '당신이 고른 것: {code} · {name}',
     h_pick_zone_fr: '프랑스의 어느 지역?',
     ab_fr_head: '프랑스 퀴즈 데이터',
     ab_fr_ign: 'ADMIN-EXPRESS와 BDCARTO(호수, 강) · Licence Ouverte / Etalab',
@@ -2458,6 +2484,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone}에는 데파르트망이 {n}개: 이번 판은 {n}문제입니다.'
   },
   ar: {
+    m_place: 'ضع المقاطعة', m_place_s: 'يُذكر اسم مقاطعة: انقر عليها على الخريطة.',
+    ask_place: 'أين تقع {dept}؟', place_hint: 'انقر على المقاطعة على الخريطة.', place_miss: 'هذه ليست مقاطعة — البحر لا يُحتسب.', place_picked: 'نقرت على {code} · {name}',
     h_pick_zone_fr: 'أي جزء من فرنسا؟',
     ab_fr_head: 'بيانات اختبار فرنسا',
     ab_fr_ign: 'ADMIN-EXPRESS وBDCARTO (البحيرات والأنهار) · Licence Ouverte / Etalab',
@@ -2483,6 +2511,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} مقاطعات في {zone}: الجولة {n} أسئلة.'
   },
   fa: {
+    m_place: 'شهرستان را نشان بده', m_place_s: 'نام یک شهرستان داده می‌شود: روی آن در نقشه کلیک کن.',
+    ask_place: '{dept} کجاست؟', place_hint: 'روی شهرستان در نقشه کلیک کن.', place_miss: 'این شهرستان نیست — دریا حساب نمی‌شود.', place_picked: 'شما {code} · {name} را زدید',
     h_pick_zone_fr: 'کدام بخش فرانسه؟',
     ab_fr_head: 'داده‌های آزمون فرانسه',
     ab_fr_ign: 'ADMIN-EXPRESS و BDCARTO (دریاچه‌ها، رودها) · Licence Ouverte / Etalab',
@@ -2508,6 +2538,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} شهرستان در {zone}: این دور {n} پرسش دارد.'
   },
   he: {
+    m_place: 'סמן את המחוז', m_place_s: 'נאמר שם של מחוז: לחץ עליו במפה.',
+    ask_place: 'איפה {dept}?', place_hint: 'לחץ על המחוז במפה.', place_miss: 'זה אינו מחוז — הים לא נחשב.', place_picked: 'לחצת על {code} · {name}',
     h_pick_zone_fr: 'איזה אזור בצרפת?',
     ab_fr_head: 'נתוני חידון צרפת',
     ab_fr_ign: 'ADMIN-EXPRESS ו-BDCARTO (אגמים, נהרות) · Licence Ouverte / Etalab',
@@ -2533,6 +2565,8 @@ var EXTRA = {
     l_note_clip_fr: '{n} מחוזות ב{zone}: הסבב הוא {n} שאלות.'
   },
   hi: {
+    m_place: 'विभाग दिखाएँ', m_place_s: 'एक विभाग का नाम दिया है: नक्शे पर उसे क्लिक करें।',
+    ask_place: '{dept} कहाँ है?', place_hint: 'नक्शे पर विभाग पर क्लिक करें।', place_miss: 'यह विभाग नहीं है — समुद्र नहीं गिना जाता।', place_picked: 'आपने {code} · {name} चुना',
     h_pick_zone_fr: 'फ़्रांस का कौन सा भाग?',
     ab_fr_head: 'फ़्रांस क्विज़ के आँकड़े',
     ab_fr_ign: 'ADMIN-EXPRESS और BDCARTO (झीलें, नदियाँ) · Licence Ouverte / Etalab',
@@ -2558,6 +2592,8 @@ var EXTRA = {
     l_note_clip_fr: '{zone} में {n} विभाग: यह दौर {n} प्रश्नों का है।'
   },
   bn: {
+    m_place: 'বিভাগটি দেখান', m_place_s: 'একটি বিভাগের নাম দেওয়া হলো: মানচিত্রে সেটিতে ক্লিক করুন।',
+    ask_place: '{dept} কোথায়?', place_hint: 'মানচিত্রে বিভাগটিতে ক্লিক করুন।', place_miss: 'এটি বিভাগ নয় — সমুদ্র গণ্য হয় না।', place_picked: 'আপনি ক্লিক করেছেন {code} · {name}',
     h_pick_zone_fr: 'ফ্রান্সের কোন অংশ?',
     ab_fr_head: 'ফ্রান্স কুইজের উপাত্ত',
     ab_fr_ign: 'ADMIN-EXPRESS ও BDCARTO (হ্রদ, নদী) · Licence Ouverte / Etalab',

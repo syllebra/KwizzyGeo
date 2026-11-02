@@ -193,8 +193,15 @@ const KEYS = I.keys();
   check('the screens use a lot of keys', asked.length > 40, asked.length);
   /* the id -> key maps in quiz.js must cover the vocabularies in quizcore */
   const qc = fs.readFileSync(path.join(__dirname, '..', 'quizcore.js'), 'utf8');
-  ['country', 'capital', 'flag'].forEach(id => {
-    check('mode ' + id + ' has a label key', new RegExp("K_MODE[^}]*" + id + ": 'm_").test(quiz), id);
+  /* EVERY mode id, in both scopes, must have a label key AND that key must exist: an id
+     with no key renders as the raw id on the card (the France quiz's "place the
+     département" did, as a bare "fplace", until this check was widened) */
+  ['country', 'capital', 'flag', 'locate',
+   'fdept', 'fplace', 'fnum', 'fname', 'fpref', 'floc'].forEach(id => {
+    const m = new RegExp("(^|[\\s])" + id + ": '(m_[a-z_]+)'").exec(quiz);
+    check('mode ' + id + ' has a label key', !!m, id);
+    /* `t()` returns the KEY ITSELF when the table does not have it, so that is the test */
+    if (m) check('...and ' + m[2] + ' really exists', I.t(m[2], null, 'en') !== m[2], m[2]);
   });
   ['world', 'africa', 'asia', 'europe', 'north-america', 'south-america', 'oceania'].forEach(id => {
     /* the map writes unquoted keys (world: 'z_world') and quoted ones for the two

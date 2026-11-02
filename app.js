@@ -667,7 +667,13 @@ var COL = {
   frRegEdge: 'rgba(200, 228, 252, .40)',
   frWater: '#173d5e', frWaterEdge: 'rgba(150, 205, 245, .30)',
   frCode: 'rgba(226, 240, 252, .82)', frCodeSel: '#ffffff',
-  frNameLabel: 'rgba(255, 255, 255, .98)'
+  frNameLabel: 'rgba(255, 255, 255, .98)',
+  /* THE TWO MARKS OF "PLACE THE DÉPARTEMENT": the one the player clicked goes RED, the
+     right one is pointed at in GREEN. They carry the verdict, so they are the one place
+     on this map that is allowed to leave the palette - green and red already mean
+     right and wrong everywhere else in the game (the verdict card, the answer tiles). */
+  frWrongFill: 'rgba(196, 62, 62, .55)', frWrongEdge: '#ff8a8a', frWrongLabel: '#ffd3d3',
+  frRightFill: 'rgba(40, 148, 92, .42)', frRightEdge: '#5ee39a', frRightLabel: '#c6f7dc'
 };
 
 /* ---------- screen <-> projection plane (y up) ---------- */
@@ -3262,7 +3268,7 @@ var FR_DIR = 'data/fr/';
 function frURL(name) { return FR_DIR + name + '?v=' + DATA_V; }
 var FR = {
   asked: false, done: false, err: '', waiters: [],
-  deps: [], regs: [], lakes: null, rivers: null, lines: null,
+  deps: [], regs: [], lakes: null, rivers: null,
   depBy: {}, regions: [], items: [], cities: [], cityBy: {}, regByCode: {},
   bboxMetro: null, bboxDom: null
 };
@@ -3270,6 +3276,10 @@ var frOn = false;            /* is the overlay painted at all? (a France questio
 var frPicked = -1;           /* the département lit up, by index in FR.deps */
 var frCodesOn = false;       /* the numbers, for every département on screen */
 var frNameOn = false;        /* the lit département's own name */
+/* "PLACE THE DÉPARTEMENT": the shape the player clicked (red) and the right one (green).
+   Both are feature INDICES in FR.deps, or -1. They are set by frMark() once, after the
+   answer, and cleared by the next question. */
+var frWrong = -1, frGreen = false;
 var frStamp = -1;            /* reprojectSeq the cached Path2Ds were built for */
 var FR_MIN_WINDOW_DEG = 3.2; /* a fit never shows less than this (Paris is 0.15 deg) */
 var FR_REG_MIN_WINDOW_DEG = 5.5;
@@ -3315,6 +3325,74 @@ function frWhenReady(fn) {
   FR.waiters.push(fn);
   frStart();
 }
+/* densify a POLYLINE (no wrap: a river does not come back to its source) */
+function frDensifyLine(pts, step) {
+  var out = [], n = pts.length;
+  for (var i = 0; i < n - 1; i++) {
+    var a = pts[i], b = pts[i + 1];
+    var span = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+    var seg = Math.max(1, Math.ceil(span / step - 1e-9));
+    for (var k = 0; k < seg; k++) {
+      var t = k / seg;
+      out.push(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+    }
+  }
+  out.push(pts[n - 1][0], pts[n - 1][1]);
+  return out;
+}
+/* THE RIVERS' OWN PATH, rebuilt when the frame or the zoom moves and closed nowhere.
+   Three things make it cheap enough to run on every reprojection:
+     * a course whose lon/lat box is entirely off screen is skipped by its 4 corners;
+     * a vertex closer than 0.8 SCREEN PX to the last one emitted is dropped (that is the
+     *   same budget the ring LOD uses, done in one pass instead of a ladder);
+     * the path breaks - moveTo instead of lineTo - where a vertex is hidden behind the
+     *   globe, so a river is never drawn across the horizon. */
+var frRiverStamp = '', frRiverP = null;
+function frRiverPath() {
+  var stamp = fStampNow();
+  if (stamp === frRiverStamp && frRiverP) return frRiverP;
+  frRiverStamp = stamp;
+  var p = new Path2D();
+  if (!FR.rivers) { frRiverP = p; return p; }
+  var o = [0, 0], c4 = [0, 0];
+  var m = C.rotMat(view.lon, view.lat, new Float64Array(9));
+  for (var r = 0; r < FR.rivers.length; r++) {
+    var ll = FR.rivers[r].ll, n = ll.length / 2;
+    /* the coarse cull: project the box's corners, skip if all of them are past one edge */
+    var minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+    var lonA = Infinity, lonB = -Infinity, latA = Infinity, latB = -Infinity, v;
+    for (v = 0; v < n; v++) {
+      if (ll[v * 2] < lonA) lonA = ll[v * 2];
+      if (ll[v * 2] > lonB) lonB = ll[v * 2];
+      if (ll[v * 2 + 1] < latA) latA = ll[v * 2 + 1];
+      if (ll[v * 2 + 1] > latB) latB = ll[v * 2 + 1];
+    }
+    var corners = [[lonA, latA], [lonB, latA], [lonA, latB], [lonB, latB]];
+    var allL = true, allR = true, allU = true, allD = true;
+    for (v = 0; v < 4; v++) {
+      if (!C.projectRotLLVis(corners[v][0], corners[v][1], FRAME, C.CUR, c4)) {
+        allL = allR = allU = allD = false; break;
+      }
+      var cxp = sx(c4[0]), cyp = sy(c4[1]);
+      if (cxp > -20) allL = false;
+      if (cxp < W + 20) allR = false;
+      if (cyp > -20) allU = false;
+      if (cyp < H + 20) allD = false;
+    }
+    if (allL || allR || allU || allD) continue;
+    var lastX = 0, lastY = 0, open = false;
+    for (v = 0; v < n; v++) {
+      if (!C.projectRotLLVis(ll[v * 2], ll[v * 2 + 1], FRAME, C.CUR, o)) { open = false; continue; }
+      var px = sx(o[0]), py = sy(o[1]);
+      if (open && Math.abs(px - lastX) < 0.8 && Math.abs(py - lastY) < 0.8) continue;
+      if (open) p.lineTo(px, py); else p.moveTo(px, py);
+      open = true; lastX = px; lastY = py;
+    }
+  }
+  frRiverP = p;
+  return p;
+}
+
 function frBuild(depGeo, regGeo, eauGeo, villes) {
   /* the densify step: 0.03 deg is 2 screen px at the zoom a France question plays at,
      so a coastline is a curve and not a zigzag; the LOD ladder takes the rest out */
@@ -3323,10 +3401,24 @@ function frBuild(depGeo, regGeo, eauGeo, villes) {
   FR.regs = C.buildFeaturesLOD(regGeo, 0.03, true);
   C.prepareXYZ(FR.regs);
 
-  /* THE WATER. Lakes are polygons (the same path machinery as a département); rivers
-     are LINES, which buildFeaturesLOD cannot carry (it closes every ring), so they are
-     turned into rings BY HAND: one ring per course, with the densified lon/lat twin
-     that rebuildRing needs, and nothing that closes a path at draw time. */
+  /* THE WATER. The lakes are polygons, so they go through the same build as a
+     département. THE RIVERS DO NOT, and that is the whole point of this block:
+
+     A RIVER IS A LINE, AND core.js's RING PIPELINE CLOSES EVERY PATH. `densifyRingLL`
+     walks `coords[(i + 1) % n]`, so the last point is joined back to the first, and
+     `rebuildRing` builds a closed curve out of whatever it is given. Handing it 8 339
+     river courses therefore painted 8 339 extra segments - straight strokes from the end
+     of every course back to its start. Measured on the shipped data: 106 of them are
+     longer than 20 km and the longest is the Loire's 377 km, a pale line cutting across
+     the whole country. The first build of this overlay did exactly that, and it was
+     reported as "the rivers are drawn in the wrong order" - which is what a spurious
+     straight line through a river looks like.
+
+     So the rivers get a small pass of their own (frRiverPath): the courses are kept as
+     densified lon/lat polylines, projected with projectRotLLVis (the cone clip respected,
+     so a course is not painted on the far side of the globe), decimated in SCREEN
+     PIXELS, and broken - never joined - where a vertex is hidden. No ring, no closure,
+     no LOD ladder: 37 000 points decimate to a few thousand segments at any zoom. */
   var lakes = [], rivers = [];
   var fs = (eauGeo && eauGeo.features) || [];
   for (var i = 0; i < fs.length; i++) {
@@ -3337,19 +3429,17 @@ function frBuild(depGeo, regGeo, eauGeo, villes) {
   }
   FR.lakes = C.buildFeaturesLOD({ features: lakes }, 0.03, true);
   C.prepareXYZ(FR.lakes);
-  var lineRings = [];
+  FR.rivers = [];
   for (var r = 0; r < rivers.length; r++) {
     var gg = rivers[r].geometry;
     var lines = gg.type === 'LineString' ? [gg.coordinates] : (gg.coordinates || []);
     for (var l = 0; l < lines.length; l++) {
       if (!lines[l] || lines[l].length < 2) continue;
-      var ll = C.densifyLonLat(lines[l], 0.02);
+      var ll = frDensifyLine(lines[l], 0.02);
       if (ll.length < 4) continue;
-      lineRings.push({ pts: null, bbox: null, hole: false, levels: null, lw: null, ll: ll, xyz: null });
+      FR.rivers.push({ ll: ll });
     }
   }
-  FR.lines = { props: { kind: 'river' }, rings: lineRings, bbox: [0, 0, 0, 0] };
-  C.prepareXYZ([FR.lines]);
 
   /* the tables the game asks about */
   FR.depBy = {}; FR.items = [];
@@ -3489,37 +3579,19 @@ function recentreFrance(lvl) {
   C.recenterAll(FR.regs, view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
   C.recenterAll(FR.deps, view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
   if (FR.lakes) C.recenterAll(FR.lakes, view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
-  if (FR.lines) C.recenterAll([FR.lines], view.lon, view.lat, C.CUR, 0.03, C.LOD_U, lvl, FRAME);
+  /* the rivers are NOT re-centred: they are a stroke pass of their own (frRiverPath),
+     stamped with the same fStampNow() so it is rebuilt exactly when it can be stale */
 }
 
 /* ---------- drawing ---------- */
-/* one feature's Path2D, cached by the reprojection it belongs to */
-function frPathOf(f, close) {
+/* one feature's Path2D, cached by the frame it belongs to. Polygons only: the rivers are
+   a stroke pass of their own (frRiverPath), because this pipeline closes every path. */
+function frPathOf(f) {
   if (f._pStamp === frStamp && f._p) return f._p;
   var p = new Path2D();
-  if (close) beginFeature(p, f);
-  else beginStrokeFeature(p, f);
+  beginFeature(p, f);
   f._p = p; f._pStamp = frStamp;
   return p;
-}
-/* the line twin of beginFeature: same culling, same LOD, no closing segment */
-function beginStrokeFeature(path, f) {
-  var k = view.k, ox = W * 0.5 - view.cx * k, oy = H * 0.5 + view.cy * k;
-  var x0 = (0 - W * 0.5) / k + view.cx, x1 = (W - W * 0.5) / k + view.cx;
-  var y0 = -(H - H * 0.5) / k + view.cy, y1 = -(0 - H * 0.5) / k + view.cy;
-  for (var r = 0; r < f.rings.length; r++) {
-    var rg = f.rings[r];
-    if (!rg.pieces) continue;
-    for (var q = 0; q < rg.pieces.length; q++) {
-      var pc = rg.pieces[q], b = pc.bbox;
-      if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue;
-      var pts = C.pieceFlat(pc, view.k, LOD_MAXPX), n = pc._flatLen;
-      if (n < 2) continue;
-      segs += n; seenPieces++;
-      path.moveTo(pts[0] * k + ox, oy - pts[1] * k);
-      for (var v = 1; v < n; v++) path.lineTo(pts[v * 2] * k + ox, oy - pts[v * 2 + 1] * k);
-    }
-  }
 }
 /* THE FRANCE PASS, between the world's land and its labels: fills, water, borders,
    then the lit département and the numbers. Everything here is skipped when the
@@ -3543,19 +3615,19 @@ function drawFrance() {
     vis.push(f);
   }
   ctx.fillStyle = COL.frLand;
-  for (i = 0; i < vis.length; i++) ctx.fill(frPathOf(vis[i], true));
+  for (i = 0; i < vis.length; i++) ctx.fill(frPathOf(vis[i]));
   /* 2. the water, over the land and under the borders: a lake is a hole in the
      country, not a shape on it */
   if (FR.lakes) {
     ctx.fillStyle = COL.frWater;
     for (i = 0; i < FR.lakes.length; i++) {
       if (!onScreen(FR.lakes[i])) continue;
-      ctx.fill(frPathOf(FR.lakes[i], true));
+      ctx.fill(frPathOf(FR.lakes[i]));
     }
     ctx.strokeStyle = COL.frWaterEdge; ctx.lineWidth = 0.7;
     for (i = 0; i < FR.lakes.length; i++) {
       if (!onScreen(FR.lakes[i])) continue;
-      ctx.stroke(frPathOf(FR.lakes[i], true));
+      ctx.stroke(frPathOf(FR.lakes[i]));
     }
   }
   /* THE RIVERS are a bearing, not a subject: 58 named courses painted thin and FAINT,
@@ -3565,24 +3637,51 @@ function drawFrance() {
      thumbnail in a world view: that costs a pass over 37 000 points to paint a smudge.
      The threshold is in PIXELS of France's own height, so it is one number for a phone
      and for a desktop. */
-  if (FR.lines && frSpanPx() > 160) {
-    ctx.strokeStyle = 'rgba(120, 178, 226, .26)';
-    ctx.lineWidth = 0.8;
-    ctx.stroke(frPathOf(FR.lines, false));
+  /* `?frrivers=0` turns them off: the one flag that makes "is this line a river or a
+     mistake?" answerable by comparing two screenshots of the same view */
+  if (FR.rivers && FR.rivers.length && frSpanPx() > 160 && !/[?&]frrivers=0/.test(urlSearch())) {
+    ctx.strokeStyle = 'rgba(126, 186, 233, .55)';
+    ctx.lineWidth = 0.9;
+    ctx.stroke(frRiverPath());
   }
   /* 3. the borders: a thin dark line for a département, a pale accent one for a
      région. The région's line is drawn from the regions file, so the two can never
      disagree about where a boundary is. */
   ctx.strokeStyle = COL.frEdge; ctx.lineWidth = 0.7;
-  for (i = 0; i < vis.length; i++) ctx.stroke(frPathOf(vis[i], true));
+  for (i = 0; i < vis.length; i++) ctx.stroke(frPathOf(vis[i]));
   ctx.strokeStyle = COL.frRegEdge; ctx.lineWidth = 1.5;
   for (i = 0; i < FR.regs.length; i++) {
     if (!onScreen(FR.regs[i])) continue;
-    ctx.stroke(frPathOf(FR.regs[i], true));
+    ctx.stroke(frPathOf(FR.regs[i]));
+  }
+  /* 3b. THE WRONG CLICK, in red - under the right one, so a green pointer is never
+     covered by the red shape it is pointing at */
+  if (frWrong >= 0 && FR.deps[frWrong] && FR.deps[frWrong]._p) {
+    ctx.save();
+    ctx.fillStyle = COL.frWrongFill;
+    ctx.fill(FR.deps[frWrong]._p);
+    ctx.strokeStyle = COL.frWrongEdge; ctx.lineWidth = 1.8;
+    ctx.stroke(FR.deps[frWrong]._p);
+    ctx.restore();
+    frMarkDot(FR.deps[frWrong], COL.frWrongEdge, 'rgba(196, 62, 62, .55)');
+  }
+  /* 3c. THE RIGHT ONE: green, whether the player found it (frGreen + the click landed on
+     it) or missed it (frGreen + nothing - the shape is pointed at). */
+  if (frGreen && frPicked >= 0 && FR.deps[frPicked] && FR.deps[frPicked]._p) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(94, 227, 154, .55)';
+    ctx.shadowBlur = 22;
+    ctx.fillStyle = COL.frRightFill;
+    ctx.fill(FR.deps[frPicked]._p);
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = COL.frRightEdge; ctx.lineWidth = 2.4;
+    ctx.stroke(FR.deps[frPicked]._p);
+    ctx.restore();
+    frMarkDot(FR.deps[frPicked], COL.frRightEdge, 'rgba(40, 148, 92, .55)');
   }
   /* 4. the lit département: the same pale highlight + glow the world quiz gives a
      country, because it is the same sentence ("this one, name it") */
-  if (frPicked >= 0 && FR.deps[frPicked] && FR.deps[frPicked]._p) {
+  if (!frGreen && frPicked >= 0 && FR.deps[frPicked] && FR.deps[frPicked]._p) {
     ctx.save();
     ctx.shadowColor = 'rgba(120, 190, 255, .38)';
     ctx.shadowBlur = 26;
@@ -3596,6 +3695,29 @@ function drawFrance() {
   }
   drawFrLabels();
 }
+/* A MARK THAT SURVIVES A SMALL SHAPE. Paris is 3 px across at the zoom an
+   Île-de-France question plays at: a red FILL there is a red pixel nobody sees, and the
+   whole point of the verdict is to see it. So any marked département whose on-screen box
+   is under 34 px in either axis also gets a ring of its colour around its label point -
+   a pointer, not a highlight, and only when the highlight cannot do the job. */
+function frMarkDot(f, edge, fill) {
+  if (!f || !f.props) return;
+  var a = frAnchorOf(f);
+  if (!a) return;
+  var o = [0, 0];
+  if (!C.projectRotLLVis(a[0], a[1], FRAME, C.CUR, o)) return;
+  var bw = (f.bbox[2] - f.bbox[0]) * view.k, bh = (f.bbox[3] - f.bbox[1]) * view.k;
+  if (bw >= 34 && bh >= 34) return;             /* the fill is enough */
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(sx(o[0]), sy(o[1]), 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = edge; ctx.lineWidth = 2.4;
+  ctx.stroke();
+  ctx.restore();
+}
+
 /* THE NUMBERS, and the lit one's name. Two flags, because they answer different
    questions: `frCodesOn` is "may the map show the numbers" (it may not while "which
    number is this département?" is being asked) and `frNameOn` is "may it name the
@@ -3616,12 +3738,15 @@ function drawFrLabels() {
     var px = sx(o[0]), py = sy(o[1]);
     if (px < -30 || py < -20 || px > W + 30 || py > H + 20) continue;
     var bw = (f.bbox[2] - f.bbox[0]) * view.k, bh = (f.bbox[3] - f.bbox[1]) * view.k;
-    if (i === frPicked && frNameOn) {
+    if ((i === frPicked || i === frWrong) && frNameOn) {
       ctx.font = '700 14px system-ui, -apple-system, sans-serif';
       var txt = String(pr.code) + ' \u00b7 ' + String(pr.nom || '');
       ctx.lineWidth = 3.6; ctx.strokeStyle = COL.capitalHalo;
       ctx.strokeText(txt, px, py);
-      ctx.fillStyle = COL.frNameLabel;
+      /* the two marks of "place it" say their own name in their own colour: "the one you
+         clicked" and "the one it was" must not look like the same kind of label */
+      ctx.fillStyle = i === frWrong ? COL.frWrongLabel
+                                   : (frGreen ? COL.frRightLabel : COL.frNameLabel);
       ctx.fillText(txt, px, py);
       continue;
     }
@@ -4465,7 +4590,7 @@ window.MapApp = {
        world's countries (see drawFrance), so `france` only says "paint it" - the layer
        stays 50m and nothing about the world side changes. */
     if (opts && opts.france) {
-      frOn = true; frPicked = -1; frCodesOn = false; frNameOn = false;
+      frOn = true; frPicked = -1; frCodesOn = false; frNameOn = false; frWrong = -1; frGreen = false;
       picked = -1; hover = -1;
     }
     quizOn = true;
@@ -4481,7 +4606,7 @@ window.MapApp = {
     quizLabels = false;
     /* the overlay goes back with the map: the world viewer and the world quiz never
        see a French border */
-    frOn = false; frPicked = -1; frCodesOn = false; frNameOn = false;
+    frOn = false; frPicked = -1; frCodesOn = false; frNameOn = false; frWrong = -1; frGreen = false;
     /* the locate mode's arm and its two marks go with the hand-over: they belong to a
        question, and a question is over when the map is given back */
     aimOn = false; aimFn = null; marks = null; quizNames = false;
@@ -4596,6 +4721,27 @@ window.MapApp = {
   frPick: function () {
     return (frPicked >= 0 && FR.deps[frPicked]) ? String(FR.deps[frPicked].props.code) : '';
   },
+  /* "PLACE THE DÉPARTEMENT": the right one is LIT IN GREEN, and the one the player
+     clicked in RED when they missed. `right` is always set (after an answer); `wrong` is
+     '' when the answer was right. No argument at all: clear both. */
+  frMark: function (wrong, right) {
+    frGreen = false; frWrong = -1;
+    if (right != null) {
+      var ri = FR.depBy[String(right)];
+      if (ri != null) { frPicked = ri; frGreen = true; }
+    }
+    if (wrong != null && String(wrong) !== '') {
+      var wi = FR.depBy[String(wrong)];
+      if (wi != null) frWrong = wi;
+    }
+    return { wrong: frWrong >= 0 ? String(FR.deps[frWrong].props.code) : '',
+             right: frPicked >= 0 && frGreen ? String(FR.deps[frPicked].props.code) : '' };
+  },
+  frMarkState: function () {
+    return { wrong: frWrong >= 0 ? String(FR.deps[frWrong].props.code) : '',
+             right: (frPicked >= 0 && frGreen) ? String(FR.deps[frPicked].props.code) : '',
+             green: frGreen };
+  },
   /* the names, read at call time like label() and capLabel() */
   frName: function (code) { var it = frItemOfCode(code); return it ? it.name : ''; },
   frPref: function (code) { var it = frItemOfCode(code); return it ? it.pref : ''; },
@@ -4610,7 +4756,7 @@ window.MapApp = {
       ready: frReady(), err: FR.err, on: frOn,
       deps: FR.deps.length, regs: FR.regs.length,
       lakes: FR.lakes ? FR.lakes.length : 0,
-      rivers: FR.lines ? FR.lines.rings.length : 0,
+      rivers: FR.rivers ? FR.rivers.length : 0,
       cities: FR.cities.length, items: FR.items.length,
       picked: (frPicked >= 0 && FR.deps[frPicked]) ? String(FR.deps[frPicked].props.code) : '',
       labels: { codes: frCodesOn, name: frNameOn }

@@ -66,12 +66,16 @@ var MODES = [
    data-neutral on purpose. */
 var FR_MODES = [
   { id: 'fdept', label: 'Find the département', sub: 'A département is lit up: name it.', ico: '\u25C9', scope: 'france' },
+  /* THE MIRROR OF fdept: the name is given, the SHAPE is the answer. There are no options
+     - the answer is a place on the map, like locate - so the verdict is a right/wrong on
+     the département the player clicked (see answerDept). */
+  { id: 'fplace', label: 'Place the département', sub: 'A département is named: click it on the map.', ico: '\u2316', scope: 'france' },
   { id: 'fnum',  label: 'Name \u2192 number',   sub: 'The name is given: pick its number.', ico: '#', scope: 'france' },
   { id: 'fname', label: 'Number \u2192 name',   sub: 'The number is given: pick its name.', ico: '\u2317', scope: 'france' },
   { id: 'fpref', label: 'Find the préfecture',  sub: 'Pick the chef-lieu of the département.', ico: '\u2605', scope: 'france' },
   { id: 'floc',  label: 'Locate the city',      sub: 'A French city is named: put it on the map.', ico: '\u25CE', scope: 'france' }
 ];
-var FR_IDS = { fdept: 1, fnum: 1, fname: 1, fpref: 1, floc: 1 };
+var FR_IDS = { fdept: 1, fplace: 1, fnum: 1, fname: 1, fpref: 1, floc: 1 };
 function isFr(mode) { return !!FR_IDS[mode]; }
 function modesOf(scope) { return scope === 'france' ? FR_MODES : MODES; }
 
@@ -253,6 +257,7 @@ function usable(it, mode) {
        an item without one cannot answer them at all */
     if (!norm(it.code)) return false;
     if (mode === 'fpref' && (!norm(it.pref) || it.prefLat == null || it.prefLon == null)) return false;
+    if (mode === 'fplace' && (it.lat == null || it.lon == null)) return false;
   }
   return true;
 }
@@ -510,6 +515,36 @@ function cityQuestion(sess, r) {
   };
 }
 
+/* ---------- PLACE THE DÉPARTEMENT: one answer, no options ----------
+   The mirror of the locate mode one scale up: the answer is a SHAPE, the player points at
+   one, and the rule is a single comparison. It lives here, next to question(), because
+   "how many options a question has" is a rule and not a screen's business (0 here, 6
+   everywhere else, and locate has 0 too). */
+function deptQuestion(sess, r) {
+  var pool = sess.pool;
+  if (!pool.length) return null;
+  var free = [], i;
+  for (i = 0; i < pool.length; i++) if (!sess.used[pool[i].id]) free.push(pool[i]);
+  if (!free.length) { sess.used = {}; free = pool.slice(0); }
+  var answer = free[Math.floor(r() * free.length)];
+  sess.used[answer.id] = 1;
+  return {
+    mode: sess.cfg.mode, zone: sess.cfg.zone, difficulty: sess.cfg.difficulty,
+    variant: null, answer: answer, options: [], correct: -1
+  };
+}
+/* ONE ANSWER GIVEN AS A DÉPARTEMENT CODE. `picked` is the code the player clicked (the
+   map resolves the point, see MapApp.frDepAt) and '' when the click missed every shape -
+   which the UI does not send: a tap on the sea is not an answer, it is a tap. */
+function answerDept(sess, q, picked) {
+  if (!q || q._done) return null;
+  q._done = true;
+  q.picked = String(picked == null ? '' : picked);
+  q.ok = q.picked !== '' && q.picked === String(q.answer.code);
+  if (q.ok) sess.score++;
+  return { ok: q.ok, picked: q.picked, correct: String(q.answer.code) };
+}
+
 /* ---------- the distractors ---------- */
 /* cands: [{it, d}] sorted by distance. The band is a SLICE of that order, so
    "easy" can only ever offer far countries and "hard" only near ones; the choice
@@ -655,7 +690,9 @@ function newSession(items, cfg, seed) {
 function nextQuestion(sess) {
   if (!sess || sess.i >= sess.cfg.len) return null;
   var m = sess.cfg.mode;
-  var q = (m === 'locate' || m === 'floc') ? cityQuestion(sess, sess.rnd) : question(sess, sess.rnd);
+  var q = (m === 'locate' || m === 'floc') ? cityQuestion(sess, sess.rnd)
+        : (m === 'fplace') ? deptQuestion(sess, sess.rnd)
+        : question(sess, sess.rnd);
   if (!q) return null;
   sess.i++;
   sess.asked.push(q);
@@ -702,7 +739,7 @@ var QUIZCORE = {
   zoneOf: zoneOf, poolFor: poolFor, distanceKm: distanceKm,
   cityBand: cityBand, cityPool: cityPool, pointsFor: pointsFor,
   newSession: newSession, nextQuestion: nextQuestion, answerQuestion: answerQuestion,
-  answerPoint: answerPoint,
+  answerPoint: answerPoint, answerDept: answerDept, _deptQuestion: deptQuestion,
   /* exposed for the tests, and for nothing else */
   _rng: rng, _shuffle: shuffle, _question: question, _keyOf: keyOf
 };

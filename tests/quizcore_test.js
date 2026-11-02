@@ -543,12 +543,13 @@ check('flag options are all different flags', flagQ.every(q => {
             pref: 'Basse-Terre', prefLat: 16, prefLon: -61.7, lat: 16.2, lon: -61.5,
             pop: 400000, dom: 1, country: 'D971' });
 
-  check('the France quiz has five modes, all tagged france',
-        Q.FR_MODES.length === 5 && Q.FR_MODES.every(m => m.scope === 'france'));
+  check('the France quiz has six modes, all tagged france',
+        Q.FR_MODES.length === 6 && Q.FR_MODES.every(m => m.scope === 'france'),
+        Q.FR_MODES.map(m => m.id).join(','));
   check('modesOf(france) is the France list, modesOf(world) the world one',
         Q.modesOf('france') === Q.FR_MODES && Q.modesOf('world') === Q.MODES);
   check('isFr knows the five and nothing else',
-        ['fdept', 'fnum', 'fname', 'fpref', 'floc'].every(Q.isFr) &&
+        ['fdept', 'fplace', 'fnum', 'fname', 'fpref', 'floc'].every(Q.isFr) &&
         !Q.isFr('country') && !Q.isFr('locate') && !Q.isFr(undefined));
 
   /* zones: the three aggregates plus the régions, and the filter reads `reg`/`dom` */
@@ -629,6 +630,35 @@ check('flag options are all different flags', flagQ.every(q => {
     hardMax = Math.round(max);
     return max < 400;           /* the fixture's préfectures are 0.5 deg apart */
   })(), hardMax + ' km');
+
+  /* PLACE THE DÉPARTEMENT: no options at all, and the answer is a shape */
+  check('a place question has no options and a code for an answer', (() => {
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 21);
+    const q = Q.nextQuestion(s);
+    return q.options.length === 0 && q.correct === -1 && !!q.answer.code;
+  })());
+  check('...and it is scored by the code, once', (() => {
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 21);
+    const q = Q.nextQuestion(s);
+    const right = Q.answerDept(s, q, q.answer.code);
+    const again = Q.answerDept(s, q, '99');
+    return right.ok === true && s.score === 1 && again === null;
+  })());
+  check('...and a code that is not the answer is wrong', (() => {
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 21);
+    const q = Q.nextQuestion(s);
+    const w = Q.answerDept(s, q, q.answer.code === '01' ? '02' : '01');
+    return w.ok === false && s.score === 0 && w.correct === q.answer.code;
+  })());
+  check('a place round never asks the same département twice while others remain', (() => {
+    /* "All" on the metropolitan zone: 13 départements, so 13 questions - and a length
+       that is not one of 10/25/All falls back to 10 (that is newSession's own rule) */
+    const s = Q.newSession(FR, { mode: 'fplace', zone: 'fr-metro', difficulty: 'medium', len: 0 }, 3);
+    const seen = {}, order = [];
+    let q;
+    while ((q = Q.nextQuestion(s))) { seen[q.answer.code] = (seen[q.answer.code] || 0) + 1; order.push(q.answer.code); }
+    return order.length === 13 && order.every(c => seen[c] === 1);
+  })());
 
   /* THE SCORE SCALE IS THE SESSION'S */
   check("a France session scores on France distances, a world one on the world's",

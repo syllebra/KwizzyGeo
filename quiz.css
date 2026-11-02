@@ -944,6 +944,14 @@ body.qz-playing #menu { display: none; }
 }
 .qz-choice:hover { background: rgba(22, 44, 66, .72); }
 .qz-choice-ico { font-size: 19px; line-height: 22px; color: #8ed0ff; }
+/* THE FRANCE CARD'S FLAG, in the icon column: the flag-icons `.fi` is a text-sized
+   rectangle, so it is given the column's own box - 20 x 14, a rounded 1 px frame, and
+   vertical-align so the flag sits on the card's first line and not below its baseline. */
+.qz-choice-ico .qz-scopeflag {
+  display: inline-block; width: 20px; height: 14px; border-radius: 2px;
+  vertical-align: 0px; box-shadow: 0 0 0 1px rgba(198, 224, 246, .22);
+  background-size: cover; background-position: center;
+}
 .qz-choice-t { font: 600 15px/20px system-ui, sans-serif; color: #eaf3fb; }
 .qz-choice-s { font: 11.5px/16px system-ui, sans-serif; color: rgba(178, 202, 224, .95); }
 .qz-choice.on {

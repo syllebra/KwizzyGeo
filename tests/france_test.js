@@ -216,7 +216,13 @@ async function afterLoad() {
   const hs = Qz2.html();
   check('the scope screen offers France and the World',
         /data-scope="france"/.test(hs) && /data-scope="world"/.test(hs));
-  check('...France first', hs.indexOf('data-scope="france"') < hs.indexOf('data-scope="world"'));
+  /* THE WORLD QUIZ IS THE DEFAULT, so it is the FIRST card (2026-11-01): the four modes
+     the game has always had come before the one that downloads 2 MB of French geometry */
+  check('...the world quiz first, France second',
+        hs.indexOf('data-scope="world"') < hs.indexOf('data-scope="france"'));
+  check('...and France wears its FLAG, not a fleur-de-lys',
+        /class="fi fi-fr qz-scopeflag"/.test(hs) && !/\u269C/.test(hs),
+        (hs.match(/qz-choice-ico">[^<]*(<[^>]*>)?/) || [''])[0]);
   check('...and it is step 1 of 4', /Step 1 of 4/.test(hs), (hs.match(/qz-kicker">[^<]*/) || [''])[0]);
   check('the world quiz is what a fresh install opens on', Z().scope === 'world', Z().scope);
 
@@ -224,8 +230,8 @@ async function afterLoad() {
   Qz2.set({ scope: 'france', mode: 'fnum', zone: 'fr' });
   Qz2.go('mode');
   const hm = Qz2.html();
-  check('the France quiz offers its FIVE modes',
-        ['fdept', 'fnum', 'fname', 'fpref', 'floc'].every(id => hm.indexOf('data-mode="' + id + '"') >= 0),
+  check('the France quiz offers its SIX modes',
+        ['fdept', 'fplace', 'fnum', 'fname', 'fpref', 'floc'].every(id => hm.indexOf('data-mode="' + id + '"') >= 0),
         (hm.match(/data-mode="[a-z]+"/g) || []).join(' '));
   check('...and none of the world\'s', !/data-mode="country"/.test(hm) && !/data-mode="flag"/.test(hm));
   Qz2.go('zone');
@@ -354,6 +360,100 @@ async function afterLoad() {
     check('Mayotte/easy is topped up to six cities (it has none at 100 000)',
           mayotte.length === 6, mayotte.map(c => c.name + ':' + c.pop).join(' '));
     check('...and they are Mayotte\'s biggest', mayotte.every(c => c.reg === '06'));
+  }
+
+  /* ---------- 3f. PLACE THE DÉPARTEMENT: a name, a shape, one click ----------
+     His mode: the département is NAMED and the player clicks it on the map; a wrong click
+     turns the clicked shape RED and points at the right one in GREEN. */
+  {
+    const s = Q().newSession(items, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 10 }, 31);
+    check('a place round is 10 questions by default', s.cfg.len === 10, s.cfg.len);
+    const q = Q().nextQuestion(s);
+    check('a place question has NO options and a -1 correct', q && q.options.length === 0 && q.correct === -1,
+          q && JSON.stringify({ n: q.options.length, c: q.correct }));
+    check('...and its answer is a whole département', q.answer && !!q.answer.code && !!q.answer.name);
+    /* the rule: one comparison, once */
+    check('clicking the right shape is right', (() => {
+      const r = Q().answerDept(s, q, q.answer.code);
+      return r && r.ok === true && s.score === 1;
+    })());
+    const q2 = Q().nextQuestion(s);
+    const other = items.find(it => it.code !== q2.answer.code).code;
+    check('clicking another one is wrong, and reports both codes', (() => {
+      const r = Q().answerDept(s, q2, other);
+      return r && r.ok === false && r.picked === other && r.correct === q2.answer.code;
+    })());
+    check('...and a question cannot be answered twice', Q().answerDept(s, q2, q2.answer.code) === null);
+    /* the RULE treats '' as a wrong answer (it is a code and it is not the right one);
+       the SCREEN never sends it - a tap on the sea is not an answer at all, which is what
+       the screen-level check further down asserts */
+    check("a click that missed every shape is a WRONG answer, not a right one", (() => {
+      const s3 = Q().newSession(items, { mode: 'fplace', zone: 'fr', difficulty: 'medium', len: 5 }, 44);
+      const q3 = Q().nextQuestion(s3);
+      const r = Q().answerDept(s3, q3, '');
+      return r && r.ok === false && s3.score === 0;
+    })());
+    check('a zone smaller than the round caps it', (() => {
+      const s4 = Q().newSession(items, { mode: 'fplace', zone: 'r06', difficulty: 'medium', len: 25 }, 4);
+      return s4.cfg.len === 1;
+    })());
+  }
+  {
+    /* ...and through the SCREENS: the prompt names the département, there is no grid and
+       no Confirm, a tap on the sea is ignored, a tap on a shape answers it, and the map
+       carries the red and the green. */
+    Qz2.quit();
+    Qz2.set({ scope: 'france', mode: 'fplace', zone: 'r53', difficulty: 'medium', len: 5 });
+    check('a place round starts', Qz2.start() === true);
+    const h = Qz2.html();
+    check('the prompt names the département', /Where is/.test(h), (h.match(/class="qz-q">[^<]*/) || [''])[0]);
+    check('...there is no answer grid', !/qz-answers/.test(h));
+    check('...and no Confirm to press (the click is the answer)', !/data-act="confirm"/.test(h));
+    check('...but the bar tells the player what to do', /Click the département/.test(h));
+    check('...with neither the numbers nor the name on the map',
+          JSON.stringify(M().frLabels()) === JSON.stringify({ codes: false, name: false }),
+          JSON.stringify(M().frLabels()));
+    check('...and the aim on, so a tap reports a place', M().aim() === true);
+    check('...and nothing lit up', M().frPick() === '' && !M().frMarkState().green);
+    /* a tap in the Atlantic: not an answer */
+    L['stage:click']({ offsetX: 40, offsetY: 740, preventDefault() {} });
+    check('a tap on the sea is not an answer', !Z().answered && Z().screen === 'question',
+          Z().answered + ' ' + (Qz2.html().match(/class="qz-info[^>]*>([^<]*)/) || [''])[1]);
+    /* the answer's own label point, projected, is a tap on the right shape */
+    const code = Z().question.code;
+    const it = items.find(x => x.code === code);
+    const pt = global.window.ViewState.project(it.lon, it.lat);
+    if (pt) {
+      L['stage:click']({ offsetX: pt[0], offsetY: pt[1], preventDefault() {} });
+      check('a tap on the right shape answers it', Z().answered === true && Z().score === 1,
+            Z().answered + ' ' + Z().score);
+      check('...turning it GREEN and lighting the name', (() => {
+        const st = M().frMarkState();
+        return st.green === true && st.right === code && st.wrong === '';
+      })(), JSON.stringify(M().frMarkState()));
+      check('...and the verdict card says so', /qz-verdict good/.test(Qz2.html()));
+    } else {
+      check('(the projection could not place the answer - skipped)', true);
+    }
+    /* and a WRONG click, on the next question */
+    Qz2.next();
+    const q3 = Z().question;
+    const wrongIt = items.find(x => x.code !== q3.code && x.reg === '53');
+    if (wrongIt && !Z().answered) {
+      const wp = global.window.ViewState.project(wrongIt.lon, wrongIt.lat);
+      if (wp) {
+        L['stage:click']({ offsetX: wp[0], offsetY: wp[1], preventDefault() {} });
+        check('a tap on the wrong shape answers wrong', Z().answered === true, Z().answered);
+        check('...the map marks BOTH: that one red, the right one green', (() => {
+          const st = M().frMarkState();
+          return st.wrong === wrongIt.code && st.right === q3.code && st.green === true;
+        })(), JSON.stringify(M().frMarkState()));
+        check('...the verdict is the cross', /qz-verdict bad/.test(Qz2.html()));
+        check('...and the card says which one was clicked',
+              /you clicked/.test(Qz2.html()), (Qz2.html().match(/qz-dim">[^<]*/) || [''])[0]);
+      }
+    }
+    Qz2.quit();
   }
 
   /* ---------- 4. a real France round, through the screens ---------- */

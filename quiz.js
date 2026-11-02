@@ -53,9 +53,10 @@ function dirOf() { return I18 ? I18.dir(lang()) : 'ltr'; }
 /* the id -> key maps for the vocabularies that live in quizcore (which is language
    neutral by design: it holds ids and rules, never words) */
 var K_MODE = { country: 'm_country', capital: 'm_capital', flag: 'm_flag', locate: 'm_locate',
-               fdept: 'm_dept', fnum: 'm_num', fname: 'm_name', fpref: 'm_pref', floc: 'm_locate' };
+               fdept: 'm_dept', fplace: 'm_place', fnum: 'm_num', fname: 'm_name',
+               fpref: 'm_pref', floc: 'm_locate' };
 var K_MODE_SUB = { country: 'm_country_s', capital: 'm_capital_s', flag: 'm_flag_s',
-                   locate: 'm_locate_s', fdept: 'm_dept_s', fnum: 'm_num_s',
+                   locate: 'm_locate_s', fdept: 'm_dept_s', fplace: 'm_place_s', fnum: 'm_num_s',
                    fname: 'm_name_s', fpref: 'm_pref_s', floc: 'm_locate_s' };
 var K_ZONE = { world: 'z_world', africa: 'z_africa', asia: 'z_asia', europe: 'z_europe',
                'north-america': 'z_na', 'south-america': 'z_sa', oceania: 'z_oceania' };
@@ -204,6 +205,9 @@ function frLabelPlan(mode) {
   if (mode === 'fdept') return { codes: false, name: false };
   if (mode === 'fnum') return { codes: false, name: true };
   if (mode === 'fpref') return { codes: true, name: true };
+  /* "place it": the name is GIVEN and the shape is the answer, so the map may show
+     neither the name nor the numbers - the shape alone is the question. */
+  if (mode === 'fplace') return { codes: false, name: false };
   return { codes: true, name: false };
 }
 
@@ -337,13 +341,16 @@ function bigLoadHTML() {
    will not mind waiting a second for it. */
 function scopeHTML() {
   var b = '<div class="qz-choices qz-choices-pairs">';
-  /* FRANCE FIRST: it is the new question, and the choice a French player came to
-     make; the world quiz is the one that has always been there, directly below. */
-  b += choiceHTML('scope', 'france', '\u269C', scopeLabel('france'),
-                  frOk() ? scopeSub('france') : T('loading_france'),
-                  cfg.scope === 'france');
+  /* THE WORLD QUIZ IS THE DEFAULT, so it is the FIRST card - the four modes the game
+     has always had come before the one that needs 2 MB of French geometry. */
   b += choiceHTML('scope', 'world', '\u29BF', scopeLabel('world'),
                   scopeSub('world'), cfg.scope === 'world');
+  /* ...and FRANCE WEARS ITS FLAG, not a fleur-de-lys: the same flag-icons set the game
+     already ships (`.fi.fi-fr`), so the card says "France" in the one visual language a
+     player reads without a label. `choiceHTML` takes markup for its icon slot. */
+  b += choiceHTML('scope', 'france', '<span class="fi fi-fr qz-scopeflag"></span>', scopeLabel('france'),
+                  frOk() ? scopeSub('france') : T('loading_france'),
+                  cfg.scope === 'france');
   b += '</div>';
   /* THE NOTE NEEDS ITS OWN GLASS. It is a whole sentence of explanation, and on a phone
      it lands on the map's own labels at .95 alpha - the first build left it bare and the
@@ -795,6 +802,11 @@ function frAskHTML() {
   if (q.mode === 'fpref') {
     return '<div class="qz-q">' + named('ask_pref', M.frName(q.answer.code) || q.answer.name, 'dept') + '</div>';
   }
+  if (q.mode === 'fplace') {
+    /* the name is GIVEN and the shape is the answer - the mirror of "find the
+       département", one sentence apart */
+    return '<div class="qz-q">' + named('ask_place', M.frName(q.answer.code) || q.answer.name, 'dept') + '</div>';
+  }
   /* floc: the city is the question (the same sentence the world locate mode uses) */
   return '<div class="qz-q">' + named('ask_locate', M.placeLabel(q.answer.id) || q.answer.name, 'city') + '</div>';
 }
@@ -811,6 +823,15 @@ function frRevealHTML() {
   if (q.mode === 'fpref') {
     facts = '<b>' + esc(a.pref) + '</b> <span class="qz-dim">\u00b7 ' + esc(T('p_pref')) +
             ' \u00b7 ' + esc(nm) + (reg ? ' \u00b7 ' + esc(reg) : '') + '</span>';
+  } else if (q.mode === 'fplace') {
+    /* what was clicked, when it was wrong: the map has turned it red, and the card has to
+       be able to say WHICH one it was */
+    facts = '<b>' + esc(String(a.code)) + ' \u00b7 ' + esc(nm) + '</b>' +
+            (reg ? ' <span class="qz-dim">\u00b7 ' + esc(reg) + '</span>' : '');
+    if (!q.ok && q.picked) {
+      facts += ' <span class="qz-dim">\u00b7 ' +
+               esc(T('place_picked', { code: q.picked, name: M.frName(q.picked) || '' })) + '</span>';
+    }
   } else if (q.mode === 'fname') {
     facts = '<b>' + esc(nm) + '</b> <span class="qz-dim">\u00b7 ' + esc(String(a.code)) +
             (reg ? ' \u00b7 ' + esc(reg) : '') + '</span>';
@@ -848,6 +869,14 @@ function locateBarHTML() {
     esc(T('loc_confirm')) + '</button>' +
     '</div>';
 }
+/* THE "PLACE IT" BAR. There is nothing to press - a click is the answer - so it is one
+   line of instruction in the place the locate mode puts its Confirm, and after the answer
+   the verdict card takes that place, exactly as it does there. */
+function placeBarHTML() {
+  return '<div class="qz-locbar qz-placebar">' +
+    '<div class="qz-lochint">' + esc(T('place_hint')) + '</div></div>';
+}
+
 /* kilometres as a player reads them: one decimal under 10 km (a bullseye is a real
    number, "0 km" would look like a bug), whole kilometres above */
 function fmtKm(km) {
@@ -903,6 +932,10 @@ function questionHTML() {
        askHTML() + '</div>';
   if (isLoc(q.mode)) {
     h += '<div class="qz-bottom">' + (answered ? locateRevealHTML() : locateBarHTML()) + '</div>';
+  } else if (q.mode === 'fplace') {
+    /* no grid and no bar to press: the click IS the answer, and the verdict takes the
+       place the grid would have had */
+    h += '<div class="qz-bottom">' + (answered ? frRevealHTML() : placeBarHTML()) + '</div>';
   } else {
     h += '<div class="qz-bottom">' + (answered ? revealHTML() : '') + answersHTML() + '</div>';
   }
@@ -1375,6 +1408,8 @@ function nextQuestion() {
     if (q.mode === 'floc') { locateArm(); render(); return; }
     if (M.aim) M.aim(false);
     if (M.clearMarks) M.clearMarks();
+    if (M.frMark) M.frMark(null, null);      /* no mark left over from the last question */
+    if (q.mode === 'fplace') { placeArm(); render(); return; }
     if (q.mode === 'fdept' || q.mode === 'fpref') {
       /* the two modes that light a département fly to it */
       if (M.frShow) M.frShow(q.answer.code);
@@ -1416,6 +1451,51 @@ function locateArm() {
   }
   if (M.aim) M.aim(true, onAim);
 }
+/* ---------- PLACE THE DÉPARTEMENT: arming the map ----------
+   The same aim as locate (one rule for mouse and finger), but the answer is a SHAPE, not
+   a point: the click is turned into a département by the map's own overlay
+   (MapApp.frDepAt, a ray cast in lon/lat, so it does not care what the view is doing),
+   and a click that lands in the sea resolves to '' - which is NOT an answer, it is a
+   tap, so nothing happens and the player can try again. */
+function placeArm() {
+  if (!q || q.mode !== 'fplace') return;
+  if (M.labels) M.labels(false);
+  if (M.clearMarks) M.clearMarks();
+  if (M.countryNames) M.countryNames(false);
+  if (M.frMark) M.frMark(null, null);
+  if (M.frGoZone) M.frGoZone(q.zone);
+  if (M.aim) M.aim(true, onPlace);
+}
+function onPlace(pt) {
+  if (!pt || screen !== 'question' || !q || q.mode !== 'fplace' || answered) return;
+  var code = M.frDepAt ? M.frDepAt(pt.lon, pt.lat) : '';
+  if (!code) { info(T('place_miss')); return; }      /* the sea: not an answer */
+  answerPlace(code);
+}
+/* THE VERDICT OF A CLICK: the rule is quizcore's (answerDept), the picture is the map's
+   (MapApp.frMark: the clicked shape in red, the right one in green). */
+function answerPlace(code) {
+  if (!q || q.mode !== 'fplace' || answered) return false;
+  var res = Q.answerDept(session, q, code);
+  if (!res) return false;
+  answered = true;
+  bumped = res.ok;
+  var right = String(q.answer.code);
+  if (M.aim) M.aim(false);
+  if (M.frMark) M.frMark(res.ok ? '' : res.picked, right);
+  if (M.frLabels) M.frLabels(true, true);
+  if (S()) S().answer(q, res.ok, q.answer);
+  info('');
+  render();
+  bumped = false;
+  var j = J();
+  if (j) {
+    j.haptic(res.ok ? 60 : [25, 40, 25]);
+    j.sfx(res.ok ? 'correct' : 'wrong');
+  }
+  return res.ok;
+}
+
 function onAim(pt) {
   if (!pt || screen !== 'question' || !q || !isLoc(q.mode) || answered) return;
   guess = { lon: pt.lon, lat: pt.lat };
