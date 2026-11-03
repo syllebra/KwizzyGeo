@@ -119,61 +119,104 @@ try {
    (fname) and the préfecture (fpref) are four different skills, and a green on one says
    nothing about the others. Only the modes where a département is lit AND answered are
    recorded - "place it" and "locate the city" keep nothing (his two exceptions). */
-var MARK_KEY = 'kwizzygeo.fr.marks.v1';
-var MARK_MODES = { fdept: 1, fnum: 1, fname: 1, fpref: 1 };
-var marks = {};            /* code -> 'ok' | 'bad', for the round in progress */
+var MARK_KEY = 'kwizzygeo.marks.v2';
+var LEGACY_KEY = 'kwizzygeo.fr.marks.v1';   /* the France-only store, read once and merged */
 
-/* THE KEY IS THE MODE **AND THE DIFFICULTY** (his call, 2026-11-02). A course found at
-   Easy is not a course found at Hard: the six wrong answers of a hard question are the
-   neighbours, so "I found 60 of them" is a different sentence in each band - and resuming
-   at Hard after a Normal course would either hand back a round of leftovers or silently
-   skip départements the player has never been asked at that difficulty. So the record is
-   per (mode, difficulty) and the two are never mixed.
-   The old shape was `m[mode][code]`; `marksStored` reads BOTH (a `m.fdept` is the Normal
-   course of that mode, which is where the pre-2026-11-02 record came from), so a player
-   who has already played does not lose what they found. */
-function markKey(c) { return String(c.mode) + '|' + String(c.difficulty || 'medium'); }
+/* WHICH MODES KEEP A RECORD: ALL OF THEM, IN BOTH SCOPES (his call, 2026-11-03: "tous les
+   modes de jeux doivent sauvegarder et reprendre la progression, y compris dans le mode de
+   jeu monde"). Two earlier exceptions are gone: "place the département" saves like its
+   mirror "find the département", and the locate modes save too.
+
+   WHAT MAY BE PAINTED is a different question, and it is answered by the ITEM: a mode whose
+   answers are a SHAPE (a département, a country) puts the green/red on the map; a mode whose
+   answers are a POINT (a city, in both locate modes) has nothing to fill in - it keeps its
+   record for the resume and paints nothing. */
+var MARK_MODES = { fdept: 1, fplace: 1, fnum: 1, fname: 1, fpref: 1, floc: 1,
+                   country: 1, capital: 1, flag: 1, locate: 1 };
+var MARK_SHAPES = { fdept: 1, fplace: 1, fnum: 1, fname: 1, fpref: 1,
+                    country: 1, capital: 1, flag: 1 };
+var marks = {};            /* item key -> 'ok' | 'bad', for the round in progress */
+
+/* THE KEY IS THE SCOPE, THE MODE **AND THE DIFFICULTY**. Scope, because a France
+   département '75' and a country 'ne75' are different answers in the same list; mode,
+   because finding the shape, the number and the name are three skills; difficulty, because
+   a course found at Easy is not the same course at Hard - the six wrong answers of a hard
+   question ARE the neighbours, so resuming at Hard after a Normal course would either hand
+   back a round of leftovers or silently skip items never asked at that difficulty. */
+function markKey(c) {
+  return String(c.scope || 'france') + '|' + String(c.mode) + '|' + String(c.difficulty || 'medium');
+}
+function markClean(obj) {
+  var clean = {}, c;
+  for (c in obj) if (obj.hasOwnProperty(c) && (obj[c] === 'ok' || obj[c] === 'bad')) clean[String(c)] = obj[c];
+  return clean;
+}
 function marksStored() {
+  var out = {}, k, clean;
   try {
     var raw = window.localStorage.getItem(MARK_KEY);
     var o = raw ? JSON.parse(raw) : null;
-    if (!o || typeof o !== 'object' || !o.m) return {};
-    var out = {}, k, c, clean;
-    function isMark(x) { return x === 'ok' || x === 'bad'; }
-    for (k in o.m) {
-      if (!o.m.hasOwnProperty(k) || !o.m[k] || typeof o.m[k] !== 'object') continue;
-      clean = {};
-      for (c in o.m[k]) if (o.m[k].hasOwnProperty(c) && isMark(o.m[k][c])) clean[String(c)] = o.m[k][c];
-      if (!Object.keys(clean).length) continue;
-      /* THE KEY TELLS THE SHAPE. Both shapes are `{key: {code: 'ok'|'bad'}}`; what changed
-         on 2026-11-02 is the KEY - a bare mode id ('fdept') became mode|difficulty
-         ('fdept|medium'). So a key without the bar is an old record and is filed as the
-         NORMAL course of that mode. (Reading the nesting instead was wrong twice over: the
-         two shapes nest identically, so nothing was ever migrated and a course already
-         played silently disappeared from the screen.) */
-      out[k.indexOf('|') >= 0 ? k : (k + '|medium')] = clean;
+    if (o && o.m && typeof o.m === 'object') {
+      for (k in o.m) {
+        if (!o.m.hasOwnProperty(k) || !o.m[k] || typeof o.m[k] !== 'object') continue;
+        clean = markClean(o.m[k]);
+        if (Object.keys(clean).length) out[k] = clean;
+      }
     }
-    return out;
-  } catch (e) { return {}; }
+  } catch (e) { /* private mode: an empty record */ }
+  /* THE FRANCE-ONLY STORE IS MERGED IN, so a course already played is not lost. Its keys
+     are 'mode|difficulty' (2026-11-02) or a bare 'mode' (before that), never older than
+     the scope idea: every one of them is a France record. */
+  try {
+    var old = window.localStorage.getItem(LEGACY_KEY);
+    var p2 = old ? JSON.parse(old) : null;
+    if (p2 && p2.m && typeof p2.m === 'object') {
+      for (k in p2.m) {
+        if (!p2.m.hasOwnProperty(k) || !p2.m[k] || typeof p2.m[k] !== 'object') continue;
+        clean = markClean(p2.m[k]);
+        if (!Object.keys(clean).length) continue;
+        var nk = 'france|' + (k.indexOf('|') >= 0 ? k : (k + '|medium'));
+        if (!out[nk]) out[nk] = clean;
+      }
+    }
+  } catch (e2) { /* no legacy store, or unreadable: nothing to migrate */ }
+  return out;
 }
 function marksSave(key, map) {
   try {
     var all = marksStored();
     all[key] = map || {};
-    window.localStorage.setItem(MARK_KEY, JSON.stringify({ v: 2, m: all }));
+    window.localStorage.setItem(MARK_KEY, JSON.stringify({ v: 3, m: all }));
     return true;
   } catch (e) { return false; }
 }
-/* is this config one that keeps its answers? */
-function marksKeep(c) {
-  return c.scope === 'france' && c.zone === 'fr' && !!MARK_MODES[c.mode];
+/* is this config one that keeps its answers? every mode of both quizzes does */
+function marksKeep(c) { return !!MARK_MODES[c.mode]; }
+/* does this mode PAINT its answers on the map, or only keep them? */
+function marksShapeMode(c) { return !!MARK_SHAPES[c.mode]; }
+/* THE ITEM'S KEY: a département or a country is its id/code, a city is its own id */
+function itemKey(it) {
+  if (!it) return '';
+  return String(it.code != null ? it.code : it.id);
 }
-/* how many answers this (mode, difficulty) already has (the Reset note and button) */
+/* how many answers this (scope, mode, difficulty) already has */
 function marksCount(c) {
-  var cc = c || cfg;
-  var m = marksStored()[markKey(cc)] || {};
-  var n = 0;
-  for (var k in m) if (m.hasOwnProperty(k)) n++;
+  var m = marksStored()[markKey(c || cfg)] || {};
+  return Object.keys(m).length;
+}
+/* how many of THIS ZONE's pool carry a mark at all (right OR wrong: "they keep their
+   colour"), and how many of them are FOUND ("left to find" is the other number) */
+function marksAnsweredIn(pool, c) {
+  var m = marksStored()[markKey(c || cfg)] || {}, n = 0, i, v;
+  for (i = 0; i < (pool || []).length; i++) {
+    v = m[itemKey(pool[i])];
+    if (v === 'ok' || v === 'bad') n++;
+  }
+  return n;
+}
+function marksFoundIn(pool, c) {
+  var m = marksStored()[markKey(c || cfg)] || {}, n = 0, i;
+  for (i = 0; i < (pool || []).length; i++) if (m[itemKey(pool[i])] === 'ok') n++;
   return n;
 }
 /* the marks the map should paint for the round being started */
@@ -181,36 +224,37 @@ function marksForRound() {
   if (!marksKeep(cfg)) return {};
   return marksStored()[markKey(cfg)] || {};
 }
-/* how many are FOUND (right), as opposed to answered */
-function marksDone(c) {
-  var m = marksStored()[markKey(c || cfg)] || {}, n = 0, k;
-  for (k in m) if (m.hasOwnProperty(k) && m[k] === 'ok') n++;
-  return n;
-}
-/* THE ONES TO SKIP on resume: the answers kept for this mode AND difficulty that are RIGHT.
-   A wrong one comes back (that is the point of keeping it red), a never-asked one comes
-   back, and a config that keeps nothing skips nothing. */
+/* THE ONES TO SKIP on resume: the answers kept for this scope, mode and difficulty that are
+   RIGHT. A wrong one comes back (that is the point of keeping it red), a never-asked one
+   comes back, and nothing is skipped when the pool would be emptied (the rule lives in
+   quizcore's newSession). */
 function marksSkip(c) {
   if (!marksKeep(c)) return null;
   var m = marksStored()[markKey(c)] || {}, out = {}, k, any = false;
   for (k in m) { if (m.hasOwnProperty(k) && m[k] === 'ok') { out[k] = 1; any = true; } }
   return any ? out : null;
 }
-function marksSet(code, ok) {
-  if (!code || !MARK_MODES[cfg.mode]) return;
-  marks[String(code)] = ok ? 'ok' : 'bad';
-  if (marksKeep(cfg)) {
-    var key = markKey(cfg);
-    var m = marksStored()[key] || {};
-    m[String(code)] = ok ? 'ok' : 'bad';
-    marksSave(key, m);
+function marksSet(key, ok) {
+  if (!key || !MARK_MODES[cfg.mode]) return;
+  marks[String(key)] = ok ? 'ok' : 'bad';
+  var store = marksKeep(cfg);
+  if (store) {
+    var kk = markKey(cfg);
+    var m = marksStored()[kk] || {};
+    m[String(key)] = ok ? 'ok' : 'bad';
+    marksSave(kk, m);
   }
-  if (M.frHistory) M.frHistory(marks);
+  /* paint: the shape the answer IS, in the layer that draws it */
+  if (MARK_SHAPES[cfg.mode]) {
+    if (cfg.scope === 'france' && M.frHistory) M.frHistory(marks);
+    else if (cfg.scope !== 'france' && M.countryHistory) M.countryHistory(marks);
+  }
 }
 function marksReset() {
   if (marksKeep(cfg)) marksSave(markKey(cfg), {});
   marks = {};
   if (M.frHistory) M.frHistory(marks);
+  if (M.countryHistory) M.countryHistory(marks);
 }
 
 function storeCfg() {
@@ -749,20 +793,26 @@ function diffHTML() {
      of France, in the four modes that light a département. The button is a GHOST and it
      says what it erases: it is not the stats reset, and a one-tap wipe of a course you
      have been playing for a week is not a thing to put next to Play without saying so. */
-  var kept = marksCount(cfg);
+  /* EVERY MODE OF BOTH QUIZZES, since 2026-11-03 (his call): the block tells you what the
+     last round(s) of THIS zone, mode and difficulty left, and offers to start that course
+     over. "Kept" counts the answers of the record in THIS ZONE's pool - a Europe round
+     must not claim the Asian countries someone found on another evening. */
+  var poolNow = poolItems(cfg);
+  var kept = marksAnsweredIn(poolNow, cfg);      /* the ones that keep a colour */
+  var found = marksFoundIn(poolNow, cfg);        /* ...of which these are found */
   if (marksKeep(cfg) && kept) {
     /* ...AND WHAT IS LEFT. Found ones are not asked again and wrong ones come back, so the
        number that matters is how many are still to find - it is also what the round length
        is capped by (see poolOf), and saying it here is what stops "10 questions" looking
        broken on a course with three left. */
-    var done = marksDone(cfg), total = Q.poolFor(M.frItems(), cfg.zone, cfg.mode).length;
-    var left = Math.max(0, total - done);
+    var total = poolNow.length, left = Math.max(0, total - found);
     /* THE HEAD NAMES THE DIFFICULTY: the record is per (mode, difficulty) - a course found
        at Easy is not the same course at Hard - so the block must say which one it is about,
        or "60 found, 41 left" reads as a claim about every band at once. */
     b += '<div class="qz-block qz-marks"><div class="qz-h">' + esc(T('marks_head')) +
          ' \u00b7 ' + esc(diffLabel(cfg.difficulty)) + '</div>' +
-         '<div class="qz-note">' + esc(T('marks_kept', { n: kept })) + '</div>' +
+         '<div class="qz-note">' + esc(T(marksShapeMode(cfg) ? 'marks_kept' : 'marks_kept_nomark',
+                                          { n: kept })) + '</div>' +
          (left ? '<div class="qz-note">' + esc(T('marks_left', { n: left, total: total })) + '</div>'
                : '<div class="qz-note">' + esc(T('marks_all')) + '</div>') +
          '<div class="qz-actions"><button class="qz-ghost" data-act="marks-reset">' +
@@ -844,24 +894,33 @@ function aboutHTML() {
 /* THE POOL A CONFIG MEANS - the one call the length note, the "not enough" message and
    the session all agree on. Locate asks about CITIES, so its pool comes from the cities
    and from the difficulty (the fame band), not from the countries. */
-function poolOf(c) {
+/* THE UNFILTERED POOL of a config: the zone's items for that mode, before the resume rule
+   takes the found ones out. The start screen counts its "left to find" on THIS list, so
+   the note and the record speak about the same set. */
+function poolItems(c) {
   var cc = c || cfg;
   if (!flagsReady()) return [];
   if (isFrMode(cc.mode)) {
     if (!frOk()) return [];
-    var frPool = cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
-                                    : Q.poolFor(M.frItems(), cc.zone, cc.mode);
-    /* WHAT THE ROUND WILL ACTUALLY ASK: the ones already found are skipped (see
-       marksSkip), so "10 questions" of a course with 3 left is 3, and the note says so */
-    var sk = marksSkip(cc);
-    if (sk) {
-      var rest = frPool.filter(function (it) { return !sk[String(it.code == null ? it.id : it.code)]; });
-      if (rest.length) return rest;
-    }
-    return frPool;
+    return cc.mode === 'floc' ? Q.frCityPool(M.frCities(), cc.zone, cc.difficulty)
+                              : Q.poolFor(M.frItems(), cc.zone, cc.mode);
   }
   if (cc.mode === 'locate') return Q.cityPool(M.cities(), cc.zone, cc.difficulty);
-  return Q.poolFor(M.items(), cc.zone, cc.mode);
+  /* THE 50m LIST, ALWAYS: a round is played on the pinned 50m layer, so its record is keyed
+     by those item ids - counting it against the 10m ids the viewer happens to be drawing
+     found one answer out of two (measured: two marks, "1 départements"). */
+  return Q.poolFor(M.itemsIn ? M.itemsIn('50m') : M.items(), cc.zone, cc.mode);
+}
+function poolOf(c) {
+  var cc = c || cfg;
+  var all = poolItems(cc);
+  if (!all.length) return all;
+  /* WHAT THE ROUND WILL ACTUALLY ASK: the ones already found are skipped (see marksSkip),
+     so "10 questions" of a course with 3 left is 3, and the note says so */
+  var sk = marksSkip(cc);
+  if (!sk) return all;
+  var rest = all.filter(function (it) { return !sk[itemKey(it)]; });
+  return rest.length ? rest : all;
 }
 /* the length a round would actually play: the same resolution newSession does, so a
    stored 10 carried over from a country round cannot light up a chip locate does not
@@ -1137,7 +1196,7 @@ function answerTyped() {
   answered = true;
   bumped = res.ok;
   if (M.frLabels) M.frLabels(true, true);
-  marksSet(String(q.answer.code), res.ok);
+  marksSet(itemKey(q.answer), res.ok);
   if (M.frMark) M.frMark('', q.answer.code);
   if (S()) S().answer(q, res.ok, q.answer);
   render();
@@ -1678,9 +1737,11 @@ function startSession() {
   }
   guess = null;
   typed = '';
-  /* THE MARKS OF THE PREVIOUS GAMES, for the whole-France modes (empty in a région) */
+  /* THE MARKS OF THE PREVIOUS GAMES for this zone, mode and difficulty (empty the first
+     time), handed to the layer that can paint them */
   marks = marksForRound();
-  if (M.frHistory) M.frHistory(marks);
+  if (M.frHistory) M.frHistory(cfg.scope === 'france' ? marks : {});
+  if (M.countryHistory) M.countryHistory(cfg.scope === 'france' ? {} : marks);
   session = Q.newSession(items, cfg, (Math.random() * 2147483647) | 0,
                          { skip: marksSkip(cfg) });
   infoMsg = '';
@@ -1922,6 +1983,10 @@ function confirmGuess() {
      so the floor is 0.6 deg (~65 km) and the marks fill a third of the height instead
      of a fifth. */
   if (M.fitMarks) M.fitMarks(q.mode === 'floc' ? { minR: 0.6, fill: 0.32 } : null);
+  /* THE LOCATE MODES SAVE TOO: "found" is the bullseye, and the record is what the next
+     round skips (nothing is painted - the answer is a point, and a dot for a city already
+     found would be a new clue on the board) */
+  marksSet(itemKey(q.answer), res.ok);
   if (S()) S().answer(q, res.ok, { id: q.answer.id, name: nm });
   render();
   bumped = false;
@@ -1956,10 +2021,13 @@ function choose(i) {
      question named turns green when it was right, and a wrong one shows the right shape in
      green next to it - which is what "on peut garder une surbrillance verte/rouge" means
      for the four option modes, not just for "place it". */
-  if (isFrMode(q.mode)) {
-    marksSet(q.answer.code, res.ok);
-    if (M.frMark && q.mode !== 'fplace') M.frMark('', q.answer.code);
-  }
+  /* ...AND IN THE WORLD QUIZ TOO (his call: every mode saves). The join is the ITEM KEY -
+     a département's code, a country's `ne<NE_ID>` - and marksSet sends it to the layer that
+     can paint it (the France overlay or the countries underneath). The strong mark (the
+     green/red of THIS question) is a France notion: the world layer lights the country
+     through `picked`, which is already on. */
+  marksSet(itemKey(q.answer), res.ok);
+  if (isFrMode(q.mode) && M.frMark && q.mode !== 'fplace') M.frMark('', q.answer.code);
   if (S()) S().answer(q, res.ok, q.answer);
   render();
   bumped = false;

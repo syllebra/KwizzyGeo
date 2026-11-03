@@ -625,6 +625,13 @@ var hover = -1, picked = -1;
    keyed to the layer that was pinned when the session started). Panning and zooming
    stay live - looking at the neighbours is part of answering. */
 var quizOn = false;
+/* THE COUNTRIES ALREADY ANSWERED, in the WORLD quiz: item key ('ne<NE_ID>') -> 'ok' | 'bad'.
+   The France quiz keeps its own (frHistory); a quiz hands this to the map the same way, so
+   "every mode saves its progress" is one mechanism with two layers (his call, 2026-11-03).
+   Painted under the lit country and under the France overlay, at a third of the alpha - the
+   question on screen always reads first. */
+var countryHist = {};
+var countryHistIdx = null;     /* key -> feats index, built once per layer swap */
 /* IS THE PLAYER EXPLORING THE MAP (and not playing)? Set by quiz.js when the game is
    dismissed, cleared when it reopens - see MapApp.explore and the palette above. */
 var exploreOn = false;
@@ -1698,6 +1705,8 @@ function draw() {
   for (var v = 0; v < vis.length; v++) if (vis[v]._p) ctx.stroke(vis[v]._p);
   drawMs.path = (tB - tA); drawMs.paint = nowMs() - tB;
 
+  /* THE ANSWERS ALREADY GIVEN, in the world quiz (see MapApp.countryHistory) */
+  drawCountryHistory(vis);
   /* THE FRANCE OVERLAY: départements, water, the lit one and its numbers, painted on
      top of the world's land (see drawFrance for the order inside it) */
   drawFrance();
@@ -3244,6 +3253,44 @@ window.ViewState = {
   tilted: function () { return Math.abs(C.frameRoll(FRAME)) > 1e-9; }
 };
 
+/* ---------- THE COUNTRIES ALREADY ANSWERED (world quiz) ----------
+   The same language as the France overlay's history: a soft green fill and a thin edge for a
+   country found, the same in red for one missed - a third of the alpha, no glow, painted
+   UNDER the hover and the lit country so the question on screen always wins. The key is
+   resolved once into feature indices and cached until the layer changes. */
+function countryHistIndex() {
+  if (countryHistIdx) return countryHistIdx;
+  var m = {}, i, p, k;
+  for (i = 0; i < feats.length; i++) {
+    p = feats[i].props || {};
+    k = (p.NE_ID != null) ? 'ne' + p.NE_ID : 'nm' + countryNameEn(p);
+    m[k] = i;
+  }
+  countryHistIdx = m;
+  return m;
+}
+function drawCountryHistory(vis) {
+  var k, i, ok, any = false;
+  if (!quizOn || !vis || !vis.length) return;
+  for (k in countryHist) if (countryHist.hasOwnProperty(k)) { any = true; break; }
+  if (!any) return;
+  var idx = countryHistIndex();
+  for (k in countryHist) {
+    if (!countryHist.hasOwnProperty(k)) continue;
+    i = idx[k];
+    if (i == null || !feats[i] || !feats[i]._p) continue;
+    if (vis.indexOf(feats[i]) < 0) continue;      /* off screen this frame */
+    ok = countryHist[k] === 'ok';
+    ctx.save();
+    ctx.fillStyle = ok ? 'rgba(40, 148, 92, .24)' : 'rgba(196, 62, 62, .24)';
+    ctx.fill(feats[i]._p);
+    ctx.strokeStyle = ok ? 'rgba(94, 227, 154, .52)' : 'rgba(255, 138, 138, .52)';
+    ctx.lineWidth = 1;
+    ctx.stroke(feats[i]._p);
+    ctx.restore();
+  }
+}
+
 /* ---------- THE FRANCE OVERLAY: data/fr/ ----------
    THE FRANCE QUIZ PLAYS ON THE SAME MAP, one scale deeper. The world layer stays
    underneath - a player must always be able to see WHERE France is on the planet -
@@ -4113,10 +4160,16 @@ var QUIZ_SHORT = {
    would be unfair in the other two. (France, the UK, the USA, China, Australia,
    Norway and Denmark carry ISO_A2 -99 in this layer; flagCodeOf resolves them
    through NE_ISO2, so they stay.) */
-function buildQuizItems() {
+/* THE ITEM LIST OF A LAYER. `feats` is whatever is drawn right now - 10m in the viewer,
+   50m while a quiz holds the map - so the same call gives different ITEM IDS on the two
+   layers (the 10m map-units file has its own NE_IDs, and files nine countries as 'Geo
+   unit'). A record written during a round is therefore keyed by the 50m ids, and a screen
+   that counts it must read the 50m list even when the map has gone back to 10m - which is
+   what buildQuizItemsIn is for (see MapApp.itemsIn). */
+function buildQuizItemsIn(list) {
   var out = [], i;
-  for (i = 0; i < feats.length; i++) {
-    var f = feats[i], p = f.props || {};
+  for (i = 0; i < (list || []).length; i++) {
+    var f = list[i], p = f.props || {};
     if (!QUIZ_TYPES[p.TYPE]) continue;
     var flag = flagCodeOf(p);
     if (!flag) continue;
@@ -4201,6 +4254,7 @@ var QUIZ_MIN_WINDOW_DEG = 6;
 var quizSavedLayer = null;
 var quizSavedProj = null;   /* the locate mode plays flat, and hands the view back */
 
+function buildQuizItems() { return buildQuizItemsIn(feats); }
 function quizIndexOf(key) {
   for (var i = 0; i < feats.length; i++) {
     var p = feats[i].props || {};
@@ -4722,6 +4776,9 @@ window.MapApp = {
   setProjection: function (id) { setProjection(id); return projID; },
   quizOn: function () { return quizOn; },
   items: function () { return buildQuizItems(); },
+  /* the same list for a NAMED layer, whether or not it is the one being drawn: the quiz
+     pins 50m, so that is the list its record is keyed by (see buildQuizItemsIn) */
+  itemsIn: function (id) { return buildQuizItemsIn(loaded[id]); },
   /* THE CITIES the locate mode asks about, in the language in play. Same contract as
      items(): quizcore derives the pool, this only reports - and the ITEM is what a
      question holds, so `name` here is the label at build time while placeLabel() is the
@@ -4850,6 +4907,7 @@ window.MapApp = {
       picked = -1; hover = -1;
     }
     quizOn = true;
+    countryHistIdx = null;
     quizLabels = false;                 /* the quiz turns it on per mode (MapApp.labels) */
     aimOn = false; aimFn = null; marks = null; quizNames = false;
     hover = -1; picked = -1; hoverPlace = -1; pickedPlace = -1;
@@ -4859,6 +4917,7 @@ window.MapApp = {
   /* Hand it back: the same layer as before, the panel live again. */
   exit: function () {
     quizOn = false;
+    countryHist = {};
     quizLabels = false;
     /* the overlay goes back with the map: the world viewer and the world quiz never
        see a French border */
@@ -5021,6 +5080,18 @@ window.MapApp = {
     var g = frInsetGeom();
     return { x: g.x, y: g.y, w: g.w, h: g.h,
              cells: g.cells.map(function (c) { return { code: c.code, x: c.x, y: c.y, w: c.w, h: c.h }; }) };
+  },
+  /* THE WORLD QUIZ'S ANSWERS, as {'ne<NE_ID>': 'ok'|'bad'} - the twin of frHistory, painted
+     on the countries. No argument: read back. */
+  countryHistory: function (map) {
+    if (map === undefined) {
+      var out = {}, k;
+      for (k in countryHist) if (countryHist.hasOwnProperty(k)) out[k] = countryHist[k];
+      return out;
+    }
+    countryHist = {};
+    if (map) for (k in map) if (map.hasOwnProperty(k)) countryHist[String(k)] = map[k];
+    return countryHist;
   },
   /* THE ANSWERS ALREADY GIVEN, as {code: 'ok'|'bad'} (quiz.js owns the round and the
      stored record; this only paints). No argument: read back. */

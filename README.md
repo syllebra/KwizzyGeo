@@ -1000,15 +1000,21 @@ right, red for the one you clicked when it was wrong**, with the right one point
 green, the verdict's own two colours dimmed to a third (`frPaintHistory`) so the question on
 screen always reads first.
 
-For the **whole-France modes** those marks survive the round: stored in
-`kwizzygeo.fr.marks.v1` (a third key, so resetting one thing never wipes another), so a
-101-question course can be played over several sittings.
+**Every mode of both quizzes saves and resumes** (his call, 2026-11-03). The store is
+`kwizzygeo.marks.v2`, a key apart from the settings and from the stats, and it is keyed
+`scope|mode|difficulty` — so a France département `75` and a country `ne<NE_ID>` never
+collide, a course found at Easy is not the same course at Hard, and "what is left" is counted
+inside the **zone's own pool** (the block says *"Encore 42 à trouver, sur 44"* on a Europe
+round). Two earlier exceptions are gone: **"place the département"** saves like its mirror,
+and the **locate modes** keep their answers too (with nothing painted — the answer is a
+point, and a dot on a found city would be a new clue on the board). The old France-only store
+(`kwizzygeo.fr.marks.v1`) is merged in on read, as that mode's Normal course.
 
-**The key is the mode AND the difficulty** — `'fdept|medium'`, `'fdept|hard'`. His note:
+**The key is the mode AND the difficulty** — `'france|fdept|medium'`, `'france|fdept|hard'`. His note:
 *"la progression doit être sauvegardée par mode ET par difficulté"*. A course found at Easy is
 not the same course at Hard: the six wrong answers of a hard question *are* the neighbours, so
 "I found 60 of them" is a different sentence in each band, and resuming at Hard after a Normal
-course would otherwise skip départements the player has never been asked at that difficulty.
+course would otherwise skip items the player has never been asked at that difficulty.
 So the two records are separate, `marksSkip` reads only the band you are about to play, and the
 start screen's block **names it**: *"Vos réponses · Normal — 3 départements gardent leur
 couleur… Encore 98 à trouver, sur 101."* Switching to Hard shows no block at all until that band

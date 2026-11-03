@@ -106,7 +106,8 @@ global.window = {
   Audio: FakeAudio,
   localStorage: {
     getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
-    setItem(k, v) { store[k] = String(v); }
+    setItem(k, v) { store[k] = String(v); },
+    removeItem(k) { delete store[k]; }
   },
   document: {
     getElementById(id) { return els[id] || els.help; },
@@ -1346,6 +1347,59 @@ async function afterLoad() {
         /Locate the city/.test(kh) && /World/.test(kh), kh);
   Qz.quit();
   Qz.set({ mode: 'country', zone: 'world', difficulty: 'medium', len: 10 });
+
+  /* ---------- 13b. THE WORLD QUIZ SAVES ITS PROGRESS TOO ----------
+     His call (2026-11-03): every mode saves and resumes, the world quiz included. One
+     mechanism, two layers: a country's record is keyed like a département's
+     (scope|mode|difficulty) and painted by the map on the countries (MapApp.countryHistory),
+     a city's (locate) is kept for the resume with nothing to paint. */
+  {
+    global.window.localStorage.removeItem('kwizzygeo.marks.v2');
+    Qz.quit();
+    Qz.set({ scope: 'world', mode: 'country', zone: 'europe', difficulty: 'medium', len: 5 });
+    Qz.go('diff');
+    check('the world quiz offers the same Start over block once it has a record',
+          !/data-act="marks-reset"/.test(Qz.html()));     /* nothing played yet */
+    Qz.start();
+    const c1 = Z().question.answerId;
+    Qz.choose(Z().question.options.findIndex(o => o.id === c1));
+    check('a world answer is stored under scope|mode|difficulty', (() => {
+      const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.marks.v2') || '{}');
+      return !!(o.m && o.m['world|country|medium'] && o.m['world|country|medium'][c1] === 'ok');
+    })(), global.window.localStorage.getItem('kwizzygeo.marks.v2'));
+    check('...and the map is given it, to paint on the countries',
+          (M().countryHistory() || {})[c1] === 'ok', JSON.stringify(M().countryHistory()));
+    /* a second round of the same config: the found country is skipped, and the mark is back
+       on the map before the first question */
+    Qz.quit();
+    Qz.go('diff');
+    check('...the start screen now counts it', /data-act="marks-reset"/.test(Qz.html()));
+    Qz.start();
+    check('a resumed world round skips what is found', Z().question.answerId !== c1,
+          c1 + ' vs ' + Z().question.answerId);
+    check('...and opens with the marks on the map', (M().countryHistory() || {})[c1] === 'ok');
+    /* another difficulty is another course */
+    Qz.quit();
+    Qz.set({ difficulty: 'hard' });
+    Qz.go('diff');
+    check('...and Hard has no record of its own', !/data-act="marks-reset"/.test(Qz.html()));
+    /* locate: kept, with nothing to paint */
+    Qz.quit();
+    Qz.set({ mode: 'locate', zone: 'europe', difficulty: 'easy', len: 5 });
+    Qz.start();
+    const city = Z().question;
+    L['stage:click']({ offsetX: 720, offsetY: 450, preventDefault() {} });
+    Qz.confirm();
+    check('a locate answer is kept for the resume', (() => {
+      const o = JSON.parse(global.window.localStorage.getItem('kwizzygeo.marks.v2') || '{}');
+      const m = (o.m || {})['world|locate|easy'] || {};
+      return !!m[city.answerId];
+    })(), global.window.localStorage.getItem('kwizzygeo.marks.v2'));
+    check('...with nothing painted for it (a point, not a shape)',
+          !(M().countryHistory() || {})[city.answerId]);
+    Qz.quit();
+    global.window.localStorage.removeItem('kwizzygeo.marks.v2');
+  }
 
   /* ---------- 14. GAME COMPLETION, COMPUTED FROM THE RECORD ----------
      CrazyGames' `reportGameCompletedPercentage` is ours to define for a game with no

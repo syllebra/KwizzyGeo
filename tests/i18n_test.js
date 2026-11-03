@@ -194,6 +194,21 @@ const KEYS = I.keys();
   check('no English sentence is written straight into the markup', markupEnglish.length === 0,
         markupEnglish.join(' '));
   /* and every key the screens ask for exists */
+  /* EVERY KEY PASSED TO T(), not only the ones that open a call with `T('...')`: a key
+     chosen by a ternary - `T(marksShapeMode(cfg) ? 'marks_kept' : 'marks_kept_nomark')` -
+     slipped past the first pattern, and an unknown key renders as the KEY ITSELF
+     ("marks_kept_nomark" on screen) while the suite stayed green. So the CALLS are walked,
+     and every string literal inside one is a key. */
+  const calls = quiz.match(/T\([^;]*?\)/g) || [];
+  const ternaryKeys = [];
+  calls.forEach(c => {
+    const lits = c.match(/'([a-z_0-9]+)'/g) || [];
+    lits.forEach(l => ternaryKeys.push(l.replace(/'/g, '')));
+  });
+  const NOT_KEYS = { france: 1, world: 1, fr: 1, fr_metro: 1 };
+  const unknownTern = ternaryKeys.filter(k => !(k in EN) && !NOT_KEYS[k]);
+  check('every key passed to T() exists in the table', unknownTern.length === 0,
+        unknownTern.join(','));
   const asked = (quiz.match(/T\('([a-z_0-9]+)'/g) || []).map(s => s.replace(/T\('|'/g, ''));
   const unknown = asked.filter(k => !(k in EN));
   check('every key quiz.js asks for exists', unknown.length === 0, unknown.join(','));
