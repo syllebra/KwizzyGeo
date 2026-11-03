@@ -624,10 +624,16 @@ async function afterLoad() {
   check('a digit lands in the display', Qz2.typed() === '5', Qz2.typed());
   Qz2.pad('del');
   check('...and backspace takes it back', Qz2.typed() === '', Qz2.typed());
-  /* the ANSWER, typed the way a player would: a leading zero is not needed */
-  const short = String(parseInt(q1.code, 10));
-  short.split('').forEach(ch => Qz2.pad(ch));
-  if (Qz2.typed() !== q1.code) Qz2.pad('ok');
+  /* THE ANSWER, typed the way a player would: a leading zero is not needed, and the two
+     Corsican codes have their own key (a number pad cannot make '2A' - typing 2 then ✓ is
+     '02', which is Ain, and that is correct behaviour, not a bug). */
+  if (q1.code === '2A' || q1.code === '2B') {
+    Qz2.pad(q1.code);
+  } else {
+    const short = String(parseInt(q1.code, 10));
+    short.split('').forEach(ch => Qz2.pad(ch));
+    if (!Z().answered) Qz2.pad('ok');
+  }
   check('typing the code answers the question', Z().answered === true, Qz2.typed());
   check('...and scores when it is the right one', Z().score === 1, Z().score + ' ' + q1.code);
   check('the reveal prints the number AND the name',
